@@ -52,6 +52,7 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 - **Console — histórico de corridas:** aba **"Corridas"** (`renderRaces`) consome `GET /candidate-runs` e reexibe candidatos e diffs de corridas anteriores, com o recomendado destacado e **"Abrir PR"** por candidato.
 - **MVP-5 (F7) — timeline de custo por card:** o evento `AgentExecuted` passa a carregar `card_id`; `MetricsService.execution_timeline` agrega por card (execuções, tempo total/médio, falhas e detalhe por execução), aproximando o custo pelo tempo de execução. Endpoint **`GET /v1/orchestrations/{id}/execution-timeline`** + aba **"Custos"** no console (tabela + barras).
 - **Retenção de corridas:** `ASO_MAX_RACES_PER_CARD` (default 20) poda corridas antigas por card, mantendo apenas as N mais recentes — evita o crescimento indefinido de `candidate_runs`.
+- **MVP-5 (F7) — SLO error-budget + burn-rate:** o `/slo` ganha um SLI de **taxa de falhas de execução** com **orçamento de erro** (`ASO_SLO_FAILURE_BUDGET`, default 0.10), **burn-rate**, % consumido, **severidade** (ok/warning/critical) e **tendência** (rising/falling/stable) derivada da 1ª vs 2ª metade das execuções; os SLOs de sintoma ganham severidade; a resposta inclui uma lista de **alertas por severidade** (medium/high). Aba **"SLO"** no console (barra de burn-rate, tabela de SLOs, alertas). Os campos `slos`/`breaches` foram mantidos para compatibilidade.
 
 ### Segurança
 - SAST (bandit) e SCA (pip-audit) sem apontamentos.

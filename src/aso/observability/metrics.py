@@ -7,12 +7,30 @@ bloqueados e cobertura de snapshot.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from aso.control.orchestration_service import OrchestrationService
 
 # SLOs padrão (baseados em sintomas). Cada um é avaliado por orquestração.
 _BLOCKED_STATUSES = ("Blocked", "Failed")
+
+
+def _failure_budget() -> float:
+    """Orçamento de erro (fração tolerável de execuções que podem falhar)."""
+    try:
+        return max(1e-6, float(os.environ.get("ASO_SLO_FAILURE_BUDGET", "0.10")))
+    except ValueError:
+        return 0.10
+
+
+def _severity(consumed_pct: float) -> str:
+    """Severidade por consumo do orçamento de erro (burn-rate)."""
+    if consumed_pct >= 100:
+        return "critical"
+    if consumed_pct >= 50:
+        return "warning"
+    return "ok"
 
 
 class MetricsService:
@@ -119,6 +137,36 @@ class MetricsService:
             lines.append(f'aso_cards{{status="{status}"}} {count}')
         return "\n".join(lines) + "\n"
 
+    def _symptom_slo(self, name: str, target: Any, actual: Any, ok: bool) -> dict[str, Any]:
+        """SLO de sintoma (estrito): sem orçamento — qualquer desvio é crítico."""
+        consumed = 0.0 if ok else 100.0
+        return {
+            "name": name,
+            "target": target,
+            "actual": actual,
+            "ok": ok,
+            "budget": 0,
+            "consumed_pct": consumed,
+            "burn_rate": 0.0 if ok else 1.0,
+            "severity": _severity(consumed),
+        }
+
+    def _failure_trend(self, executed: list[Any]) -> str:
+        """Tendência da taxa de falhas: compara a 1ª e a 2ª metade das execuções."""
+        if len(executed) < 4:
+            return "stable"
+        mid = len(executed) // 2
+
+        def rate(evs: list[Any]) -> float:
+            return sum(1 for e in evs if not e.payload.get("ok", True)) / len(evs) if evs else 0.0
+
+        first, second = rate(executed[:mid]), rate(executed[mid:])
+        if second > first + 0.05:
+            return "rising"
+        if second < first - 0.05:
+            return "falling"
+        return "stable"
+
     def slo_report(self, orchestration_id: str) -> dict[str, Any]:
         counts = self.svc.count_cards_by_status(orchestration_id)
         conflicts = self.svc.conflicts(orchestration_id)
@@ -127,24 +175,62 @@ class MetricsService:
         snapshot = self.svc.get(orchestration_id).snapshot_version
 
         slos = [
-            {
-                "name": "sem_conflitos_abertos",
-                "target": 0,
-                "actual": open_conflicts,
-                "ok": open_conflicts == 0,
-            },
-            {
-                "name": "sem_cards_bloqueados",
-                "target": 0,
-                "actual": blocked,
-                "ok": blocked == 0,
-            },
-            {
-                "name": "snapshot_da_fase_gerado",
-                "target": "!= O0",
-                "actual": snapshot,
-                "ok": snapshot != "O0",
-            },
+            self._symptom_slo("sem_conflitos_abertos", 0, open_conflicts, open_conflicts == 0),
+            self._symptom_slo("sem_cards_bloqueados", 0, blocked, blocked == 0),
+            self._symptom_slo("snapshot_da_fase_gerado", "!= O0", snapshot, snapshot != "O0"),
         ]
+
+        # Error budget da taxa de falhas de execução (SLI de taxa, com burn-rate real).
+        events = self.svc.timeline(orchestration_id)
+        executed = [e for e in events if e.type == "AgentExecuted"]
+        failures = sum(1 for e in executed if not e.payload.get("ok", True))
+        n = len(executed)
+        fail_rate = failures / n if n else 0.0
+        budget = _failure_budget()
+        consumed_pct = round(100 * fail_rate / budget, 1)
+        error_budget = {
+            "sli": "taxa_de_falhas_de_execucao",
+            "executions": n,
+            "failures": failures,
+            "fail_rate": round(fail_rate, 4),
+            "budget": budget,
+            "consumed_pct": consumed_pct,
+            "burn_rate": round(fail_rate / budget, 3),
+            "trend": self._failure_trend(executed),
+            "severity": _severity(consumed_pct),
+        }
+
         breaches = [s["name"] for s in slos if not s["ok"]]
-        return {"orchestration_id": orchestration_id, "slos": slos, "breaches": breaches}
+        if error_budget["severity"] == "critical":
+            breaches.append(error_budget["sli"])
+
+        # Alertas com severidade (§F7 — alertas por SLO breach / burn-rate).
+        alerts: list[dict[str, Any]] = []
+        for s in slos:
+            if s["severity"] != "ok":
+                alerts.append(
+                    {
+                        "slo": s["name"],
+                        "severity": "high" if s["severity"] == "critical" else "medium",
+                        "message": f"SLO '{s['name']}' violado (atual={s['actual']}).",
+                    }
+                )
+        if error_budget["severity"] != "ok":
+            alerts.append(
+                {
+                    "slo": error_budget["sli"],
+                    "severity": "high" if error_budget["severity"] == "critical" else "medium",
+                    "message": (
+                        f"Orçamento de erro em {consumed_pct}% "
+                        f"(taxa {error_budget['fail_rate']}, tendência {error_budget['trend']})."
+                    ),
+                }
+            )
+
+        return {
+            "orchestration_id": orchestration_id,
+            "slos": slos,
+            "breaches": breaches,
+            "error_budget": error_budget,
+            "alerts": alerts,
+        }

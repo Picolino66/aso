@@ -150,7 +150,7 @@
         api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`)]);
       const sloOk = slo.breaches.length === 0;
       const pending = approvals.filter(a => a.status === 'pending').length;
-      const tabs = ['kanban','pulls','races','costs','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
+      const tabs = ['kanban','pulls','races','costs','slo','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
       document.getElementById('detail').innerHTML = `
         <div class="card">
           <div class="row between">
@@ -194,6 +194,7 @@
         if (currentTab==='pulls') return renderPulls(id, c);
         if (currentTab==='races') return renderRaces(id, c);
         if (currentTab==='costs') return renderCosts(id, c);
+        if (currentTab==='slo') return renderSlo(id, c);
         if (currentTab==='conflicts') return renderConflicts(id, c);
         if (currentTab==='snapshots') return renderSnapshots(id, c);
         if (currentTab==='patches') return renderPatches(id, c);
@@ -296,6 +297,34 @@
           <td style="text-align:right">${x.total_ms}</td><td style="text-align:right">${x.avg_ms}</td>
           <td>${x.failures?`<span style="color:var(--err)">${x.failures}</span>`:'0'}</td>
           <td style="min-width:120px"><div style="background:var(--accent);height:8px;border-radius:4px;width:${Math.round(100*x.total_ms/max)}%"></div></td></tr>`).join('')}</table>`;
+    }
+
+    function sevPill(s) {
+      const color = s==='critical'||s==='high' ? 'var(--err)' : s==='warning'||s==='medium' ? 'var(--warn)' : 'var(--ok)';
+      return `<span class="pill" style="background:${color}22;color:${color}">${esc(s)}</span>`;
+    }
+    async function renderSlo(id, c) {
+      const r = await api(`/v1/orchestrations/${id}/slo`);
+      const eb = r.error_budget;
+      const burnPct = Math.min(100, Math.round(eb.consumed_pct));
+      const barColor = eb.severity==='critical' ? 'var(--err)' : eb.severity==='warning' ? 'var(--warn)' : 'var(--ok)';
+      const trendIcon = eb.trend==='rising' ? '▲' : eb.trend==='falling' ? '▼' : '▬';
+      c.innerHTML = `
+        <div class="card" style="margin-bottom:12px">
+          <h3 style="margin:0 0 6px">Orçamento de erro — taxa de falhas de execução ${sevPill(eb.severity)}</h3>
+          <div class="muted">${eb.failures}/${eb.executions} falhas · taxa ${eb.fail_rate} · orçamento ${eb.budget} · tendência ${trendIcon} ${esc(eb.trend)}</div>
+          <div style="margin-top:8px;background:var(--panel-2);border-radius:6px;height:12px;overflow:hidden">
+            <div style="height:12px;width:${burnPct}%;background:${barColor}"></div>
+          </div>
+          <div class="muted" style="margin-top:4px">burn-rate ${eb.burn_rate}× · ${eb.consumed_pct}% do orçamento consumido</div>
+        </div>
+        <table><tr><th>SLO</th><th>Alvo</th><th>Atual</th><th>Severidade</th></tr>
+        ${r.slos.map(s=>`<tr><td>${esc(s.name)}</td><td>${esc(String(s.target))}</td>
+          <td>${esc(String(s.actual))}</td><td>${sevPill(s.severity)}</td></tr>`).join('')}</table>
+        ${r.alerts.length ? `<h3 style="margin:14px 0 6px">Alertas ativos</h3>
+          <table><tr><th>Severidade</th><th>SLO</th><th>Mensagem</th></tr>
+          ${r.alerts.map(a=>`<tr><td>${sevPill(a.severity)}</td><td>${esc(a.slo)}</td><td>${esc(a.message)}</td></tr>`).join('')}</table>`
+          : '<div class="muted" style="margin-top:10px">Sem alertas — todos os SLOs dentro do orçamento.</div>'}`;
     }
 
     async function renderAdrs(id, c) {

@@ -1947,6 +1947,37 @@
         "TASK-57"
       ],
       "evidence": "123 testes verdes; test_race_retention_prunes_oldest (3 corridas → 2 mantidas, sobrevive a reload)"
+    },
+    {
+      "id": "TASK-63",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "MVP-5 F7: SLO error-budget + burn-rate + alertas por severidade",
+      "description": "slo_report enriquecido: SLI de taxa de falhas de execução com orçamento de erro (ASO_SLO_FAILURE_BUDGET, default 0.10), burn-rate, % consumido, severidade (ok/warning/critical) e tendência (rising/falling/stable) derivada das execuções; SLOs de sintoma ganham severidade; lista de alertas por severidade (medium/high). Aba 'SLO' no console (barra de burn-rate, tabela de SLOs, alertas). Mantém slos/breaches para compatibilidade.",
+      "assignee_type": "agent",
+      "assignee": "ObservabilityAgent",
+      "spec": "requerimentos.md §F7",
+      "acceptance_criteria": [
+        "error_budget com burn-rate e severidade no /slo",
+        "tendência da taxa de falhas",
+        "alertas por severidade",
+        "aba SLO no console",
+        "compatibilidade de slos/breaches"
+      ],
+      "linked_requirements": [
+        "§F7"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-24",
+        "TASK-61"
+      ],
+      "evidence": "126 testes verdes; test_slo_error_budget (saudável, estourado c/ burn>1, endpoint expõe error_budget); Docker: /slo error_budget + aba SLO no /ui"
     }
   ]
 }

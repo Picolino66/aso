@@ -365,7 +365,7 @@
     ],
     "priorities": ["EPIC-1", "EPIC-2", "EPIC-6", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-7", "EPIC-8"],
     "test_coverage_threshold": 80,
-    "coverage_report": { "tests": 123, "coverage": "95.75%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6, endpoint /race + painel de diff lado a lado + seleção manual + corridas persistidas/rastreáveis + histórico no console + retenção por card + e2e via API) + MVP-5 F7 (timeline de custo por card) + endurecimento de concorrência (apply_patch atômico, lock por orquestração em mutadores read-check-mutate) + aba PRs no console + métricas de execução + SSE + ConflictDetector avançado + persistência normalizada + §28 + console + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE" },
+    "coverage_report": { "tests": 126, "coverage": "95.39%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6, endpoint /race + painel de diff lado a lado + seleção manual + corridas persistidas/rastreáveis + histórico no console + retenção por card + e2e via API) + MVP-5 F7 (timeline de custo por card + SLO error-budget/burn-rate + alertas por severidade) + endurecimento de concorrência (apply_patch atômico, lock por orquestração em mutadores read-check-mutate) + aba PRs no console + métricas de execução + SSE + ConflictDetector avançado + persistência normalizada + §28 + console + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE" },
     "cards_done": ["TASK-01", "TASK-02", "TASK-03", "TASK-04", "TASK-05", "TASK-06", "TASK-07", "TASK-08", "TASK-09", "TASK-10", "TASK-11", "TASK-12", "TASK-13", "TASK-14", "TASK-15", "TASK-16", "TASK-17", "TASK-18", "TASK-19", "TASK-20", "TASK-21", "TASK-22"],
     "increments_post_o5": [
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
@@ -412,7 +412,8 @@
       "TASK-59 — Lock por orquestração estendido a merge_pr e decide_approval (read-check-mutate atômico; evita dupla-mescla e dupla aplicação de patch pendente); stress test multi-endpoint concorrente",
       "TASK-60 — Console: aba 'Corridas' (renderRaces) consumindo /candidate-runs, reexibindo candidatos/diffs de corridas anteriores com 'Abrir PR' por candidato",
       "TASK-61 — MVP-5 F7: timeline de custo por card (AgentExecuted com card_id; MetricsService.execution_timeline agrega ms/execuções/falhas por card) + endpoint /execution-timeline + aba 'Custos' no console",
-      "TASK-62 — Retenção de corridas por card (ASO_MAX_RACES_PER_CARD, default 20): poda mantém só as N corridas mais recentes por card, evitando crescimento indefinido de candidate_runs"
+      "TASK-62 — Retenção de corridas por card (ASO_MAX_RACES_PER_CARD, default 20): poda mantém só as N corridas mais recentes por card, evitando crescimento indefinido de candidate_runs",
+      "TASK-63 — MVP-5 F7: SLO error-budget + burn-rate no /slo (SLI taxa de falhas de execução com ASO_SLO_FAILURE_BUDGET, burn-rate, % consumido, severidade e tendência) + severidade nos SLOs de sintoma + alertas por severidade; aba 'SLO' no console (barra de burn-rate + alertas); slos/breaches mantidos p/ compatibilidade"
     ],
     "maintenance_log": []
   },
@@ -482,11 +483,12 @@
   "operations": {
     "deployment_record": { "strategy": "docker compose (Postgres + API), alembic upgrade no boot", "plan": "docs/deploy.md", "status": "validado localmente com Postgres real (smoke OK); deploy em produção fora do MVP §7" },
     "smoke_test_results": { "api": "GET /v1/orchestrations 200", "cli": "aso run OK", "docker_e2e": "scripts/smoke.sh contra Postgres: SMOKE OK" },
-    "observability_config": { "metrics": "MetricsService", "events": "EventLog", "timeline": "por orquestração", "endpoints": ["/v1/metrics", "/v1/orchestrations/{id}/metrics", "/slo"] },
+    "observability_config": { "metrics": "MetricsService", "events": "EventLog", "timeline": "por orquestração", "endpoints": ["/v1/metrics", "/v1/orchestrations/{id}/metrics", "/v1/orchestrations/{id}/execution-metrics", "/v1/orchestrations/{id}/execution-timeline", "/slo"] },
     "slos": [
       { "name": "sem_conflitos_abertos", "target": 0 },
       { "name": "sem_cards_bloqueados", "target": 0 },
-      { "name": "snapshot_da_fase_gerado", "target": "!= O0" }
+      { "name": "snapshot_da_fase_gerado", "target": "!= O0" },
+      { "name": "taxa_de_falhas_de_execucao", "target": "<= ASO_SLO_FAILURE_BUDGET (default 0.10)", "tipo": "error-budget", "burn_rate": true }
     ],
     "alerts": [
       { "name": "conflito_aberto", "condition": "SLO sem_conflitos_abertos em breach", "severity": "high" },
