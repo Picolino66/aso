@@ -403,6 +403,12 @@ def create_app(
             orchestration_id, lambda: svc.race_card(orchestration_id, card_id, providers)
         )
 
+    @app.get("/v1/orchestrations/{orchestration_id}/candidate-runs")
+    def list_candidate_runs(orchestration_id: str, card_id: str | None = None) -> Any:
+        """Histórico rastreável de corridas de candidatos (§26A.6)."""
+        _guard(orchestration_id)
+        return svc.list_candidate_runs(orchestration_id, card_id)
+
     @app.get("/v1/orchestrations/{orchestration_id}/pulls")
     def list_pulls(orchestration_id: str) -> Any:
         _guard(orchestration_id)

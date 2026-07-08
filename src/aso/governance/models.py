@@ -125,6 +125,21 @@ class PullRequest(BaseModel):
     merged_at: str | None = None
 
 
+class CandidateRun(BaseModel):
+    """Resultado rastreável de uma corrida de candidatos CLI por card (§26A.6).
+
+    Registra os candidatos avaliados (executor, branch, diff, arquivos, erro) e o
+    branch recomendado pela heurística, formando um histórico auditável de corridas.
+    """
+
+    id: str = Field(default_factory=lambda: gen_id("race"))
+    orchestration_id: str
+    card_id: str
+    recommended_branch: str | None = None
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now_iso)
+
+
 class ADR(BaseModel):
     """Architecture Decision Record (§21)."""
 

@@ -240,7 +240,10 @@
         <div class="diffgrid">
           ${cmp.candidates.filter(x=>!x.error).map(x=>`
             <div class="diffcol ${x.branch===rec?'reco':''}">
-              <div class="diffhead">${esc(x.executor)} · <code>${esc(x.branch)}</code>${x.branch===rec?' <span style="color:#2f7d4f">✓</span>':''}</div>
+              <div class="diffhead" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+                <span>${esc(x.executor)} · <code>${esc(x.branch)}</code>${x.branch===rec?' <span style="color:#2f7d4f">✓</span>':''}</span>
+                <button class="btn sm ${x.branch===rec?'ok':'ghost'}" onclick="openPrBranch('${id}','${cardId}','${esc(x.branch)}')">Abrir PR</button>
+              </div>
               <pre>${diffHtml(x.diff||'(sem diff)')}</pre>
             </div>`).join('')}
         </div>`;

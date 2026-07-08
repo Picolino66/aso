@@ -21,6 +21,7 @@ from aso.db.models import (
     Base,
     BoardColumnRow,
     BoardRow,
+    CandidateRunRow,
     CardEventRow,
     CardLinkRow,
     CardRow,
@@ -41,6 +42,7 @@ from aso.db.models import (
 )
 from aso.governance.models import (
     ADR,
+    CandidateRun,
     Conflict,
     ContextPatch,
     GateCriterionResult,
@@ -73,6 +75,7 @@ _CHILD_TABLES = (
     ContextHistoryRow,
     ContextPatchRow,
     PullRequestRow,
+    CandidateRunRow,
     ValueItemRow,
     GateCriterionRow,
     AdrOptionRow,
@@ -203,6 +206,8 @@ class SqlAlchemyOrchestrationRepository:
                 )
             for pr in state.pull_requests:
                 session.add(PullRequestRow(**pr.model_dump(mode="json")))
+            for run in state.candidate_runs:
+                session.add(CandidateRunRow(**run.model_dump(mode="json")))
             for seq, event in enumerate(state.events):
                 session.add(
                     EventRow(
@@ -390,6 +395,13 @@ class SqlAlchemyOrchestrationRepository:
                     .order_by(PullRequestRow.created_at)
                 )
             )
+            run_rows = list(
+                session.scalars(
+                    select(CandidateRunRow)
+                    .where(CandidateRunRow.orchestration_id == oid)
+                    .order_by(CandidateRunRow.created_at)
+                )
+            )
             event_rows = list(
                 session.scalars(
                     select(EventRow).where(EventRow.orchestration_id == oid).order_by(EventRow.seq)
@@ -509,6 +521,7 @@ class SqlAlchemyOrchestrationRepository:
                 approvals=[HumanApproval(**_cols(r)) for r in approval_rows],
                 patches=[ContextPatch(**_cols(r)) for r in patch_rows],
                 pull_requests=[PullRequest(**_cols(r)) for r in pr_rows],
+                candidate_runs=[CandidateRun(**_cols(r)) for r in run_rows],
                 events=[
                     {"type": r.type, "payload": r.payload, "created_at": r.created_at}
                     for r in event_rows

@@ -1774,6 +1774,92 @@
         "TASK-51"
       ],
       "evidence": "test_concurrency.py (200 patches concorrentes → versão/history consistentes; 32 _bundle concorrentes → mesma instância); 119 testes verdes; mypy strict OK"
+    },
+    {
+      "id": "TASK-57",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Persistência rastreável de corridas de candidatos",
+      "description": "Nova entidade CandidateRun (id/card_id/recommended_branch/candidates JSON/created_at) persistida em tabela candidate_runs (migração 9149277d0e97), integrada ao OrchestrationState/save/load; race_card grava a corrida e devolve run_id; endpoint GET .../candidate-runs (com filtro opcional por card_id) expõe o histórico.",
+      "assignee_type": "agent",
+      "assignee": "ExecutionAgent",
+      "spec": "requerimentos.md §26A.6",
+      "acceptance_criteria": [
+        "corrida persiste como CandidateRun",
+        "GET /candidate-runs lista e filtra por card",
+        "sobrevive à reidratação do repositório",
+        "migração aplica no Postgres"
+      ],
+      "linked_requirements": [
+        "§26A.6",
+        "§21",
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-54"
+      ],
+      "evidence": "121 testes verdes; test_race_is_persisted_and_listed (reload); Docker/Postgres: /candidate-runs 200 (tabela via migração no boot)"
+    },
+    {
+      "id": "TASK-58",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "low",
+      "title": "Seleção manual de candidato no console",
+      "description": "Cada coluna de diff do painel de candidatos ganha um botão 'Abrir PR' (openPrBranch), permitindo abrir PR de qualquer branch candidato — não só o recomendado; o recomendado segue destacado.",
+      "assignee_type": "agent",
+      "assignee": "UXAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "abrir PR de candidato não recomendado pela UI",
+        "recomendado destacado"
+      ],
+      "linked_requirements": [
+        "§26A.6",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-55"
+      ],
+      "evidence": "openPrBranch servido no /ui (Docker); botão por coluna de diff"
+    },
+    {
+      "id": "TASK-59",
+      "epic": "EPIC-6",
+      "type": "Chore",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Lock por orquestração em mutadores read-check-mutate",
+      "description": "Estende o lock por orquestração aos caminhos check-then-act merge_pr (evita dupla-mescla) e decide_approval (evita aplicar o mesmo patch pendente em dobro), tornando ler-checar-mutar-persistir atômico. Stress test multi-endpoint concorrente confirma ausência de lost-update após reidratação.",
+      "assignee_type": "agent",
+      "assignee": "ReviewAgent",
+      "spec": "requerimentos.md §26A.10",
+      "acceptance_criteria": [
+        "merge_pr/decide_approval sob lock por orquestração",
+        "stress multi-endpoint mantém estado consistente após reload"
+      ],
+      "linked_requirements": [
+        "§26A.10"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-56"
+      ],
+      "evidence": "121 testes verdes; test_concurrent_mutators_keep_state_consistent"
     }
   ]
 }

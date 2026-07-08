@@ -55,3 +55,27 @@ def test_bundle_hydrates_single_instance_under_concurrency() -> None:
     # todas as threads recebem exatamente a mesma instância (sem divergência)
     assert all(b is bundles[0] for b in bundles)
     assert svc._bundles[orch.id] is bundles[0]  # noqa: SLF001
+
+
+def test_concurrent_mutators_keep_state_consistent() -> None:
+    """Stress multi-endpoint na mesma orquestração: sem lost-update após reload."""
+    svc = OrchestrationService()
+    orch = svc.create_orchestration("backend")
+    oid = orch.id
+    cards = svc.get_cards(oid)
+    n_pr = len(cards)
+    n_ap = 20
+
+    def op(i: int) -> None:
+        if i < n_pr:
+            svc.open_pr(oid, cards[i].id)  # append em pull_requests + _persist
+        else:
+            svc.request_approval(oid, action=f"ação-{i}", risk="high")  # append em approvals
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(op, range(n_pr + n_ap)))
+
+    # força reidratação a partir do repositório e confere que nada se perdeu
+    svc._bundles.clear()  # noqa: SLF001
+    assert len(svc.list_pulls(oid)) == n_pr
+    assert len(svc.list_approvals(oid)) == n_ap

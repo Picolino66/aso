@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from aso.control.models import ExecutionPlan, Orchestration
 from aso.governance.models import (
     ADR,
+    CandidateRun,
     Conflict,
     ContextPatch,
     HumanApproval,
@@ -42,6 +43,7 @@ class OrchestrationState(BaseModel):
     approvals: list[HumanApproval] = Field(default_factory=list)
     patches: list[ContextPatch] = Field(default_factory=list)
     pull_requests: list[PullRequest] = Field(default_factory=list)
+    candidate_runs: list[CandidateRun] = Field(default_factory=list)
 
     board: Board
     cards: list[KanbanCard] = Field(default_factory=list)

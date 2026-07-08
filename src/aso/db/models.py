@@ -351,6 +351,18 @@ class PullRequestRow(Base):
     merged_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class CandidateRunRow(Base):
+    __tablename__ = "candidate_runs"
+    __table_args__ = (Index("ix_candidate_runs_orch_card", "orchestration_id", "card_id"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
+    card_id: Mapped[str] = mapped_column(String)
+    recommended_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    candidates: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[str] = mapped_column(String)
+
+
 class EventRow(Base):
     __tablename__ = "events"
     __table_args__ = (Index("ix_events_orch_seq", "orchestration_id", "seq"),)

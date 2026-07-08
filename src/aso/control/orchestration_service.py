@@ -27,6 +27,7 @@ from aso.governance.context_store import OrchestratorContextStore
 from aso.governance.contextbus import BusResult, ContextBus, PermissionPolicy
 from aso.governance.models import (
     ADR,
+    CandidateRun,
     Conflict,
     ContextPatch,
     HumanApproval,
@@ -75,6 +76,7 @@ class OrchestrationBundle:
     gate_results: list[QualityGateResult] = field(default_factory=list)
     approvals: list[HumanApproval] = field(default_factory=list)
     pull_requests: list[PullRequest] = field(default_factory=list)
+    candidate_runs: list[CandidateRun] = field(default_factory=list)
 
 
 class OrchestrationService:
@@ -231,6 +233,7 @@ class OrchestrationService:
             approvals=list(b.approvals),
             patches=list(b.bus.patches),
             pull_requests=list(b.pull_requests),
+            candidate_runs=list(b.candidate_runs),
             board=b.board,
             cards=b.board_service.cards_of(b.board.id),
             card_events=list(b.board_service.card_events),
@@ -299,6 +302,7 @@ class OrchestrationService:
             gate_results=list(state.gate_results),
             approvals=list(state.approvals),
             pull_requests=list(state.pull_requests),
+            candidate_runs=list(state.candidate_runs),
         )
 
     def get(self, orchestration_id: str) -> Orchestration:
@@ -439,23 +443,26 @@ class OrchestrationService:
 
     def merge_pr(self, orchestration_id: str, pr_id: str) -> PullRequest:
         """Merge governado: exige CI passed + review approved (§26A.6)."""
-        b = self._bundle(orchestration_id)
-        pr = self._find_pr(b, pr_id)
-        if pr.status != "open":
-            raise ValueError(f"PR {pr_id} não está aberta (status={pr.status}).")
-        if pr.ci_status != "passed" or pr.review_status != "approved":
-            raise ValueError(
-                "Merge governado exige CI 'passed' e review 'approved' "
-                f"(ci={pr.ci_status}, review={pr.review_status})."
-            )
-        worktree = getattr(self._provider, "worktree", None)
-        if worktree is not None:
-            worktree.merge(pr.branch)  # merge git real na branch base
-        pr.status = "merged"
-        pr.merged_at = now_iso()
-        if pr.card_id and b.board_service.get_card(pr.card_id):
-            b.board_service.apply_event(pr.card_id, "QualityGatePassed")  # → Done
-        b.event_log.append("PRMerged", {"pr_id": pr_id, "branch": pr.branch})
+        # Lock por orquestração: o check-then-act (verifica status → muta → merge git)
+        # precisa ser atômico para dois merges concorrentes não mesclarem em dobro.
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            pr = self._find_pr(b, pr_id)
+            if pr.status != "open":
+                raise ValueError(f"PR {pr_id} não está aberta (status={pr.status}).")
+            if pr.ci_status != "passed" or pr.review_status != "approved":
+                raise ValueError(
+                    "Merge governado exige CI 'passed' e review 'approved' "
+                    f"(ci={pr.ci_status}, review={pr.review_status})."
+                )
+            worktree = getattr(self._provider, "worktree", None)
+            if worktree is not None:
+                worktree.merge(pr.branch)  # merge git real na branch base
+            pr.status = "merged"
+            pr.merged_at = now_iso()
+            if pr.card_id and b.board_service.get_card(pr.card_id):
+                b.board_service.apply_event(pr.card_id, "QualityGatePassed")  # → Done
+            b.event_log.append("PRMerged", {"pr_id": pr_id, "branch": pr.branch})
         self._persist(b)
         return pr
 
@@ -475,16 +482,35 @@ class OrchestrationService:
             raise KeyError(f"Agente não registrado: {card.assignee}")
         candidates = CandidateRunner().run(agent, self._build_task(b, card, agent), providers)
         comparison = CandidateRunner.compare(candidates)
+        # Persiste a corrida como entidade rastreável (histórico auditável §26A.6/§21).
+        run = CandidateRun(
+            orchestration_id=orchestration_id,
+            card_id=card_id,
+            recommended_branch=comparison["recommended_branch"],
+            candidates=list(comparison["candidates"]),
+        )
+        b.candidate_runs.append(run)
         b.event_log.append(
             "CandidatesEvaluated",
             {
+                "run_id": run.id,
                 "card_id": card_id,
                 "count": len(candidates),
                 "recommended": comparison["recommended_branch"],
             },
         )
         self._persist(b)
+        comparison["run_id"] = run.id
         return comparison
+
+    def list_candidate_runs(
+        self, orchestration_id: str, card_id: str | None = None
+    ) -> list[CandidateRun]:
+        """Histórico de corridas de candidatos (opcionalmente filtrado por card)."""
+        runs = self._bundle(orchestration_id).candidate_runs
+        if card_id:
+            return [r for r in runs if r.card_id == card_id]
+        return list(runs)
 
     # ------------------------------------------------- context patches / auditoria
     def list_patches(self, orchestration_id: str, status: str | None = None) -> list[ContextPatch]:
@@ -599,35 +625,38 @@ class OrchestrationService:
         if found is None:
             raise KeyError(f"Aprovação inexistente: {approval_id}")
         bundle, approval = found
-        approval.status = "approved" if approved else "rejected"
-        approval.approved_by = approved_by
-        # Se a aprovação está vinculada a um patch pendente, aplica-o agora (§24).
-        patch_id = approval.payload.get("patch_id") if approved else None
-        if patch_id:
-            patch = next(
-                (
-                    p
-                    for p in bundle.bus.patches
-                    if p.id == patch_id and p.status == PatchStatus.PENDING
-                ),
-                None,
-            )
-            if patch is not None:
-                bundle.bus.apply_approved(patch)
-        # Libera/bloqueia o card vinculado no Kanban.
-        if approval.card_id and bundle.board_service.get_card(approval.card_id) is not None:
-            if approved:
-                bundle.board_service.apply_event(approval.card_id, "TestsPassed")
-            else:
-                bundle.board_service.move_card(
-                    approval.card_id, ColumnKey.BLOCKED, reason="aprovação rejeitada"
+        # Lock por orquestração: decidir + aplicar o patch pendente é check-then-act;
+        # duas decisões concorrentes não podem aplicar o mesmo patch em dobro (§24).
+        with self._lock_for(bundle.orchestration.id):
+            approval.status = "approved" if approved else "rejected"
+            approval.approved_by = approved_by
+            # Se a aprovação está vinculada a um patch pendente, aplica-o agora (§24).
+            patch_id = approval.payload.get("patch_id") if approved else None
+            if patch_id:
+                patch = next(
+                    (
+                        p
+                        for p in bundle.bus.patches
+                        if p.id == patch_id and p.status == PatchStatus.PENDING
+                    ),
+                    None,
                 )
-        bundle.event_log.append(
-            "ApprovalDecided",
-            {"approval_id": approval_id, "status": approval.status, "by": approved_by},
-        )
-        self._persist(bundle)
-        return approval
+                if patch is not None:
+                    bundle.bus.apply_approved(patch)
+            # Libera/bloqueia o card vinculado no Kanban.
+            if approval.card_id and bundle.board_service.get_card(approval.card_id) is not None:
+                if approved:
+                    bundle.board_service.apply_event(approval.card_id, "TestsPassed")
+                else:
+                    bundle.board_service.move_card(
+                        approval.card_id, ColumnKey.BLOCKED, reason="aprovação rejeitada"
+                    )
+            bundle.event_log.append(
+                "ApprovalDecided",
+                {"approval_id": approval_id, "status": approval.status, "by": approved_by},
+            )
+            self._persist(bundle)
+            return approval
 
     def _find_approval(self, approval_id: str) -> tuple[OrchestrationBundle, HumanApproval] | None:
         for oid in self._repo.list_ids():
