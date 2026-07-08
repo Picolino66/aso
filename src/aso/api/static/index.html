@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ASO Runtime — Console</title>
+  <style>
+    /* ===== Design tokens ===== */
+    :root {
+      --bg:#0f172a; --panel:#1e293b; --panel-2:#0b1220; --border:#334155;
+      --muted:#94a3b8; --fg:#e2e8f0; --accent:#38bdf8;
+      --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --info:#818cf8;
+      --radius:10px; --gap:14px; --font: ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); }
+    header { padding:14px 24px; background:var(--panel); display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
+    header h1 { font-size:18px; margin:0; }
+    header .sub { color:var(--muted); font-size:13px; }
+    main { display:grid; grid-template-columns:320px 1fr; gap:var(--gap); padding:var(--gap) 24px; align-items:start; }
+    /* ===== Components ===== */
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:var(--gap); }
+    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 10px; }
+    .btn { background:var(--accent); color:#08131f; border:0; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer; font-size:13px; }
+    .btn.ghost { background:var(--border); color:var(--fg); }
+    .btn.sm { padding:4px 8px; font-size:12px; }
+    .btn.ok { background:var(--ok); } .btn.err { background:var(--err); color:#fff; }
+    input, textarea, select { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--fg); border-radius:8px; padding:8px; margin-bottom:8px; font-family:inherit; }
+    ul { list-style:none; padding:0; margin:0; }
+    li.orch { padding:8px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
+    li.orch:hover { background:var(--panel-2); }
+    li.orch.active { border-color:var(--accent); background:var(--panel-2); }
+    .muted { color:var(--muted); font-size:12px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .between { justify-content:space-between; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:var(--border); color:var(--fg); }
+    .pill.ok { background:rgba(34,197,94,.2); color:var(--ok); }
+    .pill.err { background:rgba(239,68,68,.2); color:var(--err); }
+    .pill.warn { background:rgba(245,158,11,.2); color:var(--warn); }
+    .pill.info { background:rgba(129,140,248,.2); color:var(--info); }
+    .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:var(--gap); flex-wrap:wrap; }
+    .tab { padding:8px 12px; cursor:pointer; border-bottom:2px solid transparent; color:var(--muted); font-size:13px; }
+    .tab.active { color:var(--fg); border-color:var(--accent); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+    th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
+    .board { display:flex; gap:12px; overflow-x:auto; padding-bottom:8px; }
+    .col { min-width:190px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; }
+    .col h3 { font-size:12px; margin:0 0 8px; color:var(--muted); }
+    .kcard { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px; font-size:13px; }
+    .kcard .t { font-size:11px; color:var(--muted); }
+    .metrics span { margin-right:14px; } .metrics b { color:var(--fg); }
+    .tl { max-height:340px; overflow:auto; font-size:12px; }
+    .tl div { padding:3px 0; border-bottom:1px solid #1f2b3e; }
+    a { color:var(--accent); }
+    .empty { color:var(--muted); padding:16px; text-align:center; }
+    code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚙️ ASO Runtime</h1>
+    <span class="sub">Console · API v1 · <a href="/docs" target="_blank">/docs</a></span>
+    <span style="flex:1"></span>
+    <input id="tok" placeholder="token (Bearer)" style="width:200px;margin:0" />
+    <button class="btn ghost sm" onclick="saveTok()">Entrar</button>
+  </header>
+  <main>
+    <div>
+      <div class="card">
+        <h2>Nova orquestração</h2>
+        <textarea id="req" rows="3" placeholder="Descreva a demanda..."></textarea>
+        <button class="btn" onclick="createOrch()">Criar</button>
+      </div>
+      <div class="card">
+        <h2>Orquestrações</h2>
+        <ul id="orchList"><li class="empty">carregando...</li></ul>
+      </div>
+    </div>
+    <div id="detail"><div class="card"><div class="empty">Selecione ou crie uma orquestração.</div></div></div>
+  </main>
+
+  <script>
+    const token = () => localStorage.getItem('aso_token') || '';
+    const api = (p, opts={}) => {
+      const h = Object.assign({}, opts.headers || {});
+      const t = token(); if (t) h['Authorization'] = 'Bearer ' + t;
+      return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok ? r.json() : Promise.reject(r.status));
+    };
+    const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
+    function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); loadOrchestrations(); }
+    const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const statusPill = (s) => {
+      const m = { applied:'ok', PASSED:'ok', approved:'ok', Done:'ok', rejected:'err', FAILED:'err', Failed:'err', Blocked:'err',
+                  pending:'warn', WARNING:'warn', WaitingHuman:'warn', Testing:'info', Review:'info', InProgress:'info' };
+      return `<span class="pill ${m[s]||''}">${esc(s)}</span>`;
+    };
+    let current = null, currentTab = 'kanban';
+    let _es = null, _esId = null;
+
+    function ensureStream(id) {
+      if (_esId === id && _es) return;  // já assinado
+      if (_es) _es.close();
+      const t = token();
+      const url = `/v1/orchestrations/${id}/events/stream` + (t ? `?token=${encodeURIComponent(t)}` : '');
+      _es = new EventSource(url);
+      _esId = id;
+      _es.onmessage = () => { if (_esId === id) openOrch(id); };  // re-busca ao vivo
+    }
+
+    async function loadOrchestrations() {
+      const list = await api('/v1/orchestrations');
+      const ul = document.getElementById('orchList');
+      if (!list.length) { ul.innerHTML = '<li class="empty">nenhuma</li>'; return; }
+      ul.innerHTML = '';
+      for (const o of list) {
+        const li = el(`<li class="orch ${o.id===current?'active':''}">
+          <div>${esc(o.user_request||o.id)}</div>
+          <div class="muted">${o.current_phase} · ${o.snapshot_version} · ${o.status}</div></li>`);
+        li.onclick = () => openOrch(o.id);
+        ul.appendChild(li);
+      }
+    }
+
+    async function createOrch() {
+      const text = document.getElementById('req').value.trim();
+      if (!text) return;
+      const o = await post('/v1/orchestrations', { user_request:text });
+      document.getElementById('req').value = '';
+      current = o.id; currentTab = 'kanban';
+      await loadOrchestrations(); await openOrch(o.id);
+    }
+
+    async function openOrch(id) {
+      current = id; await loadOrchestrations(); ensureStream(id);
+      const [m, slo, approvals, exec] = await Promise.all([
+        api(`/v1/orchestrations/${id}/metrics`), api(`/v1/orchestrations/${id}/slo`),
+        api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`)]);
+      const sloOk = slo.breaches.length === 0;
+      const pending = approvals.filter(a => a.status === 'pending').length;
+      const tabs = ['kanban','pulls','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
+      document.getElementById('detail').innerHTML = `
+        <div class="card">
+          <div class="row between">
+            <h2 style="margin:0">${id.slice(0,20)}…</h2>
+            <span>
+              <span class="pill ok">● ao vivo</span>
+              <span class="pill ${sloOk?'ok':'err'}">SLOs: ${sloOk?'OK':esc(slo.breaches.join(', '))}</span>
+            </span>
+          </div>
+          <div class="metrics muted" style="margin-top:8px">
+            <span>fase <b>${m.phase}</b></span><span>snapshot <b>${m.snapshot_version}</b></span>
+            <span>cards <b>${m.cards_total}</b></span><span>ADRs <b>${m.adrs_total}</b></span>
+            <span>snapshots <b>${m.snapshots_total}</b></span><span>conflitos <b>${m.open_conflicts}</b></span>
+            <span class="pill ${pending ? 'warn' : ''}">aprovações pendentes: ${pending}</span>
+          </div>
+          <div class="metrics muted" style="margin-top:4px">
+            <span>execuções <b>${exec.agent_executions}</b></span><span>duração média <b>${exec.avg_ms}ms</b></span>
+            <span>retries <b>${exec.retries}</b></span><span>falhas <b>${exec.failures}</b></span>
+            <span>waiting human <b>${exec.waiting_human}</b></span>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" onclick="runAll('${id}')">Rodar cards</button>
+            <button class="btn ghost" onclick="runGate('${id}')">Rodar gate</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="tabs">${tabs.map(t => `<div class="tab ${t===currentTab?'active':''}" onclick="setTab('${id}','${t}')">${t}</div>`).join('')}</div>
+          <div id="tabc"><div class="empty">carregando...</div></div>
+        </div>`;
+      renderTab(id);
+    }
+
+    function setTab(id, t) { currentTab = t; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.textContent===t)); renderTab(id); }
+
+    async function renderTab(id) {
+      const c = document.getElementById('tabc');
+      try {
+        if (currentTab==='kanban') return renderKanban(id, c);
+        if (currentTab==='adrs') return renderAdrs(id, c);
+        if (currentTab==='approvals') return renderApprovals(id, c);
+        if (currentTab==='pulls') return renderPulls(id, c);
+        if (currentTab==='conflicts') return renderConflicts(id, c);
+        if (currentTab==='snapshots') return renderSnapshots(id, c);
+        if (currentTab==='patches') return renderPatches(id, c);
+        if (currentTab==='audit') return renderAudit(id, c);
+        if (currentTab==='timeline') return renderTimeline(id, c);
+      } catch (e) { c.innerHTML = `<div class="empty">erro: ${e}</div>`; }
+    }
+
+    async function renderKanban(id, c) {
+      const cards = await api(`/v1/orchestrations/${id}/cards`);
+      const cols = ['Backlog','Ready','InProgress','WaitingHuman','Review','Testing','Blocked','Failed','Done'];
+      const by = {}; cards.forEach(k => (by[k.status]=by[k.status]||[]).push(k));
+      c.innerHTML = `<div class="board">${cols.filter(k=>by[k]).map(k=>`
+        <div class="col"><h3>${k} (${by[k].length})</h3>
+          ${by[k].map(x=>`<div class="kcard"><div class="t">${x.type} · ${esc(x.assignee||'—')}</div>${esc(x.title)}
+            <div style="margin-top:6px"><button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">Abrir PR</button></div></div>`).join('')}
+        </div>`).join('') || '<div class="empty">sem cards</div>'}</div>`;
+    }
+
+    async function renderAdrs(id, c) {
+      const adrs = await api(`/v1/orchestrations/${id}/adrs`);
+      c.innerHTML = adrs.length ? `<table><tr><th>ID</th><th>Status</th><th>Título / Decisão</th></tr>
+        ${adrs.map(a=>`<tr><td><code>${a.id}</code></td><td>${statusPill(a.status)}</td>
+          <td>${esc(a.title)}<div class="muted">${esc(a.decision)}</div></td></tr>`).join('')}</table>`
+        : '<div class="empty">nenhuma ADR</div>';
+    }
+
+    async function renderApprovals(id, c) {
+      const aps = await api(`/v1/orchestrations/${id}/approvals`);
+      c.innerHTML = `
+        <div class="row" style="margin-bottom:10px">
+          <input id="apAction" placeholder="ação (ex.: deploy)" style="flex:1;margin:0" />
+          <button class="btn sm" onclick="createApproval('${id}')">Solicitar aprovação</button>
+        </div>
+        ${aps.length ? `<table><tr><th>Ação</th><th>Risco</th><th>Status</th><th></th></tr>
+          ${aps.map(a=>`<tr><td>${esc(a.action)}</td><td>${statusPill(a.risk)}</td><td>${statusPill(a.status)}</td>
+            <td>${a.status==='pending'?`<button class="btn sm ok" onclick="decide('${id}','${a.id}',true)">Aprovar</button>
+              <button class="btn sm err" onclick="decide('${id}','${a.id}',false)">Rejeitar</button>`:''}</td></tr>`).join('')}</table>`
+          : '<div class="empty">nenhuma aprovação</div>'}`;
+    }
+    async function createApproval(id) {
+      const action = document.getElementById('apAction').value.trim() || 'ação crítica';
+      await post(`/v1/orchestrations/${id}/approvals`, { action, risk:'high' }); renderTab(id);
+    }
+    async function decide(id, aid, ok) { await post(`/v1/approvals/${aid}/${ok?'approve':'reject'}`); renderTab(id); }
+
+    async function renderPulls(id, c) {
+      const pulls = await api(`/v1/orchestrations/${id}/pulls`);
+      c.innerHTML = pulls.length ? `<table><tr><th>Branch</th><th>Status</th><th>CI</th><th>Review</th><th>Ações</th></tr>
+        ${pulls.map(p => {
+          const canMerge = p.status==='open' && p.ci_status==='passed' && p.review_status==='approved';
+          return `<tr><td><code>${esc(p.branch)}</code></td><td>${statusPill(p.status)}</td>
+            <td>${statusPill(p.ci_status)}</td><td>${statusPill(p.review_status)}</td>
+            <td>${p.status==='open' ? `
+              <button class="btn sm ghost" onclick="prCi('${id}','${p.id}','passed')">CI ✓</button>
+              <button class="btn sm ghost" onclick="prCi('${id}','${p.id}','failed')">CI ✗</button>
+              <button class="btn sm ghost" onclick="prReview('${id}','${p.id}','approved')">Review ✓</button>
+              <button class="btn sm ${canMerge?'ok':''}" ${canMerge?'':'disabled'} onclick="prMerge('${id}','${p.id}')">Merge</button>
+            ` : ''}</td></tr>`;
+        }).join('')}</table>
+        <div class="muted" style="margin-top:8px">Merge exige CI ✓ + Review ✓ (governança §26A.6).</div>`
+        : '<div class="empty">nenhuma PR — abra uma pela aba Kanban</div>';
+    }
+    async function openPr(id, cardId) { await post(`/v1/orchestrations/${id}/cards/${cardId}/open-pr`, {}); currentTab='pulls'; openOrch(id); }
+    async function prCi(id, pid, s) { await post(`/v1/orchestrations/${id}/pulls/${pid}/ci`, {status:s}); renderTab(id); }
+    async function prReview(id, pid, s) { await post(`/v1/orchestrations/${id}/pulls/${pid}/review`, {status:s}); renderTab(id); }
+    async function prMerge(id, pid) {
+      const r = await fetch(`/v1/orchestrations/${id}/pulls/${pid}/merge`, { method:'POST', headers: token()?{'Authorization':'Bearer '+token()}:{} });
+      if (!r.ok) alert('Merge bloqueado (' + r.status + '): exige CI ✓ e Review ✓ e papel admin.');
+      openOrch(id);
+    }
+
+    async function renderConflicts(id, c) {
+      const conflicts = await api(`/v1/orchestrations/${id}/conflicts`);
+      c.innerHTML = conflicts.length ? `<table><tr><th>Tipo</th><th>Descrição</th><th>Status</th><th></th></tr>
+        ${conflicts.map(cf => `<tr><td>${statusPill(cf.type)}</td><td>${esc(cf.description)}
+          ${cf.resolution ? `<div class="muted">→ ${esc(cf.resolution)}</div>` : ''}</td>
+          <td>${statusPill(cf.status)}</td>
+          <td>${cf.status === 'open' ? `<button class="btn sm" onclick="resolveConflict('${id}','${cf.id}')">Resolver</button>` : ''}</td></tr>`).join('')}</table>`
+        : '<div class="empty">nenhum conflito</div>';
+    }
+    async function resolveConflict(id, cid) { await post(`/v1/orchestrations/${id}/conflicts/${cid}/resolve`); renderTab(id); }
+
+    async function renderSnapshots(id, c) {
+      const snaps = await api(`/v1/orchestrations/${id}/snapshots`);
+      const opts = snaps.map(s=>`<option>${s.snapshot_version}</option>`).join('');
+      c.innerHTML = `
+        ${snaps.length?`<table><tr><th>Versão</th><th>Fase</th><th>Seções congeladas</th></tr>
+          ${snaps.map(s=>`<tr><td><code>${s.snapshot_version}</code></td><td>${s.phase}</td><td class="muted">${esc((s.frozen_sections||[]).join(', '))}</td></tr>`).join('')}</table>
+          <div class="row" style="margin-top:12px"><span class="muted">diff:</span>
+            <select id="sa" style="width:auto;margin:0">${opts}</select><span>→</span>
+            <select id="sb" style="width:auto;margin:0">${opts}</select>
+            <button class="btn sm" onclick="doDiff('${id}')">Comparar</button></div>
+          <div id="diff"></div>`
+        :'<div class="empty">nenhum snapshot</div>'}`;
+    }
+    async function doDiff(id) {
+      const a=document.getElementById('sa').value, b=document.getElementById('sb').value;
+      const d = await api(`/v1/orchestrations/${id}/snapshots/${a}/diff/${b}`);
+      document.getElementById('diff').innerHTML = `<div class="card" style="margin-top:10px">
+        <div>seções alteradas: <b>${esc((d.changed_sections||[]).join(', ')||'—')}</b></div>
+        <div class="muted">congeladas +: ${esc((d.frozen_added||[]).join(', ')||'—')} · -: ${esc((d.frozen_removed||[]).join(', ')||'—')}</div></div>`;
+    }
+
+    async function renderPatches(id, c) {
+      const patches = await api(`/v1/orchestrations/${id}/patches`);
+      c.innerHTML = patches.length ? `<table><tr><th>Agente</th><th>Alvo</th><th>Tipo</th><th>Status</th></tr>
+        ${patches.map(p=>`<tr><td>${esc(p.agent)}</td><td><code>${esc(p.target_path)}</code></td><td>${p.patch_type}</td><td>${statusPill(p.status)}</td></tr>`).join('')}</table>`
+        : '<div class="empty">nenhum patch</div>';
+    }
+
+    let _patches = [];
+    async function renderAudit(id, c) {
+      const [a, patches] = await Promise.all([
+        api(`/v1/orchestrations/${id}/audit`), api(`/v1/orchestrations/${id}/patches`)]);
+      _patches = patches;
+      c.innerHTML = `
+        <div class="metrics muted" style="margin-bottom:10px">
+          <span>eventos <b>${a.events_total}</b></span><span>patches <b>${a.patches_total}</b></span>
+          <span>aplicados <b>${a.patches_applied}</b></span><span>rejeitados <b>${a.patches_rejected}</b></span>
+          <span>conflitos <b>${a.conflicts_total}</b></span><span>approvals <b>${a.approvals_total}</b></span>
+        </div>
+        <div class="row" style="margin-bottom:8px"><span class="muted">filtrar patches:</span>
+          <select id="pf" style="width:auto;margin:0" onchange="filterPatches()">
+            <option value="">todos</option><option>applied</option><option>rejected</option><option>pending</option>
+          </select></div>
+        <div id="ptbl"></div>`;
+      filterPatches();
+    }
+    function filterPatches() {
+      const f = document.getElementById('pf').value;
+      const rows = _patches.filter(p => !f || p.status===f);
+      document.getElementById('ptbl').innerHTML = rows.length ? `<table><tr><th>Agente</th><th>Alvo</th><th>Tipo</th><th>Status</th></tr>
+        ${rows.map(p=>`<tr><td>${esc(p.agent)}</td><td><code>${esc(p.target_path)}</code></td><td>${p.patch_type}</td><td>${statusPill(p.status)}</td></tr>`).join('')}</table>`
+        : '<div class="empty">nenhum patch</div>';
+    }
+
+    async function renderTimeline(id, c) {
+      const t = await api(`/v1/orchestrations/${id}/timeline?page_size=100`);
+      c.innerHTML = `<div class="muted" style="margin-bottom:6px">${t.total} eventos</div>
+        <div class="tl">${t.items.map(e=>`<div>${e.created_at.slice(11,19)} · ${esc(e.type)}</div>`).join('')}</div>`;
+    }
+
+    async function runAll(id) {
+      const cards = await api(`/v1/orchestrations/${id}/cards`);
+      for (const k of cards.filter(x=>x.status==='Ready'||x.status==='Backlog'))
+        await post(`/v1/orchestrations/${id}/cards/${k.id}/run`);
+      await openOrch(id);
+    }
+    async function runGate(id) { await post(`/v1/orchestrations/${id}/quality-gates/run`); await openOrch(id); }
+
+    document.getElementById('tok').value = token();
+    loadOrchestrations();
+  </script>
+</body>
+</html>

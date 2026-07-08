@@ -1,0 +1,42 @@
+{
+  "id": "review-F5-core-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F5",
+  "scope": "Core de governança (TASK-01,02,03,09,10,11,12)",
+  "reviewed_by_agent": "ReviewAgent",
+  "status": "approved",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "high",
+      "area": "governança",
+      "description": "Patches com patch_type 'propose' e com requires_approval=true eram aplicados diretamente ao contexto, violando §8.3 (proposta ≠ aplicação) e §8.6 (ação crítica exige aprovação humana).",
+      "resolution": "ContextBus passa a rotear 'propose'/requires_approval para status PENDING sem mutar o contexto; OrchestratorContextStore.apply_patch lança erro se receber 'propose'.",
+      "tests": ["test_propose_patch_is_not_applied_but_pending", "test_requires_approval_patch_pending", "test_apply_propose_raises"]
+    },
+    {
+      "id": "F2",
+      "severity": "medium",
+      "area": "correção",
+      "description": "SnapshotEngine.restore fazia cópia rasa e compartilhava dicts aninhados entre snapshot e contexto (risco de corrupção do snapshot); também acessava atributo privado _payload.",
+      "resolution": "Adicionado OrchestratorContextStore.restore_from com deep copy; restore encapsulado, sem acesso a privados.",
+      "tests": ["test_restore_does_not_share_references"]
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "area": "segurança",
+      "description": "ContextBus tinha política de permissão permissiva por padrão ('*':['*']), inadequada para um componente soberano de governança.",
+      "resolution": "Deny-by-default: sem política explícita nenhuma escrita é autorizada. PermissionPolicy.allow_all() disponível apenas para dev/testes.",
+      "tests": ["test_default_policy_denies_all"]
+    }
+  ],
+  "risks": [
+    "HumanApprovalEngine ainda não implementado (MVP-2): patches PENDING ficam sem fluxo de promoção — aceitável no marco atual, rastreado no backlog."
+  ],
+  "required_changes": [],
+  "quality_gate_impact": ["Nenhum gate marcado como aprovado indevidamente; F5 permanece em andamento"],
+  "recommendation": "Aprovado. Core de governança consistente com §8/§19/§23. Seguir para os próximos cards de F5 (AgentRegistry/executor mock, ExecutionPlan, decisão, Kanban runtime).",
+  "evidence": { "tests": 29, "lint": "ruff OK", "typecheck": "mypy strict OK" },
+  "created_at": "2026-07-02T05:00:00Z"
+}

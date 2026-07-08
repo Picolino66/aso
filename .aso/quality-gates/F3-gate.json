@@ -1,0 +1,20 @@
+{
+  "id": "gate-F3-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F3",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "schema_versioned", "status": "PASSED", "evidence": ["docs/domain-model.md; ADR-0005"], "failure_reason": null },
+    { "name": "openapi_complete", "status": "PASSED", "evidence": ["contracts/openapi.yaml (v1 núcleo); docs/api.md catálogo completo"], "failure_reason": null },
+    { "name": "consistency_model_with_adr", "status": "PASSED", "evidence": ["ADR-0005: consistência forte"], "failure_reason": null },
+    { "name": "transaction_boundaries_mapped", "status": "PASSED", "evidence": ["Escrita única via ContextBus; agregados por plane em domain-model.md"], "failure_reason": null },
+    { "name": "no_undefined_fields", "status": "PASSED", "evidence": ["DTOs tipados no OpenAPI; payload do contexto referencia §17"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": ["AsyncAPI/eventos detalhados diferidos (sem mensageria no MVP)"],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": false,
+  "human_approval_status": "auto_approved_intermediate",
+  "created_at": "2026-07-02T02:00:00Z"
+}

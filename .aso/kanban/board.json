@@ -1,0 +1,1655 @@
+{
+  "board": {
+    "id": "board-mvp1",
+    "orchestration_id": "orch-aso-runtime-0001",
+    "project_id": "proj-aso-runtime",
+    "scope": "orchestration",
+    "name": "ASO Runtime — MVP 1 (Core de governança)",
+    "swimlane_by": "epic",
+    "created_at": "2026-07-02T03:00:00Z"
+  },
+  "columns": [
+    {
+      "key": "Backlog",
+      "order": 1
+    },
+    {
+      "key": "Ready",
+      "order": 2
+    },
+    {
+      "key": "Planning",
+      "order": 3
+    },
+    {
+      "key": "InProgress",
+      "order": 4
+    },
+    {
+      "key": "WaitingAgent",
+      "order": 5
+    },
+    {
+      "key": "WaitingHuman",
+      "order": 6
+    },
+    {
+      "key": "Review",
+      "order": 7
+    },
+    {
+      "key": "Testing",
+      "order": 8
+    },
+    {
+      "key": "Blocked",
+      "order": 9
+    },
+    {
+      "key": "Failed",
+      "order": 10
+    },
+    {
+      "key": "Done",
+      "order": 11
+    },
+    {
+      "key": "Archived",
+      "order": 12
+    }
+  ],
+  "epics": [
+    {
+      "id": "EPIC-1",
+      "title": "Fundação do projeto",
+      "priority": "critical"
+    },
+    {
+      "id": "EPIC-2",
+      "title": "Domínio & Contexto",
+      "priority": "critical"
+    },
+    {
+      "id": "EPIC-3",
+      "title": "Kanban básico",
+      "priority": "high"
+    },
+    {
+      "id": "EPIC-4",
+      "title": "Planejamento & Decisão",
+      "priority": "high"
+    },
+    {
+      "id": "EPIC-5",
+      "title": "Agentes",
+      "priority": "high"
+    },
+    {
+      "id": "EPIC-6",
+      "title": "Governança",
+      "priority": "critical"
+    },
+    {
+      "id": "EPIC-7",
+      "title": "Interfaces (API/CLI)",
+      "priority": "medium"
+    },
+    {
+      "id": "EPIC-8",
+      "title": "Observabilidade & Docs",
+      "priority": "medium"
+    }
+  ],
+  "cards": [
+    {
+      "id": "TASK-01",
+      "epic": "EPIC-1",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Estrutura base do projeto Python + tooling",
+      "description": "Criar layout src/aso (control/kanban/agents/execution/governance/observability/shared/api/cli/db), pyproject.toml, ruff, mypy, pytest, docker-compose (Postgres).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/project-setup.md",
+      "acceptance_criteria": [
+        "Projeto instala e roda",
+        "ruff+mypy+pytest configurados",
+        "docker-compose sobe Postgres"
+      ],
+      "linked_requirements": [
+        "§37",
+        "§39",
+        "§40 Task 1"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0004"
+      ],
+      "dependencies": [],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-02",
+      "epic": "EPIC-2",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Modelos de domínio (Pydantic + tabelas)",
+      "description": "Implementar entidades §29/§40 Task 2 (Project, Orchestration, Phase, ExecutionPlan, KanbanBoard/Card, Agent, AgentRun, ContextPatch, QualityGateResult, Snapshot, ADR, Conflict, HumanApproval).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/domain-models.md",
+      "acceptance_criteria": [
+        "Entidades com id+timestamps",
+        "Schemas Pydantic validam",
+        "Migrations Alembic criadas"
+      ],
+      "linked_requirements": [
+        "§29",
+        "§40 Task 2"
+      ],
+      "linked_adrs": [
+        "ADR-0005"
+      ],
+      "dependencies": [
+        "TASK-01"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-03",
+      "epic": "EPIC-2",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "OrchestratorContext versionado",
+      "description": "Schema §17, persistência JSONB, versão incremental, histórico append-only, context_hash.",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/orchestrator-context.md",
+      "acceptance_criteria": [
+        "Contexto criado e lido",
+        "Versão incrementa a cada escrita",
+        "Histórico recuperável por snapshot"
+      ],
+      "linked_requirements": [
+        "§17",
+        "§40 Task 3"
+      ],
+      "linked_adrs": [
+        "ADR-0003",
+        "ADR-0005"
+      ],
+      "dependencies": [
+        "TASK-02"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-04",
+      "epic": "EPIC-3",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Kanban básico (board, colunas, cards) + automação",
+      "description": "Board/colunas/cards §16 + máquina de estados dirigida por eventos (§16.7).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/kanban.md",
+      "acceptance_criteria": [
+        "Board e cards criados",
+        "Card move por evento",
+        "Card reflete estado real"
+      ],
+      "linked_requirements": [
+        "§16",
+        "§40 Task 4"
+      ],
+      "linked_adrs": [
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-02"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-05",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "ExecutionPlan a partir de solicitação",
+      "description": "Gerar plano com strategy, agentes, success_criteria, fallback (§14/§40 Task 5).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/execution-plan.md",
+      "acceptance_criteria": [
+        "Plano gerado de user_request",
+        "Contém agentes e critérios de sucesso"
+      ],
+      "linked_requirements": [
+        "§14",
+        "§40 Task 5"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-03"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-06",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "MultiAgentDecisionEngine básico",
+      "description": "Decidir single vs multi-agent com justificativa e risco (§14/§40 Task 6).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/multiagent-decision-engine.md",
+      "acceptance_criteria": [
+        "Decide modo com reason",
+        "Marca requires_human_approval quando risco alto"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§14",
+        "§40 Task 6"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-03"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-07",
+      "epic": "EPIC-5",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "AgentRegistry",
+      "description": "Registrar agentes internos §15 + capacidades e permissões (§40 Task 7).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/agent-registry.md",
+      "acceptance_criteria": [
+        "16 agentes registráveis",
+        "Permissões de tool por agente"
+      ],
+      "linked_requirements": [
+        "§15",
+        "§25",
+        "§40 Task 7"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-02"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-08",
+      "epic": "EPIC-5",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "AgentExecutor mock",
+      "description": "ExecutionProvider abstrato + LocalMockExecutionProvider retornando output estruturado (§26/§43/§40 Task 8).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/agent-executor-mock.md",
+      "acceptance_criteria": [
+        "Provider mock executa",
+        "Retorna ContextPatch estruturado"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§43",
+        "§40 Task 8"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-07"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-09",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "ContextPatch + ContextBus",
+      "description": "Pipeline de validação de 7 etapas (§19); aplica ou enfileira conflito (§40 Task 9).",
+      "assignee_type": "multi_agent",
+      "assignee": "BackendDevelopmentAgent",
+      "agents": [
+        "BackendDevelopmentAgent",
+        "SecurityAgent"
+      ],
+      "spec": "specs/context-patch-contextbus.md",
+      "acceptance_criteria": [
+        "Patch validado nas 7 etapas",
+        "Aplica e incrementa versão",
+        "Reprovado gera conflito e move card"
+      ],
+      "linked_requirements": [
+        "§18",
+        "§19",
+        "§40 Task 9"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-03"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-10",
+      "epic": "EPIC-6",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "ADRRegistry",
+      "description": "Criar e listar ADRs §21 (§40 Task 10).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/adr-registry.md",
+      "acceptance_criteria": [
+        "ADR criada e listada",
+        "Numeração sequencial",
+        "Superseded suportado"
+      ],
+      "linked_requirements": [
+        "§21",
+        "§40 Task 10"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-02"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-11",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "QualityGateEngine básico",
+      "description": "Validar critérios simples §22; gate falho bloqueia avanço (§40 Task 11).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/quality-gate-engine.md",
+      "acceptance_criteria": [
+        "Gate roda e retorna PASSED/FAILED",
+        "Falha bloqueia avanço",
+        "Gate falho pode gerar cards"
+      ],
+      "linked_requirements": [
+        "§22",
+        "§40 Task 11"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-03"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-12",
+      "epic": "EPIC-6",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "SnapshotEngine básico",
+      "description": "Gerar snapshot após gate aprovado; congelar seções §23 (§40 Task 12).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/snapshot-engine.md",
+      "acceptance_criteria": [
+        "Snapshot gerado após gate",
+        "Seções congeladas",
+        "Restore funcional"
+      ],
+      "linked_requirements": [
+        "§23",
+        "§40 Task 12"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-11"
+      ],
+      "evidence": "24 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-13",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "API mínima (FastAPI)",
+      "description": "Endpoints §28 núcleo conforme contracts/openapi.yaml (§40 Task 13).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/api-minimal.md",
+      "acceptance_criteria": [
+        "Endpoints de orchestration/board/cards/context/gates/snapshots/adrs",
+        "Aderente ao OpenAPI"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§40 Task 13"
+      ],
+      "linked_contracts": [
+        "contracts/openapi.yaml"
+      ],
+      "linked_adrs": [
+        "ADR-0005"
+      ],
+      "dependencies": [
+        "TASK-09",
+        "TASK-11",
+        "TASK-12"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-14",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "CLI mínima (Typer)",
+      "description": "Comandos §31 (aso init/run/status/board/resume/rollback/approve/agents/snapshots/adrs) (§40 Task 14).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/cli-minimal.md",
+      "acceptance_criteria": [
+        "aso run cria orquestração",
+        "aso board mostra cards",
+        "aso approve aprova ação"
+      ],
+      "linked_requirements": [
+        "§31",
+        "§40 Task 14"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-15",
+      "epic": "EPIC-8",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Observabilidade básica + docs",
+      "description": "Logs estruturados, EventLog, timeline; atualizar /docs (§33/§38/§40 Task 15).",
+      "assignee_type": "multi_agent",
+      "assignee": "DocumentationAgent",
+      "agents": [
+        "DevOpsAgent",
+        "DocumentationAgent"
+      ],
+      "spec": "specs/observability-basic.md",
+      "acceptance_criteria": [
+        "Logs com correlation IDs",
+        "Timeline exibível",
+        "/docs atualizado"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§38",
+        "§40 Task 15"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "48 testes verdes; ruff+mypy OK; cobertura 98%"
+    },
+    {
+      "id": "TASK-16",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Persistência (repository ports + SQLAlchemy adapter)",
+      "description": "Porta OrchestrationRepository + adapters in-memory e SQLAlchemy (SQLite/Postgres); estado sobrevive entre execuções.",
+      "assignee_type": "agent",
+      "assignee": "DatabaseAgent",
+      "spec": "specs/persistence.md",
+      "acceptance_criteria": [
+        "Domínio depende só da porta",
+        "Estado sobrevive a nova instância",
+        "SQLite em testes, JSONB no Postgres"
+      ],
+      "linked_requirements": [
+        "§29",
+        "§43"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0005",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-03",
+        "TASK-04",
+        "TASK-10",
+        "TASK-11",
+        "TASK-12"
+      ],
+      "evidence": "51 testes verdes; persistência entre processos comprovada"
+    },
+    {
+      "id": "TASK-17",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Normalização §29 + migrations Alembic",
+      "description": "Tabelas normalizadas por entidade (§29) no adapter SQLAlchemy; contexto em JSONB; migrations Alembic (revisão inicial + alembic check).",
+      "assignee_type": "agent",
+      "assignee": "DatabaseAgent",
+      "spec": "specs/persistence.md",
+      "acceptance_criteria": [
+        "11 tabelas normalizadas",
+        "alembic upgrade head cria o schema",
+        "alembic check = schema == modelos",
+        "repo opera com create_schema=False sobre banco migrado"
+      ],
+      "linked_requirements": [
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0005",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-16"
+      ],
+      "evidence": "51 testes verdes; alembic check limpo; 12 tabelas criadas por migration"
+    },
+    {
+      "id": "TASK-18",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Normalização estrita: tabelas de junção + índices + consultas",
+      "description": "card_links, adr_links, board_columns, planned_agents; índices e consultas (por status, links reversos); migration Alembic 0002.",
+      "assignee_type": "agent",
+      "assignee": "DatabaseAgent",
+      "spec": "specs/persistence.md",
+      "acceptance_criteria": [
+        "Coleções de valor em tabelas de junção",
+        "Índices criados",
+        "Consultas indexadas funcionais",
+        "Migration 0002 + alembic check limpo"
+      ],
+      "linked_requirements": [
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-17"
+      ],
+      "evidence": "55 testes verdes; 16 tabelas + 17 índices; alembic check limpo"
+    },
+    {
+      "id": "TASK-19",
+      "epic": "EPIC-8",
+      "type": "Task",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "CI/CD GitHub Actions",
+      "description": "Pipeline: ruff, mypy, pytest+cobertura≥80%, alembic check, bandit, pip-audit.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "acceptance_criteria": [
+        "Workflow roda todos os gates",
+        "cobertura mínima 80%"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§34",
+        "§42"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "CI verde local; bandit/pip-audit limpos; alembic check limpo"
+    },
+    {
+      "id": "TASK-20",
+      "epic": "EPIC-8",
+      "type": "Task",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Security scan (SAST+SCA)",
+      "description": "bandit (SAST) e pip-audit (SCA) no CI e local.",
+      "assignee_type": "agent",
+      "assignee": "SecurityAgent",
+      "acceptance_criteria": [
+        "bandit sem apontamentos",
+        "pip-audit sem vulnerabilidades"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§34",
+        "§42"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "CI verde local; bandit/pip-audit limpos; alembic check limpo"
+    },
+    {
+      "id": "TASK-21",
+      "epic": "EPIC-8",
+      "type": "Task",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Docs operacionais + deploy/rollback",
+      "description": "Runbook, plano de deploy/rollback, Dockerfile, changelog.",
+      "assignee_type": "agent",
+      "assignee": "DocumentationAgent",
+      "acceptance_criteria": [
+        "operations.md",
+        "deploy.md com rollback",
+        "Dockerfile + entrypoint",
+        "CHANGELOG.md"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§34",
+        "§42"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "CI verde local; bandit/pip-audit limpos; alembic check limpo"
+    },
+    {
+      "id": "TASK-22",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Camada de consulta (CQRS-lite): API + CLI",
+      "description": "Consultas indexadas expostas na porta, adapters, serviço, API (stats, by-status, linked-cards) e CLI (stats).",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/persistence.md",
+      "acceptance_criteria": [
+        "Consultas na porta + 2 adapters",
+        "Endpoints de leitura na API",
+        "Comando aso stats",
+        "Testes serviço/API/CLI"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-18",
+        "TASK-13",
+        "TASK-14"
+      ],
+      "evidence": "58 testes verdes; consulta indexada validada com persistência"
+    },
+    {
+      "id": "TASK-23",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Leituras adicionais + OpenAPI servido",
+      "description": "Filtros de cards, timeline paginada, busca de ADRs; OpenAPI em /docs,/openapi.json,/.",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "acceptance_criteria": [
+        "Filtros e paginação na API/CLI",
+        "OpenAPI servido"
+      ],
+      "linked_requirements": [
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0005"
+      ],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "68 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-24",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Observabilidade/métricas + SLOs + alertas",
+      "description": "MetricsService (por orq. e global), SLOs baseados em sintomas, regras de alerta; API/CLI.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "acceptance_criteria": [
+        "Métricas por orquestração e global",
+        "SLOs avaliados",
+        "Regras de alerta definidas"
+      ],
+      "linked_requirements": [
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "68 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-25",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Feedback → backlog",
+      "description": "POST /feedback e aso feedback criam card Improvement no Backlog; evento FeedbackReceived.",
+      "assignee_type": "agent",
+      "assignee": "ProductStrategyAgent",
+      "acceptance_criteria": [
+        "Feedback vira card",
+        "Evento registrado"
+      ],
+      "linked_requirements": [
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-13"
+      ],
+      "evidence": "68 testes verdes; ruff+mypy OK"
+    },
+    {
+      "id": "TASK-26",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Persistir gates/approvals + endpoints §28 (ciclo de vida, approvals)",
+      "description": "QualityGateResult e HumanApproval como entidades persistidas (migration 0003); endpoints quality-gates, conflicts, approvals (§28.7) e rollback/cancel/resume (§28.1); CLI approvals/approve/rollback.",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "specs/persistence.md",
+      "acceptance_criteria": [
+        "Gates e approvals persistidos e recarregados",
+        "Endpoints §28 restantes",
+        "Rollback via snapshot + ADR",
+        "Aprovação humana aprovar/rejeitar"
+      ],
+      "linked_requirements": [
+        "§22",
+        "§24",
+        "§28"
+      ],
+      "linked_adrs": [
+        "ADR-0003",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-18"
+      ],
+      "evidence": "72 testes verdes; migration 0003 + alembic check limpo"
+    },
+    {
+      "id": "TASK-27",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Docker Compose end-to-end (Postgres + API) + smoke no CI",
+      "description": "docker-compose sobe Postgres (healthcheck) + API (migrations no boot, healthcheck /health); scripts/smoke.sh; job smoke-docker no CI. Correção de ordem de FK no save para Postgres.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/deploy.md",
+      "acceptance_criteria": [
+        "docker compose up sobe a stack",
+        "migrations aplicadas no boot",
+        "/health saudável",
+        "smoke end-to-end verde no Postgres"
+      ],
+      "linked_requirements": [
+        "§34",
+        "§42"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-21",
+        "TASK-26"
+      ],
+      "evidence": "SMOKE OK contra Postgres real; alembic no entrypoint; FK order corrigida"
+    },
+    {
+      "id": "TASK-28",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Frontend web (SPA) consumindo API v1",
+      "description": "Console estático (dashboard, Kanban, timeline, ADRs, métricas/SLO) servido pela própria API em /ui — sem build Node.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "/ui servido",
+        "Kanban e timeline",
+        "criar/rodar orquestração pela UI"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§29",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-26"
+      ],
+      "evidence": "78 testes verdes; validado no Postgres via docker"
+    },
+    {
+      "id": "TASK-29",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Endpoints §28 restantes",
+      "description": "retry, snapshots/diff, cards assign-agent/move/block/unblock + comandos CLI.",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "retry reexecuta cards",
+        "diff de snapshots",
+        "operações de card"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§29",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-26"
+      ],
+      "evidence": "78 testes verdes; validado no Postgres via docker"
+    },
+    {
+      "id": "TASK-30",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Normalização de options_considered + listas planas",
+      "description": "adr_options, gate_criteria e value_items; correção da PK composta de adrs (colisão cross-orquestração); migration única regenerada.",
+      "assignee_type": "agent",
+      "assignee": "DatabaseAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "options/criteria/listas planas normalizadas",
+        "PK composta adrs",
+        "alembic check limpo",
+        "validado no Postgres"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§29",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-26"
+      ],
+      "evidence": "78 testes verdes; validado no Postgres via docker"
+    },
+    {
+      "id": "TASK-31",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "ContextPatch persistido + trilha de auditoria",
+      "description": "Tabela context_patches (§18); ContextBus registra todos os patches; endpoints /patches, /audit, POST /context-patches; migration incremental.",
+      "assignee_type": "agent",
+      "assignee": "BackendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "Patches persistidos e recarregados",
+        "Endpoint de auditoria",
+        "Submissão de patch via API"
+      ],
+      "linked_requirements": [
+        "§18",
+        "§28",
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0003",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-28",
+        "TASK-26"
+      ],
+      "evidence": "80 testes verdes; validado no Postgres via docker"
+    },
+    {
+      "id": "TASK-32",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Console web com design system + telas",
+      "description": "Mini design system (tokens/componentes) e abas: Kanban, ADRs, Approvals (aprovar/rejeitar), Snapshots (diff), Patches, Timeline.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "Design system aplicado",
+        "Telas de approvals/ADRs/diff/patches",
+        "Ações de aprovação na UI"
+      ],
+      "linked_requirements": [
+        "§18",
+        "§28",
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0003",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-28",
+        "TASK-26"
+      ],
+      "evidence": "80 testes verdes; validado no Postgres via docker"
+    },
+    {
+      "id": "TASK-33",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Autenticação por API key + RBAC + auditoria de ator",
+      "description": "AuthService (tokens via ASO_API_KEYS), papéis viewer/operator/admin, middleware RBAC, ator registrado (approved_by); endpoints críticos protegidos.",
+      "assignee_type": "agent",
+      "assignee": "SecurityAgent",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "Token exigido em produção",
+        "RBAC por papel",
+        "ator registrado nas aprovações",
+        "públicos: health/metrics/ui/docs"
+      ],
+      "linked_requirements": [
+        "§34",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-13",
+        "TASK-26"
+      ],
+      "evidence": "84 testes verdes; /metrics e smoke validados no Postgres via docker"
+    },
+    {
+      "id": "TASK-34",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Imagem versionada (GHCR) + /metrics Prometheus",
+      "description": "Workflow release.yml publica imagem no GHCR por tag; endpoint /metrics em formato de exposição Prometheus.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "release.yml build+push GHCR",
+        "/metrics em formato Prometheus",
+        "validado no Postgres"
+      ],
+      "linked_requirements": [
+        "§34",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-13",
+        "TASK-26"
+      ],
+      "evidence": "84 testes verdes; /metrics e smoke validados no Postgres via docker"
+    },
+    {
+      "id": "TASK-35",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Rate limiting + logging estruturado (correlation-id) + tracing OTel",
+      "description": "Gateway único: X-Request-ID por request, rate limit por IP (ASO_RATE_LIMIT), logs JSON via structlog com request_id/actor, spans OpenTelemetry opcionais (ASO_OTEL).",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "X-Request-ID em toda resposta",
+        "429 ao exceder limite",
+        "logs JSON com correlation-id",
+        "tracing OTel opcional"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§34"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-33"
+      ],
+      "evidence": "87 testes verdes; correlation-id/rate-limit/logs JSON validados no Postgres"
+    },
+    {
+      "id": "TASK-36",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Console: login por token + aba de auditoria com filtros",
+      "description": "Campo de token (Bearer) persistido; todas as chamadas autenticadas; aba Audit com resumo e filtro de patches por status.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "login por token no console",
+        "chamadas com Authorization",
+        "aba de auditoria + filtro de patches"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§34"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-33"
+      ],
+      "evidence": "87 testes verdes; correlation-id/rate-limit/logs JSON validados no Postgres"
+    },
+    {
+      "id": "TASK-37",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Leitura leve + paginação + agregação sem hidratar",
+      "description": "list_orchestrations e aggregate_metrics no repositório (COUNT/GROUP BY, sem hidratar aggregates); paginação em GET /v1/orchestrations (X-Total-Count) e timeline via events_page; índice em created_at.",
+      "assignee_type": "agent",
+      "assignee": "DatabaseAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "list_all não hidrata",
+        "métricas por agregação DB",
+        "paginação com total",
+        "índice created_at"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-18"
+      ],
+      "evidence": "91 testes verdes; paginação e /metrics agregado validados no Postgres"
+    },
+    {
+      "id": "TASK-38",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Cache de leitura (TTL) + testes de performance",
+      "description": "TTLCache para agregações (invalidado em escrita); testes de escala provando ausência de hidratação e paginação.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "cache TTL invalidado em escrita",
+        "testes de performance/escala verdes"
+      ],
+      "linked_requirements": [
+        "§28",
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-18"
+      ],
+      "evidence": "91 testes verdes; paginação e /metrics agregado validados no Postgres"
+    },
+    {
+      "id": "TASK-39",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Execução multiagente do plano (run_plan)",
+      "description": "run_plan executa os cards na ordem topológica de depends_on (workers antes do ReviewAgent); endpoint POST /run-plan.",
+      "assignee_type": "agent",
+      "assignee": "OrchestratorAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "ordem por dependências",
+        "ReviewAgent por último",
+        "endpoint run-plan"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§24"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-26"
+      ],
+      "evidence": "95 testes verdes; run-plan e approval→aplicação validados no Postgres"
+    },
+    {
+      "id": "TASK-40",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Fluxo requires_approval: pendente → aprovação → aplicação",
+      "description": "Patch com requires_approval fica PENDING e cria HumanApproval vinculada; aprovar aplica o patch (ContextBus.apply_approved); rejeitar mantém não aplicado.",
+      "assignee_type": "agent",
+      "assignee": "ConflictResolutionAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "patch pendente não aplica",
+        "aprovação vinculada ao patch",
+        "approve aplica",
+        "reject não aplica"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§24"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-26"
+      ],
+      "evidence": "95 testes verdes; run-plan e approval→aplicação validados no Postgres"
+    },
+    {
+      "id": "TASK-41",
+      "epic": "EPIC-3",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Kanban ligado à aprovação",
+      "description": "Card com patch pendente vai para Waiting Human; aprovar libera (Testing), rejeitar move para Blocked; aprovação vinculada ao card_id.",
+      "assignee_type": "agent",
+      "assignee": "UxPlanningAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "card em Waiting Human ao pender",
+        "approve libera",
+        "reject bloqueia"
+      ],
+      "linked_requirements": [
+        "§16",
+        "§20",
+        "§24"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-40"
+      ],
+      "evidence": "100 testes verdes; conflito de contrato + resolução validados no Postgres"
+    },
+    {
+      "id": "TASK-42",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "ConflictDetector avançado + ConflictResolutionAgent",
+      "description": "Contradição com ADR aceita (locked_paths, override via linked_adrs) e proteção de contrato (remoção/versão); resolve_conflict propõe resolução, escala e cria card ADRTask.",
+      "assignee_type": "agent",
+      "assignee": "ConflictResolutionAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "ARCHITECTURE_CONFLICT por locked_paths",
+        "override sancionado por ADR",
+        "CONTRACT_CONFLICT em remoção/versão",
+        "resolve escala + card"
+      ],
+      "linked_requirements": [
+        "§16",
+        "§20",
+        "§24"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-40"
+      ],
+      "evidence": "100 testes verdes; conflito de contrato + resolução validados no Postgres"
+    },
+    {
+      "id": "TASK-43",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Execução concorrente + AgentSupervisor (retry/nudge)",
+      "description": "run_plan em ondas topológicas com execução concorrente dos agentes (threads) e escrita serializada no ContextBus; AgentSupervisor com retry+nudge; falha terminal → card Failed.",
+      "assignee_type": "agent",
+      "assignee": "AgentSupervisor",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "ondas concorrentes",
+        "escrita serializada single-writer",
+        "retry/nudge",
+        "falha → Failed"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§15",
+        "§20"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-42"
+      ],
+      "evidence": "103 testes verdes; run-plan concorrente e UI validados no Postgres"
+    },
+    {
+      "id": "TASK-44",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Auto-detecção e auto-resolução de conflito",
+      "description": "Patch rejeitado aciona ConflictResolutionAgent automaticamente (escala + card ADRTask) e move o card para Blocked.",
+      "assignee_type": "agent",
+      "assignee": "ConflictResolutionAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "auto-resolução on reject",
+        "card Blocked",
+        "ADRTask criado"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§15",
+        "§20"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-42"
+      ],
+      "evidence": "103 testes verdes; run-plan concorrente e UI validados no Postgres"
+    },
+    {
+      "id": "TASK-45",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Console: aba de conflitos + badge de aprovações",
+      "description": "Aba Conflicts (listar/resolver) e badge de aprovações pendentes no cabeçalho da orquestração.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "aba de conflitos com resolver",
+        "badge de aprovações pendentes"
+      ],
+      "linked_requirements": [
+        "§13",
+        "§15",
+        "§20"
+      ],
+      "linked_adrs": [
+        "ADR-0002",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-42"
+      ],
+      "evidence": "103 testes verdes; run-plan concorrente e UI validados no Postgres"
+    },
+    {
+      "id": "TASK-46",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Provider CLI real + worktrees isolados (MVP-3)",
+      "description": "CliAgentExecutionProvider roda o agente CLI em worktree/branch isolado por card, coleta o diff e devolve AgentOutput; WorktreeManager (git worktree); seleção via ASO_CLI_COMMAND/ASO_TARGET_REPO.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "worktree/branch por card",
+        "diff coletado",
+        "branch principal intacta",
+        "seleção por env"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-43"
+      ],
+      "evidence": "107 testes verdes; worktree/diff reais + execution-metrics validados"
+    },
+    {
+      "id": "TASK-47",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Métricas de execução (duração/retries/falhas/waiting-human)",
+      "description": "Evento AgentExecuted com duração; execution-metrics por orquestração; counters aso_agent_retries_total/failures_total no /metrics Prometheus; painel no console.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "duração média por execução",
+        "retries/falhas agregados",
+        "waiting-human",
+        "gauges Prometheus + painel"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-43"
+      ],
+      "evidence": "107 testes verdes; worktree/diff reais + execution-metrics validados"
+    },
+    {
+      "id": "TASK-48",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Console ao vivo via SSE",
+      "description": "EventBroker in-process + endpoint SSE /events/stream; gateway publica tick por orquestração após cada mutação; console (EventSource) re-busca ao vivo, com indicador '● ao vivo' e token via query param.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "tick inicial na conexão",
+        "tick após mutação",
+        "console atualiza ao vivo",
+        "auth por query param para EventSource"
+      ],
+      "linked_requirements": [
+        "§30",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-45",
+        "TASK-33"
+      ],
+      "evidence": "109 testes verdes; SSE (tick 0 → tick 1 após run-plan) validado no Postgres"
+    },
+    {
+      "id": "TASK-49",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "PR/CI/Review observers (MVP-4)",
+      "description": "PullRequest do worktree do card (open-pr); report_ci/report_review realimentam o card (PR opened→Review, CI failed→Failed, changes→Review); provider CLI faz commit na branch.",
+      "assignee_type": "agent",
+      "assignee": "DevOpsAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "open-pr move card p/ Review",
+        "CI failed → Failed",
+        "review changes → Review",
+        "PR persistido"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§26A.6"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-46"
+      ],
+      "evidence": "112 testes verdes; merge governado (git real) + 409 sem CI/review validados no Postgres"
+    },
+    {
+      "id": "TASK-50",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Merge governado do worktree",
+      "description": "merge_pr exige CI passed + review approved (§26A.6); merge git real na branch base via WorktreeManager; card → Done; endpoint /merge exige papel admin.",
+      "assignee_type": "agent",
+      "assignee": "ReviewAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "merge bloqueado sem CI+review (409)",
+        "merge git real na base",
+        "card → Done",
+        "/merge = admin"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§26A.6"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-46"
+      ],
+      "evidence": "112 testes verdes; merge governado (git real) + 409 sem CI/review validados no Postgres"
+    },
+    {
+      "id": "TASK-51",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Candidatos CLI paralelos por card",
+      "description": "CandidateRunner executa múltiplos ExecutionProviders (agentes CLI) em worktrees/branches isolados via ThreadPoolExecutor (git-meta serializado por _GIT_META_LOCK), coleta e compara diffs e recomenda o menor diff válido; race_card no OrchestrationService; falha de um candidato não derruba os demais.",
+      "assignee_type": "agent",
+      "assignee": "ExecutionAgent",
+      "spec": "requerimentos.md §26A.6",
+      "acceptance_criteria": [
+        "N candidatos isolados por card",
+        "comparação de diffs recomenda o menor válido",
+        "merge governado do branch recomendado",
+        "falha de candidato isolada"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§26A.6"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-46",
+        "TASK-50"
+      ],
+      "evidence": "114 testes verdes; test_candidates.py (race + merge do recomendado + isolamento de falha)"
+    },
+    {
+      "id": "TASK-52",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Console: aba PRs",
+      "description": "Aba PRs (renderPulls) no console SPA + botão 'Abrir PR' por card do Kanban; abrir PR / reportar CI / reportar review / merge via UI, com merge bloqueado sinalizado ao usuário.",
+      "assignee_type": "agent",
+      "assignee": "UXAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "aba PRs lista PRs da orquestração",
+        "abrir PR a partir do card",
+        "CI/review/merge acionáveis pela UI",
+        "merge bloqueado sinalizado"
+      ],
+      "linked_requirements": [
+        "§26A.6",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-50"
+      ],
+      "evidence": "renderPulls servido em /ui (Docker/Postgres); validação ruff/mypy/pytest verde"
+    }
+  ]
+}

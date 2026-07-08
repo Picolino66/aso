@@ -1,0 +1,522 @@
+{
+  "orchestration_id": "orch-aso-runtime-0001",
+  "project_id": "proj-aso-runtime",
+  "created_at": "2026-07-02T00:00:00Z",
+  "updated_at": "2026-07-03T01:00:00Z",
+  "current_phase": "F7",
+  "phase_status": "F7 concluída — observabilidade/métricas, SLOs, alertas (regras) e feedback→backlog; pipeline F1–F7 fechado (O7). 2 avisos dependem de produção real (§7)",
+  "snapshot_version": "O7",
+  "last_stable_snapshot": "O7",
+  "execution_mode": "full-pipeline",
+
+  "product": {
+    "name": "ASO Runtime — Autonomous Software Orchestrator Runtime",
+    "domain": "Engenharia de software autônoma e orquestração multiagente (AgentOps / DevEx)",
+    "subdomains": [
+      "Orquestração multiagente",
+      "Governança de contexto e decisões (ADRs)",
+      "Kanban operacional como plano de execução",
+      "Runtime de execução de agentes (LLM providers + CLI agents)",
+      "Quality gates e snapshots",
+      "Observabilidade e auditoria"
+    ],
+    "personas": [
+      {
+        "id": "persona-tech-lead",
+        "nome": "Tech Lead / Desenvolvedor sênior orquestrador",
+        "descricao": "Conduz o desenvolvimento de um produto usando múltiplos agentes de código (Claude Code, Codex etc.) e precisa distribuir trabalho, evitar conflitos e manter o contexto global.",
+        "dores": [
+          "Agentes de código perdem contexto global do produto entre execuções",
+          "Decisões arquiteturais se perdem e são contrariadas por implementações",
+          "Difícil coordenar múltiplos agentes em paralelo sem conflitos",
+          "Falta de rastreabilidade entre requisito, decisão, código, teste e deploy"
+        ],
+        "objetivos": [
+          "Decompor demandas em tarefas rastreáveis num Kanban",
+          "Executar agentes em paralelo com isolamento (worktrees)",
+          "Garantir que decisões (ADRs) e contratos sejam respeitados"
+        ]
+      },
+      {
+        "id": "persona-plataforma",
+        "nome": "Engenheiro de Plataforma / Arquiteto",
+        "descricao": "Responsável por governança técnica, precisa impor quality gates, ADRs e aprovação humana para ações críticas.",
+        "dores": [
+          "Agentes alteram arquitetura, contratos ou escopo sem validação",
+          "Ausência de gates que bloqueiem avanço em estado inconsistente",
+          "Falta de auditoria de quem/qual agente executou o quê"
+        ],
+        "objetivos": [
+          "Impor governança de contexto soberano (ContextBus)",
+          "Bloquear avanço quando quality gate falha",
+          "Exigir aprovação humana em ações de alto risco"
+        ]
+      },
+      {
+        "id": "persona-eng-manager",
+        "nome": "Product/Engineering Manager agentic",
+        "descricao": "Acompanha o progresso da entrega ponta a ponta via Kanban, timeline e métricas de custo/execução.",
+        "dores": [
+          "Falta de visibilidade do estado real da execução dos agentes",
+          "Custo de tokens e execução sem rastreamento",
+          "Sem visão de bloqueios, aprovações pendentes e riscos"
+        ],
+        "objetivos": [
+          "Ver progresso por fase F1–F7 e por card",
+          "Acompanhar custo, agentes ativos e approvals pendentes"
+        ]
+      }
+    ],
+    "problems": [
+      "Ferramentas de agentes de código implementam tarefas mas não mantêm contexto global do produto",
+      "Decisões arquiteturais não são preservadas nem respeitadas",
+      "Conflitos entre múltiplos agentes atuando em paralelo",
+      "Ausência de organização de trabalho em Kanban rastreável",
+      "Falta de conexão entre discovery, arquitetura, contrato, UX, código, testes, deploy e operação",
+      "Ausência de quality gates que bloqueiem avanço",
+      "Falta de rastreabilidade requisito → decisão → task → implementação → teste → deploy",
+      "Agentes alterando contratos/arquitetura/escopo sem validação",
+      "Coordenação insegura de múltiplas tarefas paralelas",
+      "Falta de critério para decidir single-agent vs multi-agent, paralelo, handoff ou aprovação humana"
+    ],
+    "hypotheses": [
+      "Uma camada de governança soberana (ContextBus + snapshots + gates) permite coordenar múltiplos agentes sem degradação de consistência",
+      "O Kanban como plano de execução (não apenas visual) é suficiente para controlar operação de agentes",
+      "Um MultiAgentDecisionEngine consegue escolher a estratégia de execução adequada por demanda",
+      "É viável abstrair execução em ExecutionProvider e começar com mock antes de integrar CLI agents reais"
+    ],
+    "strategic_goals": [
+      "Entregar um runtime multiagente com governança ponta a ponta da ideia à produção",
+      "Rastreabilidade total e qualidade não negociável via quality gates",
+      "Independência de um único modelo/provider/CLI agent"
+    ],
+    "business_rules": [
+      "Nenhum agente altera o contexto canônico diretamente — apenas via ContextPatch validado pelo ContextBus",
+      "Não avançar de fase se o quality gate falhar",
+      "Ações de alto risco exigem aprovação humana",
+      "Todo trabalho executável vira card no Kanban com fase associada",
+      "Toda decisão arquitetural relevante gera ADR",
+      "Agentes CLI que alteram código rodam em worktree isolado",
+      "Toda execução deve ser rastreável (quem propôs, qual agente, requisito, ADR, task, teste, gate)"
+    ],
+    "mvp_hypothesis": "É possível criar uma orquestração que gera ExecutionPlan + OrchestratorContext + Kanban board, decide single vs multi-agent, executa ao menos um agente (simulado), produz ContextPatch validado pelo ContextBus, registra ADR, roda um quality gate simples, gera snapshot e exibe timeline — tudo sem executar código real ainda (MVP 1 — Core de governança).",
+    "mvp_scope": [
+      "OrchestratorRuntime + OrchestratorContext versionado",
+      "ExecutionPlan a partir de uma solicitação",
+      "Kanban básico (board, colunas, cards) com automação de movimento",
+      "AgentRegistry + AgentExecutor mock",
+      "MultiAgentDecisionEngine básico (single vs multi com justificativa)",
+      "ContextPatch + ContextBus (validação e aplicação)",
+      "ADRRegistry + QualityGateEngine básico + SnapshotEngine básico",
+      "API funcional e/ou UI simples + logs básicos"
+    ],
+    "metrics": [
+      { "nome": "Criar orquestração", "criterio": "É possível criar uma orquestração", "tipo": "aceite-mvp" },
+      { "nome": "Gerar ExecutionPlan", "criterio": "Sistema gera um ExecutionPlan válido", "tipo": "aceite-mvp" },
+      { "nome": "Contexto canônico", "criterio": "Sistema cria e versiona OrchestratorContext", "tipo": "aceite-mvp" },
+      { "nome": "Kanban por orquestração", "criterio": "Board e cards criados automaticamente", "tipo": "aceite-mvp" },
+      { "nome": "Decisão multiagente", "criterio": "Sistema decide single vs multi-agent com justificativa", "tipo": "aceite-mvp" },
+      { "nome": "Execução de agente", "criterio": "Pelo menos um agente (mock) executa e produz output estruturado", "tipo": "aceite-mvp" },
+      { "nome": "Patch governado", "criterio": "ContextBus valida e aplica ContextPatch", "tipo": "aceite-mvp" },
+      { "nome": "Governança de decisão", "criterio": "Sistema registra ao menos uma ADR", "tipo": "aceite-mvp" },
+      { "nome": "Quality gate", "criterio": "Sistema roda um quality gate simples", "tipo": "aceite-mvp" },
+      { "nome": "Snapshot", "criterio": "Sistema gera um snapshot após gate aprovado", "tipo": "aceite-mvp" },
+      { "nome": "Observabilidade mínima", "criterio": "Timeline e logs básicos exibidos", "tipo": "aceite-mvp" }
+    ],
+    "feedback_insights": [],
+    "evolution_backlog": [],
+    "strategy_update": null
+  },
+
+  "market": {
+    "landscape": "Ferramentas e frameworks de orquestração de agentes de código e workflows agentic em rápida evolução",
+    "competitors": [
+      "AgentWrapper / agent-orchestrator (referência operacional principal)",
+      "OpenAI Agents SDK",
+      "LangGraph",
+      "Microsoft Agent Framework"
+    ],
+    "positioning": "ASO Runtime se diferencia por unir governança de contexto soberano, Kanban como plano de execução e cobertura de ciclo completo F1–F7, em vez de apenas executar tarefas isoladas.",
+    "trends": [
+      "Execução paralela de agentes em worktrees isolados",
+      "Padrões multiagente (sequential, concurrent, handoff, group chat, magentic)",
+      "Workflows stateful com persistência e streaming",
+      "Roteamento multi-provider e multi-CLI-agent"
+    ]
+  },
+
+  "business": {
+    "model": "Ferramenta/produto de engenharia (runtime + UI + CLI); modelos SaaS/billing/marketplace estão fora do MVP 1",
+    "revenue_streams": [],
+    "value_proposition": "Governança e execução agentic ponta a ponta com rastreabilidade total e qualidade não negociável."
+  },
+
+  "requirements": {
+    "functional": [
+      "Criar e gerenciar orquestrações (F1–F7) em múltiplos modos de execução",
+      "Manter OrchestratorContext canônico versionado com snapshots O1–O7",
+      "Kanban operacional com colunas, swimlanes, tipos de card e automação por eventos",
+      "MultiAgentDecisionEngine para escolher estratégia de execução",
+      "AgentRegistry, AgentSupervisor, AgentRouter, AgentExecutor e adapters",
+      "ContextPatch + ContextBus com pipeline de validação em 7 etapas",
+      "ConflictDetector com catálogo de tipos de conflito",
+      "ADRRegistry, QualityGateEngine, SnapshotEngine, HumanApprovalEngine",
+      "ToolRegistry com permissões por agente",
+      "ExecutionProviders (Local mock, LocalCli, AgentWrapper futuro)",
+      "Configuração de múltiplos LLM providers e CLI agents (providers.yaml)",
+      "API mínima, UI mínima e CLI mínima",
+      "Observabilidade: traces, event log, custo, tokens, timeline, audit log"
+    ],
+    "non_functional": [
+      "Rastreabilidade bidirecional requisito → decisão → task → código → teste → deploy",
+      "Isolamento por projeto e por agente (worktrees)",
+      "Segurança: secrets protegidos, permissões por tool, aprovação humana para ações críticas",
+      "Limites de custo, iterações e tempo por execução",
+      "Determinismo no controle de fluxo (loops, gates, fan-out)",
+      "Todo entidade relevante com ID e timestamps"
+    ],
+    "constraints": [
+      "Não copiar o código do AgentWrapper no início — usar como referência operacional",
+      "Não acoplar ASO ao AgentWrapper no MVP 1",
+      "Implementar ExecutionProvider abstrato e mock antes de integração real",
+      "Documentação, UI e comentários de código em pt-BR"
+    ]
+  },
+
+  "scope": {
+    "included": [
+      "Multiagentes atuando em multitarefas com isolamento e controle central",
+      "Quadro Kanban como mecanismo de controle operacional",
+      "Orquestração ponta a ponta das 7 fases F1–F7",
+      "Governança de contexto, ADRs, gates, snapshots e aprovações",
+      "Configuração de múltiplos providers/CLI agents e roteamento",
+      "API, UI e CLI mínimas"
+    ],
+    "excluded": [
+      "SaaS multiempresa",
+      "Marketplace de agentes",
+      "Billing",
+      "Deploy automático em produção",
+      "Execução remota distribuída",
+      "Permissões avançadas por organização",
+      "Integração obrigatória com todos os agentes CLI",
+      "Fork profundo do AgentWrapper",
+      "UI complexa estilo Jira completo",
+      "Execução autônoma destrutiva",
+      "Alteração de secrets",
+      "Provisionamento cloud automático",
+      "Agentes modificando banco de produção"
+    ],
+    "boundaries": "MVP 1 foca no core de governança sem execução de código real. Execução real de código e integração com CLI agents evoluem nos MVPs 3–4.",
+    "phasing": [
+      "MVP 1 — Core de governança",
+      "MVP 2 — Multiagente real (sequencial, paralelo, supervisor, review, conflicts, approvals)",
+      "MVP 3 — Execution Plane (worktrees, terminal, git, testes, lint, build, PR opcional)",
+      "MVP 4 — Provider inspirado no AgentWrapper (adapters, PR/CI/review observers, nudge)",
+      "MVP 5 — Produto completo (F1–F7, UI completa, snapshots avançados, operação F7)"
+    ]
+  },
+
+  "feasibility": {
+    "verdict": "VIAVEL_COM_RISCOS",
+    "risks": [
+      { "id": "RISK-01", "descricao": "Complexidade de coordenar múltiplos agentes paralelos com consistência de contexto", "mitigacao": "ContextBus soberano + ConflictDetector + snapshots imutáveis; começar com mock" },
+      { "id": "RISK-02", "descricao": "Integração heterogênea com CLI agents (Claude Code, Codex, Aider) e adapters", "mitigacao": "AgentAdapter contract abstrato; adiar para MVP 3/4 após validar core" },
+      { "id": "RISK-03", "descricao": "Custo e limites de tokens em execuções longas", "mitigacao": "CostTracker, budgets por provider, CompressionEngine de contexto" },
+      { "id": "RISK-04", "descricao": "Escopo muito amplo (7 fases + Kanban + providers) levando a over-engineering", "mitigacao": "Roadmap incremental MVP 1→5; entregar core primeiro (§39 rule 1)" },
+      { "id": "RISK-05", "descricao": "Ações destrutivas de agentes (deploy, secrets, reset de banco)", "mitigacao": "HumanApprovalEngine obrigatório + worktree isolado + tools com permissão" }
+    ],
+    "constraints": [
+      "Sem execução de código real no MVP 1",
+      "Provider mock antes de provider real"
+    ]
+  },
+
+  "architecture": {
+    "pattern": "modular-monolith",
+    "style": "Clean/Hexagonal (Ports & Adapters) + DDD",
+    "services": [],
+    "boundaries": ["control", "kanban", "agents", "execution", "governance", "observability"],
+    "component_diagram": "docs/phases/F2-architecture.md",
+    "data_flows": [
+      "Agente -> ContextPatch -> ContextBus (validação 7 etapas) -> OrchestratorContext",
+      "Evento de runtime -> CardEventService -> automação de colunas do Kanban",
+      "Gate aprovado -> SnapshotEngine -> snapshot Ox"
+    ],
+    "communication_patterns": "Interfaces/eventos de domínio entre módulos; escrita no contexto somente via ContextBus",
+    "layer_map": {
+      "driving_adapters": ["api (FastAPI)", "cli (Typer)"],
+      "application": ["casos de uso por plane"],
+      "domain": ["control", "kanban", "agents", "execution", "governance", "observability"],
+      "driven_adapters": ["db (SQLAlchemy/Postgres)", "llm_providers (httpx)", "cli_agents (subprocess/pty)", "git (worktrees)"]
+    },
+    "module_responsibilities": [
+      { "module": "control", "responsibility": "OrchestratorRuntime, PhaseController, MultiAgentDecisionEngine, AgentSupervisor, AgentRouter, ExecutionPlanner, DependencyGraph, HumanApprovalEngine" },
+      { "module": "kanban", "responsibility": "Board, Card, Swimlane, dependências, assignment, eventos de card" },
+      { "module": "agents", "responsibility": "AgentRegistry, AgentSupervisor, AgentExecutor, AgentAdapterRegistry, SkillRegistry/Resolver, ToolPermissionEngine" },
+      { "module": "execution", "responsibility": "ExecutionProvider (Local/Mock, Cli, AgentWrapper), WorktreeManager, TerminalRuntime, PR/CI/Review observers" },
+      { "module": "governance", "responsibility": "OrchestratorContext, ContextBus, ContextPatchValidator, ConflictDetector, QualityGateEngine, ADRRegistry, SnapshotEngine, ContractValidator" },
+      { "module": "observability", "responsibility": "TraceService, EventLog, CostTracker, TokenUsageTracker, AgentRunTimeline, AuditLog" }
+    ],
+    "integration_contracts": [
+      { "name": "LLMProvider", "type": "http", "targets": ["deepseek", "openai", "anthropic", "local"], "note": "OpenAI-compatible + nativo" },
+      { "name": "AgentAdapter", "type": "process", "targets": ["claude_code", "codex", "aider"], "ref": "requerimentos.md §27" },
+      { "name": "WorktreeManager", "type": "process", "targets": ["git"] },
+      { "name": "CI/PR/Review observers", "type": "observer", "targets": ["ci", "pr", "review"], "status": "deferred (MVP 3-4)" }
+    ],
+    "external_dependencies": ["PostgreSQL 16", "LLM provider APIs", "git", "CLI agents locais"],
+    "infrastructure_strategy": {
+      "deployment": "local-first, processo único (API + workers asyncio)",
+      "containers": "Docker Compose para Postgres",
+      "scaling": "vertical primeiro; limites de concorrência configuráveis; sem execução remota distribuída no MVP"
+    },
+    "tech_stack": {
+      "language": "Python 3.12+",
+      "api": "FastAPI + Uvicorn",
+      "validation": "Pydantic v2",
+      "persistence": "PostgreSQL 16 (JSONB) + SQLAlchemy 2.x + Alembic",
+      "concurrency": "asyncio",
+      "llm_clients": ["httpx (OpenAI-compatible)", "anthropic SDK"],
+      "cli_agents": "subprocess/PTY via AgentAdapter",
+      "git": "git via subprocess (WorktreeManager)",
+      "cli": "Typer",
+      "tests": "pytest + pytest-asyncio + coverage",
+      "quality": "ruff + mypy",
+      "packaging": "pyproject.toml (src layout)",
+      "web_ui": "diferida (frontend separado consumindo a API)"
+    },
+    "security_model": {
+      "secrets": "env-only; nunca em texto puro; chave nunca exibida por inteiro",
+      "tool_permissions": "ToolPermissionEngine com allowlist por papel e requires_approval_for",
+      "human_approval": "obrigatório para ações críticas (§24)",
+      "isolation": "worktree/sandbox por agente que altera código; isolamento por projeto",
+      "io_validation": "Pydantic; outputs de agentes só via ContextPatch validado",
+      "threat_model": ["prompt/output injection -> validação de patch + gates", "command injection -> allowlist de tools", "secret leakage -> mascaramento + env-only + audit"],
+      "audit": "AuditLog append-only",
+      "limits": ["custo", "iterações", "tempo por execução", "concorrência"]
+    },
+    "distributed_config": null,
+    "async_config": { "runtime": "asyncio", "concurrency_limits": "configuráveis (§26A.10)" },
+    "scale_decisions": ["vertical-first", "extração de serviços apenas sob gargalo validado em F7"],
+    "reassessment_report": null,
+    "adrs": ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0004"]
+  },
+
+  "ux": {
+    "journeys": [
+      { "id": "J1", "name": "Criar orquestração", "persona": "persona-tech-lead", "channel": "CLI/API" },
+      { "id": "J2", "name": "Acompanhar execução no Kanban", "persona": "persona-eng-manager", "channel": "CLI/API" },
+      { "id": "J3", "name": "Aprovar ação crítica", "persona": "persona-plataforma", "channel": "CLI/API" },
+      { "id": "J4", "name": "Revisar decisão (ADRs)", "persona": "persona-plataforma", "channel": "CLI/API" },
+      { "id": "J5", "name": "Rollback de fase", "persona": "persona-plataforma", "channel": "CLI/API" }
+    ],
+    "wireframes": [],
+    "design_system": {},
+    "usability_issues": [],
+    "validated_journeys": ["J1", "J2", "J3", "J4", "J5"],
+    "accessibility_compliance": "n/a (UI web diferida no MVP-1; foco CLI/API)"
+  },
+
+  "contracts": {
+    "schemas": ["docs/domain-model.md"],
+    "api_version": "v1",
+    "api_spec": "contracts/openapi.yaml",
+    "dtos": ["CreateOrchestration", "Orchestration", "OrchestratorContext", "CreateCard", "KanbanCard", "ContextPatch", "Conflict", "QualityGateResult", "ADR", "HumanApproval"],
+    "consistency_model": "strong",
+    "transaction_boundaries": ["Escrita única no contexto via ContextBus com locks por target_keys", "Agregados por plane (control/kanban/agents/execution/governance/observability)"],
+    "concurrency_strategy": "asyncio + locks por target_keys no ContextBus; idempotência via Idempotency-Key",
+    "versioning": "path-based /v1; mudança incompatível => /v2 + atualização de consumidores; migrations Alembic"
+  },
+
+  "engineering": {
+    "project_structure": "src/aso/{control,kanban,agents,execution,governance,observability,shared,api,cli,db}",
+    "governance_rules": { "dependency_rule": "aponta para dentro (Clean Architecture)", "context_writes": "somente via ContextBus" },
+    "patterns_applied": ["Modular Monolith", "Hexagonal (Ports & Adapters)", "DDD", "Event-driven (Kanban automation)"],
+    "cicd_config": "",
+    "quality_thresholds": { "coverage": 80, "critical_lint_violations": 0 },
+    "module_map": {
+      "shared": [],
+      "governance": ["shared"],
+      "kanban": ["shared"],
+      "observability": ["shared"],
+      "agents": ["shared", "governance"],
+      "execution": ["shared", "agents"],
+      "control": ["shared", "governance", "kanban", "agents", "execution", "observability"],
+      "api": ["control"],
+      "cli": ["control"]
+    },
+    "feature_breakdown": ["EPIC-1", "EPIC-2", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-6", "EPIC-7", "EPIC-8"],
+    "backlog": [
+      { "id": "TASK-01", "epic": "EPIC-1", "title": "Estrutura base + tooling", "spec": "specs/project-setup.md", "priority": "critical", "depends_on": [] },
+      { "id": "TASK-02", "epic": "EPIC-2", "title": "Modelos de domínio", "spec": "specs/domain-models.md", "priority": "critical", "depends_on": ["TASK-01"] },
+      { "id": "TASK-03", "epic": "EPIC-2", "title": "OrchestratorContext versionado", "spec": "specs/orchestrator-context.md", "priority": "critical", "depends_on": ["TASK-02"] },
+      { "id": "TASK-04", "epic": "EPIC-3", "title": "Kanban básico + automação", "spec": "specs/kanban.md", "priority": "high", "depends_on": ["TASK-02"] },
+      { "id": "TASK-05", "epic": "EPIC-4", "title": "ExecutionPlan", "spec": "specs/execution-plan.md", "priority": "high", "depends_on": ["TASK-03"] },
+      { "id": "TASK-06", "epic": "EPIC-4", "title": "MultiAgentDecisionEngine", "spec": "specs/multiagent-decision-engine.md", "priority": "high", "depends_on": ["TASK-03"] },
+      { "id": "TASK-07", "epic": "EPIC-5", "title": "AgentRegistry", "spec": "specs/agent-registry.md", "priority": "high", "depends_on": ["TASK-02"] },
+      { "id": "TASK-08", "epic": "EPIC-5", "title": "AgentExecutor mock", "spec": "specs/agent-executor-mock.md", "priority": "high", "depends_on": ["TASK-07"] },
+      { "id": "TASK-09", "epic": "EPIC-6", "title": "ContextPatch + ContextBus", "spec": "specs/context-patch-contextbus.md", "priority": "critical", "depends_on": ["TASK-03"] },
+      { "id": "TASK-10", "epic": "EPIC-6", "title": "ADRRegistry", "spec": "specs/adr-registry.md", "priority": "high", "depends_on": ["TASK-02"] },
+      { "id": "TASK-11", "epic": "EPIC-6", "title": "QualityGateEngine", "spec": "specs/quality-gate-engine.md", "priority": "critical", "depends_on": ["TASK-03"] },
+      { "id": "TASK-12", "epic": "EPIC-6", "title": "SnapshotEngine", "spec": "specs/snapshot-engine.md", "priority": "high", "depends_on": ["TASK-11"] },
+      { "id": "TASK-13", "epic": "EPIC-7", "title": "API mínima", "spec": "specs/api-minimal.md", "priority": "medium", "depends_on": ["TASK-09", "TASK-11", "TASK-12"] },
+      { "id": "TASK-14", "epic": "EPIC-7", "title": "CLI mínima", "spec": "specs/cli-minimal.md", "priority": "medium", "depends_on": ["TASK-13"] },
+      { "id": "TASK-15", "epic": "EPIC-8", "title": "Observabilidade + docs", "spec": "specs/observability-basic.md", "priority": "medium", "depends_on": ["TASK-13"] }
+    ],
+    "priorities": ["EPIC-1", "EPIC-2", "EPIC-6", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-7", "EPIC-8"],
+    "test_coverage_threshold": 80,
+    "coverage_report": { "tests": 114, "coverage": "95.72%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6) + aba PRs no console + métricas de execução + SSE + ConflictDetector avançado + persistência normalizada + §28 + console + auth/RBAC + observabilidade + performance + docker e2e (Postgres)" },
+    "cards_done": ["TASK-01", "TASK-02", "TASK-03", "TASK-04", "TASK-05", "TASK-06", "TASK-07", "TASK-08", "TASK-09", "TASK-10", "TASK-11", "TASK-12", "TASK-13", "TASK-14", "TASK-15", "TASK-16", "TASK-17", "TASK-18", "TASK-19", "TASK-20", "TASK-21", "TASK-22"],
+    "increments_post_o5": [
+      "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
+      "TASK-17 — Normalização §29 (tabelas por entidade) + migrations Alembic (alembic check limpo)",
+      "TASK-18 — Normalização estrita (tabelas de junção card_links/adr_links/board_columns/planned_agents) + índices + consultas + migration 0002",
+      "TASK-19/20/21 — F6: CI/CD GitHub Actions, segurança (bandit/pip-audit), docs operacionais + deploy/rollback + Dockerfile",
+      "TASK-22 — Camada de consulta CQRS-lite exposta em API e CLI",
+      "TASK-23 — Leituras adicionais: filtros de cards, timeline paginada, busca de ADRs, OpenAPI servido",
+      "TASK-24 — F7: observabilidade/métricas + SLOs + regras de alerta",
+      "TASK-25 — F7: feedback → backlog (card Improvement)",
+      "TASK-26 — Persistência de gates/approvals (migration 0003) + endpoints §28 (approvals, rollback/cancel/resume, quality-gates, conflicts)",
+      "TASK-27 — Docker Compose e2e (Postgres+API, migrations no boot, /health) + smoke no CI; correção de ordem de FK no save para Postgres",
+      "TASK-28 — Frontend web (SPA) servido em /ui consumindo a API v1 (dashboard, Kanban, timeline, ADRs, métricas)",
+      "TASK-29 — Endpoints §28 restantes (retry, snapshots/diff, cards assign-agent/move/block/unblock) + CLI",
+      "TASK-30 — Normalização de options_considered/gate criteria/listas planas (adr_options, gate_criteria, value_items) + PK composta de adrs; migration única regenerada",
+      "TASK-31 — ContextPatch persistido (tabela context_patches) + trilha de auditoria (/patches, /audit, POST /context-patches); migration incremental",
+      "TASK-32 — Console web com mini design system e telas de Kanban/ADRs/Approvals/Snapshots(diff)/Patches/Timeline",
+      "TASK-33 — Autenticação por API key + RBAC (viewer/operator/admin) + auditoria de ator (approved_by); endpoints críticos protegidos",
+      "TASK-34 — Imagem versionada publicada no GHCR (release.yml por tag) + /metrics em formato Prometheus",
+      "TASK-35 — Gateway: rate limiting (ASO_RATE_LIMIT), logging estruturado JSON com correlation-id (structlog) e tracing OpenTelemetry opcional (ASO_OTEL)",
+      "TASK-36 — Console: login por token (Bearer) + aba de auditoria com filtro de patches por status",
+      "TASK-37 — Leitura leve (list_orchestrations) + agregação de métricas via DB (COUNT/GROUP BY) + paginação (X-Total-Count) + events_page + índice created_at",
+      "TASK-38 — Cache de leitura TTL (invalidado em escrita) + testes de performance/escala",
+      "TASK-39 — MVP-2: execução multiagente do plano (run_plan por ordem topológica de dependências) + endpoint /run-plan",
+      "TASK-40 — MVP-2: fluxo requires_approval (patch PENDING → HumanApproval vinculada → apply_approved ao aprovar)",
+      "TASK-41 — Kanban ligado à aprovação: card → Waiting Human ao pender; approve libera (Testing), reject bloqueia",
+      "TASK-42 — ConflictDetector avançado (contradição com ADR aceita via locked_paths; proteção de contrato) + ConflictResolutionAgent (resolve_conflict escala + card ADRTask)",
+      "TASK-43 — Execução concorrente (run_plan em ondas topológicas, agentes concorrentes + escrita serializada) + AgentSupervisor (retry/nudge; falha → Failed)",
+      "TASK-44 — Auto-detecção/auto-resolução de conflito (patch rejeitado → ConflictResolutionAgent + card Blocked + ADRTask)",
+      "TASK-45 — Console: aba de conflitos (listar/resolver) + badge de aprovações pendentes",
+      "TASK-46 — MVP-3: CliAgentExecutionProvider (worktree/branch isolado por card + coleta de diff) + WorktreeManager; seleção por ASO_CLI_COMMAND/ASO_TARGET_REPO",
+      "TASK-47 — Métricas de execução (duração/retries/falhas/waiting-human): execution-metrics + counters Prometheus + painel",
+      "TASK-48 — Console ao vivo via SSE (EventBroker + /events/stream + EventSource; tick por mutação)",
+      "TASK-49 — MVP-4: PR/CI/Review observers (open-pr + report_ci/report_review realimentam o card); provider CLI faz commit na branch",
+      "TASK-50 — Merge governado do worktree (exige CI passed + review approved; merge git real; card → Done; /merge = admin)",
+      "TASK-51 — Candidatos CLI paralelos por card (§26A.6): CandidateRunner executa múltiplos providers em worktrees isolados (ThreadPoolExecutor + _GIT_META_LOCK), coleta/compara diffs e recomenda o menor válido; race_card no service; falha de candidato isolada",
+      "TASK-52 — Console: aba PRs (renderPulls) + botão 'Abrir PR' por card; open-pr/report_ci/report_review/merge via UI (merge bloqueado sinalizado)"
+    ],
+    "maintenance_log": []
+  },
+
+  "agentic": {
+    "project_structure": {
+      "docs/": "documentação canônica (fonte de verdade)",
+      "docs/adrs/": "ADR-0001..0005",
+      "docs/phases/": "F1-discovery, F2-architecture, F3-contracts, F4-planning",
+      "specs/": "15 specs (MVP-1) + README",
+      "tasks/": "backlog executável (README)",
+      "agents/": "mapa de agentes/ownership (README)",
+      "skills/": "mapa de skills (README)",
+      "contracts/": "openapi.yaml (v1)",
+      ".aso/": "estado do runtime: context, snapshots, quality-gates, kanban"
+    },
+    "docs_map": {
+      "docs/index.md": "Índice geral",
+      "docs/requirements.md": "Resumo de requisitos (fonte: requerimentos.md)",
+      "docs/architecture.md": "Resumo de arquitetura (F2)",
+      "docs/domain-model.md": "Modelo de domínio (F3)",
+      "docs/api.md": "Catálogo de API v1 (F3)",
+      "docs/kanban.md": "Kanban (F4)",
+      "docs/agents.md": "Agentes (F4)",
+      "docs/context.md": "OrchestratorContext e ContextBus",
+      "docs/quality-gates.md": "Quality gates F1–F7",
+      "docs/snapshots.md": "Snapshots O1–O7",
+      "docs/mvp/mvp-1.md": "Escopo do MVP-1",
+      "docs/phases/F1-discovery.md": "F1",
+      "docs/phases/F2-architecture.md": "F2",
+      "docs/phases/F3-contracts.md": "F3",
+      "docs/phases/F4-planning.md": "F4"
+    },
+    "specs_map": {
+      "TASK-01": "specs/project-setup.md", "TASK-02": "specs/domain-models.md", "TASK-03": "specs/orchestrator-context.md",
+      "TASK-04": "specs/kanban.md", "TASK-05": "specs/execution-plan.md", "TASK-06": "specs/multiagent-decision-engine.md",
+      "TASK-07": "specs/agent-registry.md", "TASK-08": "specs/agent-executor-mock.md", "TASK-09": "specs/context-patch-contextbus.md",
+      "TASK-10": "specs/adr-registry.md", "TASK-11": "specs/quality-gate-engine.md", "TASK-12": "specs/snapshot-engine.md",
+      "TASK-13": "specs/api-minimal.md", "TASK-14": "specs/cli-minimal.md", "TASK-15": "specs/observability-basic.md"
+    },
+    "tasks_workflow": { "board": ".aso/kanban/board.json", "index": "tasks/README.md", "order": "respeita depends_on" },
+    "agents_map": { "index": "agents/README.md", "detail": "docs/agents.md", "count": 16 },
+    "skills_map": { "index": "skills/README.md" },
+    "traceability_rules": [
+      "requisito → ADR → spec → task/card → implementação → teste → gate → snapshot",
+      "todo card referencia linked_requirements, linked_adrs, linked_contracts e spec",
+      "toda spec referencia requisito e ADRs; todo teste referencia critério de aceite"
+    ],
+    "initial_adrs_recommended": [
+      "ADR-0001 — Arquitetura do runtime (ACCEPTED)",
+      "ADR-0002 — Kanban como plano de execução (ACCEPTED)",
+      "ADR-0003 — ContextBus como governança soberana (ACCEPTED)",
+      "ADR-0004 — Stack Python (ACCEPTED)",
+      "ADR-0005 — Consistência de dados e versionamento de API (ACCEPTED)"
+    ]
+  },
+
+  "quality": {
+    "gates_passed": ["F1", "F2", "F3", "F4", "F5", "F6", "F7"],
+    "gates_failed": [],
+    "test_results": null,
+    "coverage_report": null,
+    "security_report": null,
+    "qa_report": null
+  },
+
+  "operations": {
+    "deployment_record": { "strategy": "docker compose (Postgres + API), alembic upgrade no boot", "plan": "docs/deploy.md", "status": "validado localmente com Postgres real (smoke OK); deploy em produção fora do MVP §7" },
+    "smoke_test_results": { "api": "GET /v1/orchestrations 200", "cli": "aso run OK", "docker_e2e": "scripts/smoke.sh contra Postgres: SMOKE OK" },
+    "observability_config": { "metrics": "MetricsService", "events": "EventLog", "timeline": "por orquestração", "endpoints": ["/v1/metrics", "/v1/orchestrations/{id}/metrics", "/slo"] },
+    "slos": [
+      { "name": "sem_conflitos_abertos", "target": 0 },
+      { "name": "sem_cards_bloqueados", "target": 0 },
+      { "name": "snapshot_da_fase_gerado", "target": "!= O0" }
+    ],
+    "alerts": [
+      { "name": "conflito_aberto", "condition": "SLO sem_conflitos_abertos em breach", "severity": "high" },
+      { "name": "card_bloqueado", "condition": "SLO sem_cards_bloqueados em breach", "severity": "medium" },
+      { "name": "fase_sem_snapshot", "condition": "SLO snapshot_da_fase_gerado em breach", "severity": "low" }
+    ],
+    "runbooks": ["docs/operations.md", "docs/deploy.md"],
+    "incidents": [],
+    "cost_optimization_report": null
+  },
+
+  "kanban": {},
+
+  "adrs": [
+    { "id": "ADR-0001", "title": "Arquitetura do runtime: Modular Monolith + Hexagonal", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0001-runtime-architecture.md" },
+    { "id": "ADR-0002", "title": "Kanban como plano de execução", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0002-kanban-as-execution-plane.md" },
+    { "id": "ADR-0003", "title": "ContextBus como governança soberana do contexto", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0003-contextbus-governance.md" },
+    { "id": "ADR-0004", "title": "Stack de implementação: Python", "status": "ACCEPTED", "phase": "F2", "supersedes": "requerimentos.md §37 (TS monorepo)", "file": "docs/adrs/ADR-0004-tech-stack-python.md" },
+    { "id": "ADR-0005", "title": "Consistência de dados e versionamento de API", "status": "ACCEPTED", "phase": "F3", "file": "docs/adrs/ADR-0005-data-consistency-and-api-versioning.md" },
+    { "id": "ADR-0006", "title": "Persistência via repository ports + adapters (SQLAlchemy)", "status": "ACCEPTED", "phase": "F5", "override": "estende engineering congelada em O5", "file": "docs/adrs/ADR-0006-persistence-repository-adapters.md" }
+  ],
+  "snapshots": [
+    { "snapshot_version": "O1", "phase": "F1", "created_at": "2026-07-02T00:00:00Z" },
+    { "snapshot_version": "O2", "phase": "F2", "created_at": "2026-07-02T01:00:00Z" },
+    { "snapshot_version": "O3", "phase": "F3", "created_at": "2026-07-02T02:00:00Z" },
+    { "snapshot_version": "O4", "phase": "F4", "created_at": "2026-07-02T03:00:00Z" },
+    { "snapshot_version": "O5", "phase": "F5", "created_at": "2026-07-02T06:00:00Z" },
+    { "snapshot_version": "O6", "phase": "F6", "created_at": "2026-07-03T00:00:00Z" },
+    { "snapshot_version": "O7", "phase": "F7", "created_at": "2026-07-03T01:00:00Z" }
+  ],
+  "conflicts": [],
+  "approvals": [],
+
+  "orchestration": {
+    "external_skills_activated": []
+  },
+
+  "metadata": {
+    "source_requirements": "requerimentos.md",
+    "language": "pt-BR",
+    "orchestrator_skill": "autonomous-software-orchestrator"
+  }
+}

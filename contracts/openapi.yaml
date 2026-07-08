@@ -1,0 +1,292 @@
+openapi: 3.0.3
+info:
+  title: ASO Runtime API
+  version: "1.0.0"
+  description: >
+    Contrato v1 (núcleo MVP-1) do ASO Runtime — Autonomous Software Orchestrator Runtime.
+    Superfície completa catalogada em docs/api.md. Consistência forte; idempotência em criações.
+servers:
+  - url: /v1
+tags:
+  - name: orchestrations
+  - name: kanban
+  - name: agents
+  - name: governance
+
+paths:
+  /orchestrations:
+    get:
+      tags: [orchestrations]
+      summary: Lista orquestrações
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/OrchestrationPage" } } } }
+    post:
+      tags: [orchestrations]
+      summary: Cria orquestração e gera ExecutionPlan + contexto + board
+      parameters:
+        - { in: header, name: Idempotency-Key, schema: { type: string }, required: false }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateOrchestration" } } }
+      responses:
+        "201": { description: Criada, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /orchestrations/{id}:
+    get:
+      tags: [orchestrations]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /orchestrations/{id}/context:
+    get:
+      tags: [orchestrations]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: Contexto canônico versionado, content: { application/json: { schema: { $ref: "#/components/schemas/OrchestratorContext" } } } }
+
+  /orchestrations/{id}/rollback:
+    post:
+      tags: [orchestrations]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [to_snapshot], properties: { to_snapshot: { type: string, example: "O3" } } } } }
+      responses:
+        "202": { description: Rollback iniciado (gera ADR de rollback) }
+
+  /boards/{id}/cards:
+    get:
+      tags: [kanban]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/KanbanCard" } } } } }
+    post:
+      tags: [kanban]
+      parameters: [ { $ref: "#/components/parameters/Id" }, { in: header, name: Idempotency-Key, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/CreateCard" } } }
+      responses:
+        "201": { description: Card criado, content: { application/json: { schema: { $ref: "#/components/schemas/KanbanCard" } } } }
+
+  /cards/{id}/move:
+    post:
+      tags: [kanban]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [to_column], properties: { to_column: { $ref: "#/components/schemas/ColumnKey" } } } } }
+      responses:
+        "200": { description: Movido, content: { application/json: { schema: { $ref: "#/components/schemas/KanbanCard" } } } }
+
+  /context-patches:
+    post:
+      tags: [governance]
+      summary: Submete um ContextPatch ao ContextBus (pipeline de 7 etapas)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ContextPatch" } } }
+      responses:
+        "200":
+          description: Resultado do ContextBus
+          content: { application/json: { schema: { type: object, properties: { status: { type: string, enum: [applied, rejected, queued_conflict] }, conflict: { $ref: "#/components/schemas/Conflict" } } } } }
+
+  /orchestrations/{id}/quality-gates/run:
+    post:
+      tags: [governance]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [phase], properties: { phase: { type: string, example: "F3" } } } } }
+      responses:
+        "200": { description: Resultado do gate, content: { application/json: { schema: { $ref: "#/components/schemas/QualityGateResult" } } } }
+
+  /orchestrations/{id}/adrs:
+    post:
+      tags: [governance]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/ADR" } } }
+      responses:
+        "201": { description: ADR criada, content: { application/json: { schema: { $ref: "#/components/schemas/ADR" } } } }
+
+  /approvals/{id}/approve:
+    post:
+      tags: [governance]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: Aprovado, content: { application/json: { schema: { $ref: "#/components/schemas/HumanApproval" } } } }
+
+components:
+  parameters:
+    Id:
+      in: path
+      name: id
+      required: true
+      schema: { type: string }
+  responses:
+    Error:
+      description: Erro
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+    ColumnKey:
+      type: string
+      enum: [Backlog, Ready, Planning, InProgress, WaitingAgent, WaitingHuman, Review, Testing, Blocked, Failed, Done, Archived]
+    ExecutionMode:
+      type: string
+      enum: [full-pipeline, feature-evolution, architecture-review, code-execution, incident-response, phase-resume]
+    Phase:
+      type: string
+      enum: [F1, F2, F3, F4, F5, F6, F7]
+    CreateOrchestration:
+      type: object
+      required: [project_id, user_request]
+      properties:
+        project_id: { type: string }
+        user_request: { type: string }
+        execution_mode: { $ref: "#/components/schemas/ExecutionMode" }
+    Orchestration:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string }
+        execution_mode: { $ref: "#/components/schemas/ExecutionMode" }
+        current_phase: { $ref: "#/components/schemas/Phase" }
+        snapshot_version: { type: string, example: "O2" }
+        status: { type: string, enum: [created, running, blocked, waiting_human, completed, cancelled, rolled_back] }
+        user_request: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    OrchestrationPage:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Orchestration" } }
+        total: { type: integer }
+        page: { type: integer }
+        page_size: { type: integer }
+    OrchestratorContext:
+      type: object
+      properties:
+        id: { type: string }
+        orchestration_id: { type: string }
+        version: { type: integer }
+        current_phase: { $ref: "#/components/schemas/Phase" }
+        snapshot_version: { type: string }
+        payload: { type: object, description: "Estrutura canônica §17 (product, architecture, contracts, ...)" }
+        context_hash: { type: string }
+    CreateCard:
+      type: object
+      required: [type, title, phase]
+      properties:
+        type: { $ref: "#/components/schemas/CardType" }
+        title: { type: string }
+        description: { type: string }
+        phase: { $ref: "#/components/schemas/Phase" }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        acceptance_criteria: { type: array, items: { type: string } }
+    CardType:
+      type: string
+      enum: [Epic, Feature, Task, Bug, TechDebt, ADRTask, Research, Review, Test, Documentation, Deploy, Incident, Improvement]
+    KanbanCard:
+      type: object
+      properties:
+        id: { type: string }
+        board_id: { type: string }
+        orchestration_id: { type: string }
+        phase: { $ref: "#/components/schemas/Phase" }
+        type: { $ref: "#/components/schemas/CardType" }
+        title: { type: string }
+        description: { type: string }
+        status: { $ref: "#/components/schemas/ColumnKey" }
+        priority: { type: string, enum: [low, medium, high, critical] }
+        assignee_type: { type: string, enum: [human, agent, multi_agent] }
+        assignee: { type: string, nullable: true }
+        dependencies: { type: array, items: { type: string } }
+        blocked_by: { type: array, items: { type: string } }
+        acceptance_criteria: { type: array, items: { type: string } }
+        linked_adrs: { type: array, items: { type: string } }
+        worktree: { type: string, nullable: true }
+        branch: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ContextPatch:
+      type: object
+      required: [orchestration_id, agent, phase, patch_type, target_path]
+      properties:
+        id: { type: string }
+        orchestration_id: { type: string }
+        card_id: { type: string, nullable: true }
+        agent: { type: string }
+        phase: { $ref: "#/components/schemas/Phase" }
+        patch_type: { type: string, enum: [add, update, propose, remove] }
+        target_path: { type: string, example: "architecture.modules.pdf" }
+        content: { type: object }
+        evidence: { type: array, items: { type: string } }
+        risks: { type: array, items: { type: string } }
+        requires_adr: { type: boolean }
+        requires_approval: { type: boolean }
+    Conflict:
+      type: object
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [ARCHITECTURE_CONFLICT, CONTRACT_CONFLICT, SECURITY_CONFLICT, DATA_MODEL_CONFLICT, SCOPE_CONFLICT, SNAPSHOT_LOCK_CONFLICT, QUALITY_GATE_CONFLICT, TOOL_PERMISSION_CONFLICT, AGENT_OUTPUT_CONFLICT, KANBAN_DEPENDENCY_CONFLICT, PR_CONFLICT, CI_CONFLICT, REVIEW_CONFLICT]
+        description: { type: string }
+        status: { type: string, enum: [open, resolved, escalated] }
+    QualityGateResult:
+      type: object
+      properties:
+        id: { type: string }
+        orchestration_id: { type: string }
+        phase: { $ref: "#/components/schemas/Phase" }
+        status: { type: string, enum: [PASSED, FAILED, WARNING] }
+        criteria:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              status: { type: string, enum: [PASSED, FAILED] }
+              evidence: { type: array, items: { type: string } }
+              failure_reason: { type: string, nullable: true }
+        blocking_issues: { type: array, items: { type: string } }
+        warnings: { type: array, items: { type: string } }
+    ADR:
+      type: object
+      properties:
+        id: { type: string, example: "ADR-0001" }
+        title: { type: string }
+        status: { type: string, enum: [proposed, accepted, superseded, rejected, deprecated] }
+        context: { type: string }
+        options_considered: { type: array, items: { type: object } }
+        decision: { type: string }
+        rationale: { type: string }
+        tradeoffs: { type: array, items: { type: string } }
+        consequences: { type: array, items: { type: string } }
+        phase: { $ref: "#/components/schemas/Phase" }
+    HumanApproval:
+      type: object
+      properties:
+        id: { type: string }
+        orchestration_id: { type: string }
+        card_id: { type: string, nullable: true }
+        requested_by_agent: { type: string }
+        action: { type: string }
+        risk: { type: string, enum: [medium, high, critical] }
+        reason: { type: string }
+        status: { type: string, enum: [pending, approved, rejected] }

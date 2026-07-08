@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "O3",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F3",
+  "snapshot_version": "O3",
+  "timestamp": "2026-07-02T02:00:00Z",
+  "frozen_sections": ["contracts"],
+  "context_hash": "f3-contracts-aso-runtime",
+  "quality_gate_result_id": "gate-F3-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": [
+      "schema_versioned",
+      "openapi_complete",
+      "consistency_model_with_adr",
+      "transaction_boundaries_mapped",
+      "no_undefined_fields"
+    ],
+    "timestamp": "2026-07-02T02:00:00Z"
+  },
+  "adrs": ["ADR-0005"],
+  "cards": []
+}

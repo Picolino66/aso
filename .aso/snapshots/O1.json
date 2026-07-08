@@ -1,0 +1,24 @@
+{
+  "snapshot_id": "O1",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F1",
+  "snapshot_version": "O1",
+  "timestamp": "2026-07-02T00:00:00Z",
+  "frozen_sections": ["product", "market", "business", "requirements", "scope", "feasibility"],
+  "context_hash": "f1-discovery-aso-runtime",
+  "quality_gate_result_id": "gate-F1-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": [
+      "personas_min_2",
+      "mvp_hypothesis_validated",
+      "scope_explicit_boundaries",
+      "success_metrics_measurable",
+      "feasibility_viable_with_risks"
+    ],
+    "timestamp": "2026-07-02T00:00:00Z"
+  },
+  "adrs": [],
+  "cards": []
+}

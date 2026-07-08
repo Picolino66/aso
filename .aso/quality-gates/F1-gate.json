@@ -1,0 +1,23 @@
+{
+  "id": "gate-F1-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F1",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "personas_min_2", "status": "PASSED", "evidence": ["3 personas estruturadas em docs/phases/F1-discovery.md seção 3"], "failure_reason": null },
+    { "name": "mvp_hypothesis_validated", "status": "PASSED", "evidence": ["product.mvp_hypothesis definido no contexto; seções 5 e 9 do F1"], "failure_reason": null },
+    { "name": "scope_explicit_boundaries", "status": "PASSED", "evidence": ["scope.included e scope.excluded populados; seções 6 e 7 do F1"], "failure_reason": null },
+    { "name": "success_metrics_measurable", "status": "PASSED", "evidence": ["15 critérios de aceite do MVP 1 em product.metrics"], "failure_reason": null },
+    { "name": "feasibility_viable", "status": "PASSED", "evidence": ["feasibility.verdict = VIAVEL_COM_RISCOS com 5 riscos e mitigações"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": [
+    "Escopo amplo (RISK-04): reforçar entrega incremental MVP 1 sem execução de código real"
+  ],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "approved",
+  "human_approval_at": "2026-07-02T01:00:00Z",
+  "created_at": "2026-07-02T00:00:00Z"
+}

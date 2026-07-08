@@ -1,0 +1,48 @@
+# Changelog — ASO Runtime
+
+Formato baseado em Keep a Changelog. Versionamento semântico.
+
+## [0.1.0] — não lançado (MVP-1 + persistência)
+
+### Adicionado
+- **Governança (F5):** OrchestratorContext versionado, ContextBus (pipeline de 7 etapas), ADRRegistry, QualityGateEngine, SnapshotEngine, ConflictDetector.
+- **Kanban:** board, cards e automação por eventos (§16.7).
+- **Control:** MultiAgentDecisionEngine, ExecutionPlanner, OrchestrationService.
+- **Agents:** AgentRegistry (16 agentes), ExecutionProvider + LocalMockExecutionProvider.
+- **Interfaces:** API FastAPI v1, CLI Typer.
+- **Persistência (ADR-0006):** repository ports + adapters in-memory e SQLAlchemy; tabelas normalizadas (§29) com tabelas de junção, índices e consultas; migrations Alembic (0001, 0002).
+- **Qualidade/CI (F6):** pipeline GitHub Actions (ruff, mypy, pytest+cobertura≥80%, alembic check, bandit, pip-audit); Dockerfile; runbook e plano de deploy/rollback.
+- **Camada de consulta (CQRS-lite):** consultas indexadas na porta e adapters; endpoints de leitura (`cards/stats`, `cards/by-status`, `adrs/by-status`, `adrs/{id}/linked-cards`) e comando `aso stats`.
+- **Leituras (F7 read):** filtros de cards, timeline paginada, busca de ADRs; OpenAPI servido em `/`, `/docs`, `/openapi.json`; comandos `aso cards/adrs/timeline`.
+- **Operação (F7):** `MetricsService` (métricas por orquestração e global), SLOs baseados em sintomas e regras de alerta (`/v1/metrics`, `/slo`, `aso metrics`); feedback→backlog (`POST /feedback`, `aso feedback`).
+- **Gates/approvals persistidos + §28:** `QualityGateResult` e `HumanApproval` como entidades (migration 0003); endpoints de quality-gates, conflicts, approvals (aprovar/rejeitar) e ciclo de vida (rollback/cancel/resume); CLI `approvals`/`approve`/`rollback`.
+- **Docker e2e:** `docker compose` (Postgres + API com migrations no boot e healthcheck `/health`), `scripts/smoke.sh` e job `smoke-docker` no CI. Correção de ordem de inserção por FK no adapter (compatível com o enforcement do Postgres).
+- **Console web (SPA):** UI estática servida em `/ui` (dashboard, Kanban, timeline, ADRs, métricas) consumindo a API v1 — sem build Node.
+- **Endpoints §28 restantes:** `retry`, `snapshots/{a}/diff/{b}`, `cards/{id}/assign-agent|move|block|unblock` + comandos CLI.
+- **Normalização total:** `adr_options`, `gate_criteria` e `value_items` (listas planas) substituem colunas JSON; **PK composta `(orchestration_id, id)` em `adrs`** corrige colisão de ids sequenciais entre orquestrações. Validado no PostgreSQL.
+- **Auditoria de patches:** `ContextPatch` persistido em `context_patches`; ContextBus registra toda submissão; endpoints `/patches`, `/audit` e `POST /context-patches`.
+- **Console web (design system + telas):** abas de Kanban, ADRs, Approvals (aprovar/rejeitar), Snapshots (diff), Patches e Timeline sobre um mini design system.
+- **Segurança — Auth/RBAC:** API key via `ASO_API_KEYS` (papéis viewer/operator/admin), middleware RBAC, endpoints críticos protegidos e ator registrado (`approved_by`). Públicos: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
+- **Observabilidade — Prometheus:** endpoint `GET /metrics` em formato de exposição Prometheus (`aso_orchestrations_total`, `aso_cards{status}`, `aso_open_conflicts_total`, ...).
+- **Release:** `.github/workflows/release.yml` publica imagem versionada no GHCR por tag `vX.Y.Z`.
+- **Gateway de observabilidade:** correlation-id `X-Request-ID` por request, **rate limiting** por IP (`ASO_RATE_LIMIT`), **logs JSON** (structlog) com `request_id`/`actor`, e **tracing OpenTelemetry** opcional (`ASO_OTEL=1`, extra `[otel]`).
+- **Console:** login por token (Bearer, persistido) e aba de **auditoria** com resumo + filtro de patches por status.
+- **Performance/escala:** listagem de orquestrações e métricas globais agora usam consultas diretas/agregadas (COUNT/GROUP BY) **sem hidratar** aggregates; paginação em `GET /v1/orchestrations` (`X-Total-Count`) e na timeline (`events_page`); índice em `orchestrations.created_at`; **cache de leitura TTL** (invalidado em escrita) no caminho quente de métricas.
+- **MVP-2 — execução multiagente:** `run_plan` (`POST /run-plan`) executa os cards do plano na **ordem topológica** de `depends_on` (workers antes do ReviewAgent).
+- **MVP-2 — fluxo de aprovação:** patch com `requires_approval` fica **PENDING** e gera uma `HumanApproval` vinculada; **aprovar aplica** o patch (`ContextBus.apply_approved`), rejeitar o mantém não aplicado. Ator autenticado registrado como `approved_by`.
+- **Kanban ↔ aprovação:** card com patch pendente vai para **Waiting Human**; aprovar libera (Testing), rejeitar move para **Blocked**.
+- **ConflictDetector avançado:** contradição com ADR aceita via `locked_paths` (override sancionado ao referenciar a ADR em `linked_adrs`) e proteção de contrato (remoção/alteração de versão). **ConflictResolutionAgent** (`POST /conflicts/{id}/resolve`) propõe resolução, escala o conflito e cria card `ADRTask`.
+- **Execução concorrente + supervisão:** `run_plan` executa em **ondas topológicas** com agentes concorrentes (threads) e **escrita serializada** no ContextBus (single-writer); **AgentSupervisor** com retry+nudge; falha terminal move o card para **Failed**.
+- **Auto-resolução:** patch rejeitado aciona o ConflictResolutionAgent automaticamente (escala + card `ADRTask`) e move o card para **Blocked**.
+- **Console:** aba de **Conflitos** (listar/resolver) e **badge de aprovações pendentes**.
+- **MVP-3 — provider CLI + worktrees:** `CliAgentExecutionProvider` roda o agente CLI (`claude`/`codex`/…) em **worktree/branch isolado por card**, coleta o **diff** e o devolve como ContextPatch; `WorktreeManager` (git worktree); seleção via `ASO_CLI_COMMAND` + `ASO_TARGET_REPO`.
+- **Métricas de execução:** duração por execução (`AgentExecuted`), `GET /execution-metrics` (execuções, duração média, retries, falhas, waiting-human), counters `aso_agent_retries_total`/`aso_agent_failures_total` no `/metrics` e painel no console.
+- **Console ao vivo (SSE):** `EventBroker` in-process + `GET /events/stream`; o gateway publica um tick por orquestração após cada mutação e o console (EventSource) atualiza kanban/timeline/métricas em tempo real (indicador "● ao vivo"; token via query param).
+- **MVP-4 — PR/CI/Review:** `PullRequest` a partir do worktree do card (`open-pr`); `report_ci`/`report_review` realimentam o card (PR opened→Review, CI failed→Failed, changes→Review); o provider CLI faz commit na branch.
+- **Merge governado:** `merge_pr` exige **CI `passed` + review `approved`** (§26A.6), faz **merge git real** na branch base (WorktreeManager), move o card para **Done**; endpoint `/merge` exige papel **admin**.
+- **Candidatos CLI paralelos (§26A.6):** `CandidateRunner` executa múltiplos agentes CLI **em paralelo** por card, cada um em worktree/branch isolado (ThreadPoolExecutor; operações de metadados do git serializadas por `_GIT_META_LOCK`); coleta e **compara os diffs**, recomenda o **menor diff válido** e o expõe via `race_card` para abrir PR + merge governado. Falha de um candidato **não derruba** os demais.
+- **Console — aba PRs:** aba **PRs** (`renderPulls`) e botão **"Abrir PR"** por card do Kanban; abrir PR, reportar CI/review e **merge** pela UI, com **merge bloqueado** sinalizado ao usuário.
+
+### Segurança
+- SAST (bandit) e SCA (pip-audit) sem apontamentos.
+- Secrets apenas via variáveis de ambiente; deny-by-default no ContextBus.

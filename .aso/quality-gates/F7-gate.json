@@ -1,0 +1,22 @@
+{
+  "id": "gate-F7-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F7",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "slos_defined", "status": "PASSED", "evidence": ["3 SLOs no MetricsService; endpoint /slo; aso metrics"], "failure_reason": null },
+    { "name": "alerts_active", "status": "WARNING", "evidence": ["Regras de alerta baseadas em SLO definidas (F7 §3)"], "failure_reason": "Entrega de alerta (webhook/e-mail) é infra futura; sem produção real (§7)" },
+    { "name": "feedback_loop", "status": "PASSED", "evidence": ["add_feedback -> card Improvement; POST /feedback; aso feedback; evento FeedbackReceived"], "failure_reason": null },
+    { "name": "incident_review", "status": "WARNING", "evidence": ["Runbook de incidente em docs/operations.md"], "failure_reason": "Review de incidente depende de operação real em produção (§7)" },
+    { "name": "next_evolution_documented", "status": "PASSED", "evidence": ["Loop F2/F4 documentado; roadmap de próximos passos"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": [
+    "Entrega de alerta e incident review dependem de produção real (fora do escopo MVP, §7)"
+  ],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "pending",
+  "created_at": "2026-07-03T01:00:00Z"
+}

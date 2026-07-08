@@ -1,0 +1,31 @@
+{
+  "snapshot_id": "O5",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F5",
+  "snapshot_version": "O5",
+  "timestamp": "2026-07-02T06:00:00Z",
+  "frozen_sections": ["engineering"],
+  "context_hash": "f5-execution-aso-runtime",
+  "quality_gate_result_id": "gate-F5-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": [
+      "build_ok",
+      "coverage_ge_threshold",
+      "no_critical_lint",
+      "typecheck_ok",
+      "contracts_not_diverging",
+      "no_hardcoded_secrets",
+      "mvp1_acceptance_criteria"
+    ],
+    "timestamp": "2026-07-02T06:00:00Z"
+  },
+  "adrs": ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0004", "ADR-0005"],
+  "cards": ["TASK-01..TASK-15 (Done)"],
+  "artifacts": {
+    "code": "src/aso/ (control, kanban, agents, execution:providers-mock, governance, observability:events, shared, api, cli)",
+    "tests": 48,
+    "coverage": "98%"
+  }
+}

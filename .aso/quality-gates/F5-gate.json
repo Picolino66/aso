@@ -1,0 +1,26 @@
+{
+  "id": "gate-F5-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F5",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "build_ok", "status": "PASSED", "evidence": ["pip install -e . OK; import da aplicação OK; CLI executa"], "failure_reason": null },
+    { "name": "coverage_ge_threshold", "status": "PASSED", "evidence": ["cobertura 98% (threshold 80%)"], "failure_reason": null },
+    { "name": "no_critical_lint", "status": "PASSED", "evidence": ["ruff check src tests: All checks passed"], "failure_reason": null },
+    { "name": "typecheck_ok", "status": "PASSED", "evidence": ["mypy src (strict): Success, 29 arquivos"], "failure_reason": null },
+    { "name": "contracts_not_diverging", "status": "PASSED", "evidence": ["API v1 aderente ao domínio/contracts F3 (openapi.yaml)"], "failure_reason": null },
+    { "name": "no_hardcoded_secrets", "status": "PASSED", "evidence": ["Sem secrets no código; api_key_env por env (§26A)"], "failure_reason": null },
+    { "name": "mvp1_acceptance_criteria", "status": "PASSED", "evidence": ["15/15 critérios §35 atendidos (ver docs/mvp/mvp-1.md e F5-execution.md)"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": [
+    "Pipeline CI/CD ainda não configurada (cicd-pipeline-engine é escopo de F6) — validação de qualidade rodada localmente",
+    "Persistência é in-memory no MVP-1; adapters SQLAlchemy/Postgres ficam para MVP posterior"
+  ],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "approved",
+  "human_approval_at": "2026-07-03T00:00:00Z",
+  "created_at": "2026-07-02T06:00:00Z"
+}

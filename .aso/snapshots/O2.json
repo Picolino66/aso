@@ -1,0 +1,25 @@
+{
+  "snapshot_id": "O2",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F2",
+  "snapshot_version": "O2",
+  "timestamp": "2026-07-02T01:00:00Z",
+  "frozen_sections": ["architecture"],
+  "context_hash": "f2-architecture-aso-runtime",
+  "quality_gate_result_id": "gate-F2-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": [
+      "architecture_pattern_with_adr",
+      "tech_stack_locked",
+      "security_model_defined",
+      "infrastructure_strategy_defined",
+      "integration_contracts_cataloged",
+      "no_contradictory_decisions"
+    ],
+    "timestamp": "2026-07-02T01:00:00Z"
+  },
+  "adrs": ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0004"],
+  "cards": []
+}

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -e ".[dev,security]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+
+      - name: Type-check (mypy strict)
+        run: mypy src
+
+      - name: Testes + cobertura (mínimo 80%)
+        run: pytest -q --cov=src/aso --cov-report=term-missing --cov-fail-under=80
+
+      - name: Migrations (Alembic upgrade + check)
+        env:
+          ASO_DATABASE_URL: sqlite:///ci.db
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Segurança — SAST (bandit)
+        run: bandit -r src -q
+
+      - name: Segurança — SCA (pip-audit)
+        run: pip-audit --progress-spinner off --skip-editable
+
+  smoke-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Subir stack (Postgres + API) em Docker
+        run: docker compose up -d --build
+
+      - name: Aguardar API saudável
+        run: |
+          for i in $(seq 1 40); do
+            if docker inspect --format '{{.State.Health.Status}}' aso-api 2>/dev/null | grep -q healthy; then
+              echo "API saudável"; exit 0
+            fi
+            sleep 3
+          done
+          echo "API não ficou saudável"; docker compose logs; exit 1
+
+      - name: Smoke test end-to-end
+        run: bash scripts/smoke.sh http://localhost:8000
+
+      - name: Logs (em caso de falha)
+        if: failure()
+        run: docker compose logs
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v

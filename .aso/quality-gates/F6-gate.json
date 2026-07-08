@@ -1,0 +1,23 @@
+{
+  "id": "gate-F6-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F6",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "security_no_critical", "status": "PASSED", "evidence": ["bandit -r src: 0 apontamentos", "pip-audit: sem vulnerabilidades"], "failure_reason": null },
+    { "name": "critical_flow_tests", "status": "PASSED", "evidence": ["55 testes: unit + integração + API + CLI + persistência/consultas"], "failure_reason": null },
+    { "name": "docs_complete", "status": "PASSED", "evidence": ["docs/ fases F1-F6, api, domain-model, operations, deploy, changelog"], "failure_reason": null },
+    { "name": "docs_index_no_broken_links", "status": "PASSED", "evidence": ["docs/index.md atualizado"], "failure_reason": null },
+    { "name": "runbooks", "status": "PASSED", "evidence": ["docs/operations.md (operação + incidente)"], "failure_reason": null },
+    { "name": "deploy_rollback", "status": "WARNING", "evidence": ["docs/deploy.md com plano de rollback; Dockerfile + entrypoint"], "failure_reason": "Deploy real em produção fora do escopo do MVP (§7)" },
+    { "name": "ci_pipeline_green", "status": "PASSED", "evidence": ["passos do ci.yml validados localmente: ruff, mypy, pytest≥80%, alembic check, bandit, pip-audit"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": ["Deploy automático em produção diferido por escopo (§7); entregue plano + imagem + rollback"],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "approved",
+  "human_approval_at": "2026-07-03T01:00:00Z",
+  "created_at": "2026-07-03T00:00:00Z"
+}

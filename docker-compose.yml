@@ -1,0 +1,44 @@
+# Stack completa do ASO Runtime (ADR-0004/0006).
+# `docker compose up --build` sobe Postgres + API (migrations aplicadas no start).
+# Tudo roda em container — sem necessidade de Python/Postgres na máquina.
+services:
+  postgres:
+    image: postgres:16
+    container_name: aso-postgres
+    environment:
+      POSTGRES_USER: aso
+      POSTGRES_PASSWORD: aso
+      POSTGRES_DB: aso
+    ports:
+      - "5432:5432"
+    volumes:
+      - aso_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aso -d aso"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build: .
+    container_name: aso-api
+    environment:
+      ASO_DATABASE_URL: "postgresql+psycopg://aso:aso@postgres:5432/aso"
+      ASO_API_KEYS: "${ASO_API_KEYS:-}"
+      ASO_RATE_LIMIT: "${ASO_RATE_LIMIT:-0}"
+      ASO_OTEL: "${ASO_OTEL:-0}"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  aso_pgdata:

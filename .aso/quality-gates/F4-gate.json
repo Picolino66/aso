@@ -1,0 +1,24 @@
+{
+  "id": "gate-F4-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F4",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "critical_journeys_validated", "status": "PASSED", "evidence": ["docs/phases/F4-planning.md §1 (J1–J5)"], "failure_reason": null },
+    { "name": "backlog_min_one_sprint", "status": "PASSED", "evidence": [".aso/kanban/board.json (8 épicos / 15 tasks); tasks/README.md"], "failure_reason": null },
+    { "name": "acceptance_criteria_verifiable", "status": "PASSED", "evidence": ["acceptance_criteria por card em board.json; specs/*.md"], "failure_reason": null },
+    { "name": "modules_no_circular_deps", "status": "PASSED", "evidence": ["F4-planning.md §2 (module map, dependências apontam para dentro)"], "failure_reason": null },
+    { "name": "agentic_structure_created", "status": "PASSED", "evidence": ["docs/, specs/, tasks/, agents/, skills/, docs/adrs/, .aso/"], "failure_reason": null },
+    { "name": "specs_before_tasks", "status": "PASSED", "evidence": ["specs/README.md + 15 specs criadas antes da execução"], "failure_reason": null },
+    { "name": "traceability_convention_defined", "status": "PASSED", "evidence": ["F4-planning.md §4"], "failure_reason": null },
+    { "name": "agents_skills_ownership_map", "status": "PASSED", "evidence": ["agents/README.md; skills/README.md; docs/agents.md"], "failure_reason": null },
+    { "name": "coverage_threshold_registered", "status": "PASSED", "evidence": ["engineering.test_coverage_threshold = 80"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": ["UI web diferida (§7); jornadas validadas via CLI/API"],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "pending",
+  "created_at": "2026-07-02T03:00:00Z"
+}

@@ -1,0 +1,28 @@
+{
+  "snapshot_id": "O4",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F4",
+  "snapshot_version": "O4",
+  "timestamp": "2026-07-02T03:00:00Z",
+  "frozen_sections": ["ux", "engineering.backlog", "engineering.priorities", "engineering.module_map", "agentic"],
+  "context_hash": "f4-planning-aso-runtime",
+  "quality_gate_result_id": "gate-F4-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": [
+      "critical_journeys_validated",
+      "backlog_min_one_sprint",
+      "acceptance_criteria_verifiable",
+      "modules_no_circular_deps",
+      "agentic_structure_created",
+      "specs_before_tasks",
+      "traceability_convention_defined",
+      "agents_skills_ownership_map",
+      "coverage_threshold_registered"
+    ],
+    "timestamp": "2026-07-02T03:00:00Z"
+  },
+  "adrs": [],
+  "cards": ["EPIC-1..8", "TASK-01..15"]
+}

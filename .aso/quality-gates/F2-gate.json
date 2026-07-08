@@ -1,0 +1,25 @@
+{
+  "id": "gate-F2-0001",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase": "F2",
+  "status": "PASSED",
+  "criteria": [
+    { "name": "architecture_pattern_with_adr", "status": "PASSED", "evidence": ["ADR-0001; F2 §1 (Modular Monolith + Hexagonal, planes como bounded contexts)"], "failure_reason": null },
+    { "name": "tech_stack_locked", "status": "PASSED", "evidence": ["ADR-0004; F2 §3 (Python 3.12 + FastAPI + Pydantic + SQLAlchemy/Postgres)"], "failure_reason": null },
+    { "name": "security_model_defined", "status": "PASSED", "evidence": ["F2 §7; architecture.security_model no contexto"], "failure_reason": null },
+    { "name": "infrastructure_strategy_defined", "status": "PASSED", "evidence": ["F2 §8; architecture.infrastructure_strategy"], "failure_reason": null },
+    { "name": "integration_contracts_cataloged", "status": "PASSED", "evidence": ["F2 §6; architecture.integration_contracts (LLMProvider, AgentAdapter, WorktreeManager, observers)"], "failure_reason": null },
+    { "name": "no_contradictory_decisions", "status": "PASSED", "evidence": ["Override do §37 (TS) resolvido e documentado via ADR-0004"], "failure_reason": null }
+  ],
+  "blocking_issues": [],
+  "warnings": [
+    "TRISK-04: divergência da stack sugerida (§37 TS) — mitigada por ADR-0004; contribuintes devem tratar §37 como histórico"
+  ],
+  "required_actions": [],
+  "approved_by": "QualityGateEngine",
+  "human_approval_required": true,
+  "human_approval_status": "approved",
+  "human_approval_at": "2026-07-02T02:00:00Z",
+  "human_approval_note": "Aprovado via decisão 'avançar até F4' + escolha de stack Python",
+  "created_at": "2026-07-02T01:00:00Z"
+}

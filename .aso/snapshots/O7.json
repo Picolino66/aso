@@ -1,0 +1,23 @@
+{
+  "snapshot_id": "O7",
+  "orchestration_id": "orch-aso-runtime-0001",
+  "phase_completed": "F7",
+  "snapshot_version": "O7",
+  "timestamp": "2026-07-03T01:00:00Z",
+  "frozen_sections": ["operations"],
+  "context_hash": "f7-operate-aso-runtime",
+  "quality_gate_result_id": "gate-F7-0001",
+  "quality_gate_approval": {
+    "approved_by": "QualityGateEngine",
+    "status": "PASSED",
+    "criteria_met": ["slos_defined", "feedback_loop", "next_evolution_documented"],
+    "timestamp": "2026-07-03T01:00:00Z"
+  },
+  "adrs": ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0004", "ADR-0005", "ADR-0006"],
+  "cards": ["TASK-23", "TASK-24", "TASK-25"],
+  "artifacts": {
+    "observability": "src/aso/observability/metrics.py",
+    "endpoints": "/v1/metrics, /v1/orchestrations/{id}/metrics, /slo, POST /feedback",
+    "cli": "aso metrics, aso feedback"
+  }
+}
