@@ -8,6 +8,7 @@ usado por API e CLI.
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -86,11 +87,19 @@ class OrchestrationService:
         self,
         provider: ExecutionProvider | None = None,
         repository: OrchestrationRepository | None = None,
+        *,
+        max_races_per_card: int | None = None,
     ) -> None:
         self._bundles: dict[str, OrchestrationBundle] = {}
         self._provider = provider
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._read_cache = TTLCache(ttl_seconds=1.0)  # cache de leitura para agregações
+        # Retenção de corridas por card: evita o candidate_runs crescer sem limite.
+        self._max_races_per_card = (
+            max_races_per_card
+            if max_races_per_card is not None
+            else int(os.environ.get("ASO_MAX_RACES_PER_CARD", "20"))
+        )
         # Locks por orquestração: serializam ler-bundle → mutar → persistir sob
         # requisições concorrentes (API/CLI multithread) — evita lost-update e
         # dupla hidratação (achados de concorrência 1.1/4.1). RLock = reentrante.
@@ -490,6 +499,7 @@ class OrchestrationService:
             candidates=list(comparison["candidates"]),
         )
         b.candidate_runs.append(run)
+        self._prune_races(b, card_id)
         b.event_log.append(
             "CandidatesEvaluated",
             {
@@ -502,6 +512,14 @@ class OrchestrationService:
         self._persist(b)
         comparison["run_id"] = run.id
         return comparison
+
+    def _prune_races(self, b: OrchestrationBundle, card_id: str) -> None:
+        """Mantém apenas as N corridas mais recentes por card (retenção §26A.6)."""
+        same = [r for r in b.candidate_runs if r.card_id == card_id]
+        if len(same) <= self._max_races_per_card:
+            return
+        drop = {r.id for r in same[: len(same) - self._max_races_per_card]}
+        b.candidate_runs[:] = [r for r in b.candidate_runs if r.id not in drop]
 
     def list_candidate_runs(
         self, orchestration_id: str, card_id: str | None = None
@@ -828,14 +846,19 @@ class OrchestrationService:
         local = EventLog()
         supervisor = AgentSupervisor(self._provider, event_log=local)
         start = time.perf_counter()
+        card_id = task.get("card_id")
         try:
             output = supervisor.run(agent, task)
             ms = round((time.perf_counter() - start) * 1000, 1)
-            local.append("AgentExecuted", {"agent": agent.role, "ms": ms, "ok": True})
+            local.append(
+                "AgentExecuted", {"agent": agent.role, "card_id": card_id, "ms": ms, "ok": True}
+            )
             return output, local.all(), None
         except AgentExecutionError as exc:
             ms = round((time.perf_counter() - start) * 1000, 1)
-            local.append("AgentExecuted", {"agent": agent.role, "ms": ms, "ok": False})
+            local.append(
+                "AgentExecuted", {"agent": agent.role, "card_id": card_id, "ms": ms, "ok": False}
+            )
             return None, local.all(), exc
 
     def _execute_wave(

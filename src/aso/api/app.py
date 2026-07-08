@@ -328,6 +328,12 @@ def create_app(
         _guard(orchestration_id)
         return metrics.execution_metrics(orchestration_id)
 
+    @app.get("/v1/orchestrations/{orchestration_id}/execution-timeline")
+    def execution_timeline(orchestration_id: str) -> Any:
+        """Timeline de custo por card (F7 avançado)."""
+        _guard(orchestration_id)
+        return metrics.execution_timeline(orchestration_id)
+
     @app.get("/v1/orchestrations/{orchestration_id}/events/stream")
     async def events_stream(orchestration_id: str, request: Request) -> StreamingResponse:
         """SSE: emite um 'tick' a cada mutação da orquestração (console atualiza ao vivo)."""

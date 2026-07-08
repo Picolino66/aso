@@ -55,6 +55,41 @@ class MetricsService:
             "waiting_human": counts.get("WaitingHuman", 0),
         }
 
+    def execution_timeline(self, orchestration_id: str) -> dict[str, Any]:
+        """Timeline de custo por card (F7): execuções, tempo acumulado, falhas por card.
+
+        O custo é aproximado pelo tempo de execução (ms) agregado a partir dos eventos
+        `AgentExecuted`, permitindo ver onde o esforço dos agentes se concentra.
+        """
+        events = self.svc.timeline(orchestration_id)
+        by_card: dict[str, dict[str, Any]] = {}
+        for e in events:
+            if e.type != "AgentExecuted":
+                continue
+            cid = str(e.payload.get("card_id") or "—")
+            entry = by_card.setdefault(
+                cid,
+                {"card_id": cid, "executions": 0, "total_ms": 0.0, "failures": 0, "runs": []},
+            )
+            ms = float(e.payload.get("ms", 0))
+            ok = bool(e.payload.get("ok", True))
+            entry["executions"] += 1
+            entry["total_ms"] = round(entry["total_ms"] + ms, 1)
+            if not ok:
+                entry["failures"] += 1
+            entry["runs"].append(
+                {"agent": e.payload.get("agent"), "ms": ms, "ok": ok, "at": e.created_at}
+            )
+        cards = sorted(by_card.values(), key=lambda c: -c["total_ms"])
+        for c in cards:
+            c["avg_ms"] = round(c["total_ms"] / c["executions"], 1) if c["executions"] else 0.0
+        return {
+            "orchestration_id": orchestration_id,
+            "cards": cards,
+            "total_ms": round(sum(c["total_ms"] for c in cards), 1),
+            "executions_total": sum(c["executions"] for c in cards),
+        }
+
     def prometheus(self) -> str:
         """Métricas globais no formato de exposição Prometheus (text/plain)."""
         g = self.global_metrics()

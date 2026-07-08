@@ -150,7 +150,7 @@
         api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`)]);
       const sloOk = slo.breaches.length === 0;
       const pending = approvals.filter(a => a.status === 'pending').length;
-      const tabs = ['kanban','pulls','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
+      const tabs = ['kanban','pulls','races','costs','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
       document.getElementById('detail').innerHTML = `
         <div class="card">
           <div class="row between">
@@ -192,6 +192,8 @@
         if (currentTab==='adrs') return renderAdrs(id, c);
         if (currentTab==='approvals') return renderApprovals(id, c);
         if (currentTab==='pulls') return renderPulls(id, c);
+        if (currentTab==='races') return renderRaces(id, c);
+        if (currentTab==='costs') return renderCosts(id, c);
         if (currentTab==='conflicts') return renderConflicts(id, c);
         if (currentTab==='snapshots') return renderSnapshots(id, c);
         if (currentTab==='patches') return renderPatches(id, c);
@@ -259,6 +261,41 @@
     }
     async function openPrBranch(id, cardId, branch) {
       await post(`/v1/orchestrations/${id}/cards/${cardId}/open-pr`, { branch }); currentTab='pulls'; openOrch(id);
+    }
+
+    async function renderRaces(id, c) {
+      const runs = await api(`/v1/orchestrations/${id}/candidate-runs`);
+      if (!runs.length) { c.innerHTML = '<div class="empty">nenhuma corrida — rode "Candidatos" num card do Kanban</div>'; return; }
+      c.innerHTML = runs.slice().reverse().map(run => {
+        const rec = run.recommended_branch;
+        const cands = (run.candidates||[]).filter(x=>!x.error);
+        return `<div class="card" style="margin-bottom:12px">
+          <div class="diffhead" style="background:transparent;border:0;padding:0 0 6px">
+            <b>card <code>${esc(run.card_id)}</code></b> · ${run.candidates.length} candidatos · recomendado <code>${esc(rec||'—')}</code>
+            <span class="muted"> · ${esc(run.created_at||'')}</span>
+          </div>
+          <div class="diffgrid">
+            ${cands.map(x=>`<div class="diffcol ${x.branch===rec?'reco':''}">
+              <div class="diffhead" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
+                <span>${esc(x.executor)} · <code>${esc(x.branch)}</code>${x.branch===rec?' <span style="color:#2f7d4f">✓</span>':''}</span>
+                <button class="btn sm ${x.branch===rec?'ok':'ghost'}" onclick="openPrBranch('${id}','${esc(run.card_id)}','${esc(x.branch)}')">Abrir PR</button>
+              </div>
+              <pre>${diffHtml(x.diff||'(sem diff)')}</pre>
+            </div>`).join('')}
+          </div></div>`;
+      }).join('');
+    }
+
+    async function renderCosts(id, c) {
+      const t = await api(`/v1/orchestrations/${id}/execution-timeline`);
+      if (!t.cards.length) { c.innerHTML = '<div class="empty">sem execuções ainda</div>'; return; }
+      const max = Math.max(...t.cards.map(x=>x.total_ms), 1);
+      c.innerHTML = `<div class="muted" style="margin-bottom:8px">${t.executions_total} execuções · ${t.total_ms} ms acumulados (custo aproximado por tempo de execução)</div>
+        <table><tr><th>Card</th><th>Execuções</th><th style="text-align:right">Tempo total (ms)</th><th style="text-align:right">Médio</th><th>Falhas</th><th>Custo</th></tr>
+        ${t.cards.map(x=>`<tr><td><code>${esc(x.card_id)}</code></td><td>${x.executions}</td>
+          <td style="text-align:right">${x.total_ms}</td><td style="text-align:right">${x.avg_ms}</td>
+          <td>${x.failures?`<span style="color:var(--err)">${x.failures}</span>`:'0'}</td>
+          <td style="min-width:120px"><div style="background:var(--accent);height:8px;border-radius:4px;width:${Math.round(100*x.total_ms/max)}%"></div></td></tr>`).join('')}</table>`;
     }
 
     async function renderAdrs(id, c) {

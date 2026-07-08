@@ -49,6 +49,9 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 - **Corridas de candidatos rastreáveis:** nova entidade **`CandidateRun`** (candidatos + branch recomendado + timestamp) persistida na tabela **`candidate_runs`** (migração `9149277d0e97`); `race_card` grava a corrida e devolve `run_id`; endpoint **`GET /v1/orchestrations/{id}/candidate-runs`** (com filtro por `card_id`) expõe o histórico auditável.
 - **Seleção manual de candidato:** cada coluna de diff no console ganha **"Abrir PR"** — é possível abrir PR de qualquer branch candidato, não apenas o recomendado (que segue destacado).
 - **Atomicidade read-check-mutate:** o lock por orquestração passa a cobrir `merge_pr` (evita dupla-mescla) e `decide_approval` (evita aplicar o mesmo patch pendente em dobro); *stress test* multi-endpoint concorrente valida a consistência do estado após reidratação.
+- **Console — histórico de corridas:** aba **"Corridas"** (`renderRaces`) consome `GET /candidate-runs` e reexibe candidatos e diffs de corridas anteriores, com o recomendado destacado e **"Abrir PR"** por candidato.
+- **MVP-5 (F7) — timeline de custo por card:** o evento `AgentExecuted` passa a carregar `card_id`; `MetricsService.execution_timeline` agrega por card (execuções, tempo total/médio, falhas e detalhe por execução), aproximando o custo pelo tempo de execução. Endpoint **`GET /v1/orchestrations/{id}/execution-timeline`** + aba **"Custos"** no console (tabela + barras).
+- **Retenção de corridas:** `ASO_MAX_RACES_PER_CARD` (default 20) poda corridas antigas por card, mantendo apenas as N mais recentes — evita o crescimento indefinido de `candidate_runs`.
 
 ### Segurança
 - SAST (bandit) e SCA (pip-audit) sem apontamentos.

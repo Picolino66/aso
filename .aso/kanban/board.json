@@ -1860,6 +1860,93 @@
         "TASK-56"
       ],
       "evidence": "121 testes verdes; test_concurrent_mutators_keep_state_consistent"
+    },
+    {
+      "id": "TASK-60",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "low",
+      "title": "Console: aba de histórico de corridas",
+      "description": "Aba 'Corridas' (renderRaces) consome GET /candidate-runs e reexibe cada corrida com seus candidatos e diffs (reuso de diffHtml), com o recomendado destacado e 'Abrir PR' por candidato — histórico auditável revisável na UI.",
+      "assignee_type": "agent",
+      "assignee": "UXAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "aba lista corridas persistidas",
+        "reexibe diffs de corridas anteriores",
+        "abrir PR de qualquer candidato do histórico"
+      ],
+      "linked_requirements": [
+        "§26A.6",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-57"
+      ],
+      "evidence": "renderRaces servido no /ui (Docker); 123 testes verdes"
+    },
+    {
+      "id": "TASK-61",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "MVP-5 F7: timeline de custo por card",
+      "description": "Evento AgentExecuted passa a carregar card_id; MetricsService.execution_timeline agrega por card (execuções, tempo total/médio, falhas e detalhe por execução), aproximando custo por tempo de execução. Endpoint GET .../execution-timeline + aba 'Custos' no console (tabela + barras).",
+      "assignee_type": "agent",
+      "assignee": "ObservabilityAgent",
+      "spec": "requerimentos.md §F7",
+      "acceptance_criteria": [
+        "timeline agrega custo (ms) por card",
+        "endpoint /execution-timeline",
+        "aba Custos no console"
+      ],
+      "linked_requirements": [
+        "§F7",
+        "§32"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-47"
+      ],
+      "evidence": "123 testes verdes; test_execution_timeline_groups_cost_by_card; Docker: /execution-timeline 200 + aba Custos no /ui"
+    },
+    {
+      "id": "TASK-62",
+      "epic": "EPIC-6",
+      "type": "Chore",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "low",
+      "title": "Retenção de corridas por card",
+      "description": "OrchestrationService poda corridas antigas por card mantendo apenas as N mais recentes (ASO_MAX_RACES_PER_CARD, default 20; parametrizável no construtor), evitando crescimento indefinido de candidate_runs.",
+      "assignee_type": "agent",
+      "assignee": "ExecutionAgent",
+      "spec": "requerimentos.md §26A.6",
+      "acceptance_criteria": [
+        "mantém só as N corridas mais recentes por card",
+        "limite configurável por env/construtor",
+        "retenção persistida (sobrevive a reload)"
+      ],
+      "linked_requirements": [
+        "§26A.6",
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-57"
+      ],
+      "evidence": "123 testes verdes; test_race_retention_prunes_oldest (3 corridas → 2 mantidas, sobrevive a reload)"
     }
   ]
 }

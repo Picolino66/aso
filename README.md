@@ -150,6 +150,7 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_OTEL` | `1` habilita tracing OpenTelemetry (extra `[otel]`) |
 | `ASO_CLI_COMMAND` / `ASO_TARGET_REPO` | comando do agente CLI e repo alvo dos worktrees |
 | `ASO_CANDIDATE_COMMANDS` | JSON de agentes CLI candidatos para corrida por card (§26A.6); ver `scripts/e2e_candidates.sh` |
+| `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 
 ---
 
