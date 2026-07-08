@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -45,6 +46,10 @@ class OrchestratorContextStore:
         self.version: int = 0
         self.history: list[HistoryEntry] = []
         self.frozen_sections: set[str] = set()
+        # Serializa a escrita: `version += 1` + history são read-modify-write não
+        # atômicos; sob execução concorrente (requisições paralelas na mesma
+        # orquestração) duas aplicações poderiam perder incremento/duplicar versão.
+        self._write_lock = threading.RLock()
 
     # ------------------------------------------------------------------ leitura
     def get(self) -> dict[str, Any]:
@@ -82,27 +87,28 @@ class OrchestratorContextStore:
 
         NÃO deve ser chamado diretamente por agentes — apenas pelo ContextBus.
         """
-        if patch.patch_type in (PatchType.ADD, PatchType.UPDATE):
-            self._set_path(patch.target_path, copy.deepcopy(patch.content))
-        elif patch.patch_type == PatchType.REMOVE:
-            self._remove_path(patch.target_path)
-        else:  # PatchType.PROPOSE
-            raise ValueError(
-                "Patch 'propose' não pode ser aplicado diretamente ao contexto: "
-                "requer promoção/aprovação (§8.3/§8.6)."
-            )
+        with self._write_lock:
+            if patch.patch_type in (PatchType.ADD, PatchType.UPDATE):
+                self._set_path(patch.target_path, copy.deepcopy(patch.content))
+            elif patch.patch_type == PatchType.REMOVE:
+                self._remove_path(patch.target_path)
+            else:  # PatchType.PROPOSE
+                raise ValueError(
+                    "Patch 'propose' não pode ser aplicado diretamente ao contexto: "
+                    "requer promoção/aprovação (§8.3/§8.6)."
+                )
 
-        self.version += 1
-        entry = HistoryEntry(
-            version=self.version,
-            patch_id=patch.id,
-            agent=patch.agent,
-            target_path=patch.target_path,
-            patch_type=patch.patch_type.value,
-            context_hash=self.context_hash(),
-        )
-        self.history.append(entry)
-        return self.version
+            self.version += 1
+            entry = HistoryEntry(
+                version=self.version,
+                patch_id=patch.id,
+                agent=patch.agent,
+                target_path=patch.target_path,
+                patch_type=patch.patch_type.value,
+                context_hash=self.context_hash(),
+            )
+            self.history.append(entry)
+            return self.version
 
     def restore_from(self, payload: dict[str, Any], frozen_sections: list[str]) -> None:
         """Restaura o payload e as seções congeladas a partir de um snapshot.

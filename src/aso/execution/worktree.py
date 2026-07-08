@@ -45,12 +45,16 @@ class WorktreeManager:
 
     def collect_diff(self, path: Path) -> str:
         """Coleta o diff (inclui arquivos novos) do worktree."""
-        self._git("add", "-A", cwd=path)
-        return self._git("diff", "--cached", cwd=path).stdout
+        # `git add`/`commit` disputam lockfiles de ref/index com merge/worktree-add
+        # concorrentes no mesmo repo base; serializamos para evitar falha espúria.
+        with _GIT_META_LOCK:
+            self._git("add", "-A", cwd=path)
+            return self._git("diff", "--cached", cwd=path).stdout
 
     def commit(self, path: Path, message: str) -> None:
         """Faz commit do que já está staged no worktree (branch do card)."""
-        self._git("commit", "-m", message, cwd=path)
+        with _GIT_META_LOCK:
+            self._git("commit", "-m", message, cwd=path)
 
     def merge(self, branch: str, *, message: str = "aso: merge governado") -> None:
         """Faz merge governado da branch do card na branch atual do repositório base."""

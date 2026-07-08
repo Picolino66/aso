@@ -8,6 +8,7 @@ usado por API e CLI.
 
 from __future__ import annotations
 
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
@@ -88,6 +89,19 @@ class OrchestrationService:
         self._provider = provider
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._read_cache = TTLCache(ttl_seconds=1.0)  # cache de leitura para agregações
+        # Locks por orquestração: serializam ler-bundle → mutar → persistir sob
+        # requisições concorrentes (API/CLI multithread) — evita lost-update e
+        # dupla hidratação (achados de concorrência 1.1/4.1). RLock = reentrante.
+        self._locks: dict[str, threading.RLock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _lock_for(self, orchestration_id: str) -> threading.RLock:
+        with self._locks_guard:
+            lock = self._locks.get(orchestration_id)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[orchestration_id] = lock
+            return lock
 
     # ------------------------------------------------------------------ criação
     def create_orchestration(
@@ -188,12 +202,19 @@ class OrchestrationService:
         bundle = self._bundles.get(orchestration_id)
         if bundle is not None:
             return bundle
-        state = self._repo.load(orchestration_id)
-        if state is None:
-            raise KeyError(f"Orquestração inexistente: {orchestration_id}")
-        bundle = self._hydrate(state)
-        self._bundles[orchestration_id] = bundle
-        return bundle
+        # Double-checked locking: sem isto, duas requisições concorrentes para uma
+        # orquestração ainda não cacheada hidratam instâncias divergentes e a
+        # segunda escrita sobrescreve a primeira (lost-update). Garante instância única.
+        with self._lock_for(orchestration_id):
+            bundle = self._bundles.get(orchestration_id)
+            if bundle is not None:
+                return bundle
+            state = self._repo.load(orchestration_id)
+            if state is None:
+                raise KeyError(f"Orquestração inexistente: {orchestration_id}")
+            bundle = self._hydrate(state)
+            self._bundles[orchestration_id] = bundle
+            return bundle
 
     def _to_state(self, b: OrchestrationBundle) -> OrchestrationState:
         return OrchestrationState(
@@ -220,8 +241,12 @@ class OrchestrationService:
         )
 
     def _persist(self, b: OrchestrationBundle) -> None:
-        self._repo.save(self._to_state(b))
-        self._read_cache.clear()  # invalida agregações após escrita
+        # Serializa a serialização+save por orquestração: `_to_state` lê todo o
+        # bundle e o repositório grava níveis por FK; concorrência aqui gera estado
+        # persistido inconsistente. RLock reentrante (o chamador pode já o deter).
+        with self._lock_for(b.orchestration.id):
+            self._repo.save(self._to_state(b))
+            self._read_cache.clear()  # invalida agregações após escrita
 
     def _hydrate(self, state: OrchestrationState) -> OrchestrationBundle:
         oid = state.orchestration.id

@@ -1712,6 +1712,68 @@
         "TASK-52"
       ],
       "evidence": "116 testes verdes; test_candidates_api.py (200 compara 2 candidatos + 409 sem config); race no OpenAPI e raceCard no /ui (Docker/Postgres)"
+    },
+    {
+      "id": "TASK-55",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Diff lado a lado + e2e da corrida de candidatos",
+      "description": "CandidateRunner passa a expor o diff de cada candidato (limitado a 20k chars) na comparação; console renderiza os diffs em colunas com realce de +/-/hunks e coluna recomendada destacada. Teste e2e via API (criar → /race → PR do recomendado → merge bloqueado sem CI/review → CI+review → merge governado → card Done) com git real; script scripts/e2e_candidates.sh para uso com agentes CLI reais.",
+      "assignee_type": "agent",
+      "assignee": "UXAgent",
+      "spec": "requerimentos.md §26A.6",
+      "acceptance_criteria": [
+        "diff de cada candidato na resposta de /race",
+        "painel de diff lado a lado com realce",
+        "e2e ponta a ponta via API com git real (merge do recomendado)",
+        "script para CLI real documentado"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§26A.6"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-54"
+      ],
+      "evidence": "119 testes verdes; test_candidates_e2e.py + test_candidates_api.py (diff presente); diffgrid servido no /ui (Docker); SMOKE OK"
+    },
+    {
+      "id": "TASK-56",
+      "epic": "EPIC-6",
+      "type": "Chore",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "high",
+      "title": "Endurecimento de concorrência (revisão adversarial)",
+      "description": "Revisão adversarial dos caminhos concorrentes (run_plan/candidatos/worktrees/ContextBus). Correções: (1.1) OrchestratorContextStore.apply_patch atômico via RLock — sem perda de incremento/duplicação de versão/history sob requisições paralelas; (4.1) OrchestrationService com lock por orquestração — _bundle com double-checked locking (instância única, sem lost-update) e _persist serializado; (3.1) nome de worktree/branch inclui executor_id + id completo (evita colisão entre candidatos de mesmo papel); (2.1) collect_diff/commit sob _GIT_META_LOCK (evita falha espúria de lockfile).",
+      "assignee_type": "agent",
+      "assignee": "ReviewAgent",
+      "spec": "requerimentos.md §26A.10",
+      "acceptance_criteria": [
+        "apply_patch atômico sob concorrência (regressão)",
+        "_bundle hidrata instância única sob concorrência (regressão)",
+        "nomes de worktree únicos por candidato",
+        "git add/commit serializados"
+      ],
+      "linked_requirements": [
+        "§26A.10",
+        "§17"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-43",
+        "TASK-51"
+      ],
+      "evidence": "test_concurrency.py (200 patches concorrentes → versão/history consistentes; 32 _bundle concorrentes → mesma instância); 119 testes verdes; mypy strict OK"
     }
   ]
 }

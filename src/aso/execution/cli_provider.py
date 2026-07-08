@@ -38,7 +38,10 @@ class CliAgentExecutionProvider:
         self.worktree = worktree or WorktreeManager(base_repo)
 
     def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
-        name = f"{agent.role}-{gen_id()[:8]}"
+        # Inclui o executor_id e um id completo: candidatos concorrentes têm o mesmo
+        # `agent.role`, então o nome do worktree/branch precisa ser único por candidato
+        # para não colidir em `git worktree add` (branch/path já existente).
+        name = f"{agent.role}-{self.id}-{gen_id()}"
         path, branch = self.worktree.create(name)
         try:
             proc = subprocess.run(
