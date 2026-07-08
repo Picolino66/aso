@@ -1650,6 +1650,68 @@
         "TASK-50"
       ],
       "evidence": "renderPulls servido em /ui (Docker/Postgres); validação ruff/mypy/pytest verde"
+    },
+    {
+      "id": "TASK-53",
+      "epic": "EPIC-8",
+      "type": "Documentation",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "README.md + CLAUDE.md",
+      "description": "README público (visão, governança, arquitetura, começando com Docker/local, uso CLI/API, qualidade, estrutura) e CLAUDE.md (guia para agentes: regras invioláveis, fluxo de validação por incremento, atualização de governança, convenções, armadilhas). Ambos em pt-BR com links relativos validados.",
+      "assignee_type": "agent",
+      "assignee": "DocumentationAgent",
+      "spec": "docs/index.md",
+      "acceptance_criteria": [
+        "README cobre visão/arquitetura/uso real (CLI+API)",
+        "CLAUDE.md documenta regras de governança e fluxo de validação",
+        "todos os links relativos válidos",
+        "pt-BR"
+      ],
+      "linked_requirements": [
+        "§7",
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-52"
+      ],
+      "evidence": "links validados (docs/index, operations, deploy, adrs, phases, smoke.sh, openapi, workflows, .aso/*)"
+    },
+    {
+      "id": "TASK-54",
+      "epic": "EPIC-4",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Corrida de candidatos via API + painel no console",
+      "description": "Endpoint POST .../cards/{cid}/race (admin) constrói os agentes CLI candidatos a partir do ambiente (ASO_CANDIDATE_COMMANDS + ASO_TARGET_REPO via build_candidate_providers), roda race_card e devolve a comparação de diffs; 409 quando não configurado. Console: botão 'Candidatos' por card + painel de comparação (executor/branch/diff/arquivos, recomendado destacado) e 'Abrir PR do recomendado'.",
+      "assignee_type": "agent",
+      "assignee": "ExecutionAgent",
+      "spec": "requerimentos.md §26A.6",
+      "acceptance_criteria": [
+        "/race compara N candidatos e recomenda o menor diff válido",
+        "/race = admin",
+        "409 sem candidatos configurados",
+        "painel de comparação no console + abrir PR do recomendado"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§26A.6"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0002"
+      ],
+      "dependencies": [
+        "TASK-51",
+        "TASK-52"
+      ],
+      "evidence": "116 testes verdes; test_candidates_api.py (200 compara 2 candidatos + 409 sem config); race no OpenAPI e raceCard no /ui (Docker/Postgres)"
     }
   ]
 }

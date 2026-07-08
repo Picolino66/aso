@@ -25,9 +25,15 @@ class CliAgentExecutionProvider:
     """ExecutionProvider que roda um agente CLI em worktree isolado."""
 
     def __init__(
-        self, command: list[str], base_repo: str, *, worktree: WorktreeManager | None = None
+        self,
+        command: list[str],
+        base_repo: str,
+        *,
+        worktree: WorktreeManager | None = None,
+        executor_id: str = "cli_agent",
     ) -> None:
-        self.id = "cli_agent"
+        # `executor_id` distingue candidatos concorrentes no mesmo repo (§26A.6).
+        self.id = executor_id
         self.command = command
         self.worktree = worktree or WorktreeManager(base_repo)
 

@@ -365,7 +365,7 @@
     ],
     "priorities": ["EPIC-1", "EPIC-2", "EPIC-6", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-7", "EPIC-8"],
     "test_coverage_threshold": 80,
-    "coverage_report": { "tests": 114, "coverage": "95.72%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6) + aba PRs no console + métricas de execução + SSE + ConflictDetector avançado + persistência normalizada + §28 + console + auth/RBAC + observabilidade + performance + docker e2e (Postgres)" },
+    "coverage_report": { "tests": 116, "coverage": "95.65%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6, endpoint /race + painel no console) + aba PRs no console + métricas de execução + SSE + ConflictDetector avançado + persistência normalizada + §28 + console + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE" },
     "cards_done": ["TASK-01", "TASK-02", "TASK-03", "TASK-04", "TASK-05", "TASK-06", "TASK-07", "TASK-08", "TASK-09", "TASK-10", "TASK-11", "TASK-12", "TASK-13", "TASK-14", "TASK-15", "TASK-16", "TASK-17", "TASK-18", "TASK-19", "TASK-20", "TASK-21", "TASK-22"],
     "increments_post_o5": [
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
@@ -402,7 +402,9 @@
       "TASK-49 — MVP-4: PR/CI/Review observers (open-pr + report_ci/report_review realimentam o card); provider CLI faz commit na branch",
       "TASK-50 — Merge governado do worktree (exige CI passed + review approved; merge git real; card → Done; /merge = admin)",
       "TASK-51 — Candidatos CLI paralelos por card (§26A.6): CandidateRunner executa múltiplos providers em worktrees isolados (ThreadPoolExecutor + _GIT_META_LOCK), coleta/compara diffs e recomenda o menor válido; race_card no service; falha de candidato isolada",
-      "TASK-52 — Console: aba PRs (renderPulls) + botão 'Abrir PR' por card; open-pr/report_ci/report_review/merge via UI (merge bloqueado sinalizado)"
+      "TASK-52 — Console: aba PRs (renderPulls) + botão 'Abrir PR' por card; open-pr/report_ci/report_review/merge via UI (merge bloqueado sinalizado)",
+      "TASK-53 — Documentação de entrada: README.md (visão, governança, arquitetura, começando Docker/local, uso CLI/API, qualidade, estrutura) + CLAUDE.md (guia para agentes: regras invioláveis, fluxo de validação por incremento, atualização de governança, convenções, armadilhas); pt-BR com links relativos validados",
+      "TASK-54 — Corrida de candidatos ponta a ponta: endpoint POST .../cards/{cid}/race (admin; build_candidate_providers a partir de ASO_CANDIDATE_COMMANDS + ASO_TARGET_REPO; 409 sem config) + painel de comparação de candidatos no console (botão 'Candidatos' por card, tabela executor/branch/diff/arquivos com recomendado destacado, 'Abrir PR do recomendado')"
     ],
     "maintenance_log": []
   },

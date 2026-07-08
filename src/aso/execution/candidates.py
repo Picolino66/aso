@@ -15,6 +15,8 @@ from aso.agents.executor import ExecutionProvider
 from aso.agents.models import AgentSpec
 
 _DIFF_FILE = re.compile(r"^\+\+\+ b/(.+)$", re.MULTILINE)
+# Limite de caracteres do diff devolvido ao cliente (evita payloads gigantes no console/API).
+_DIFF_CAP = 20_000
 
 
 @dataclass
@@ -23,6 +25,7 @@ class Candidate:
     branch: str
     diff_lines: int
     files: list[str] = field(default_factory=list)
+    diff: str = ""
     error: str | None = None
 
 
@@ -34,11 +37,13 @@ class CandidateRunner:
             try:
                 out = provider.execute(agent, dict(task))
                 diff = str(out.artifacts.get("diff", ""))
+                capped = diff[:_DIFF_CAP] + ("\n… (diff truncado)" if len(diff) > _DIFF_CAP else "")
                 return Candidate(
                     executor_id=out.executor_id,
                     branch=str(out.artifacts.get("branch", "")),
                     diff_lines=len(diff.splitlines()),
                     files=_DIFF_FILE.findall(diff),
+                    diff=capped,
                 )
             except Exception as exc:  # noqa: BLE001 — candidato falho não derruba os demais
                 return Candidate(
@@ -65,6 +70,7 @@ class CandidateRunner:
                     "branch": c.branch,
                     "diff_lines": c.diff_lines,
                     "files": c.files,
+                    "diff": c.diff,
                     "error": c.error,
                 }
                 for c in candidates

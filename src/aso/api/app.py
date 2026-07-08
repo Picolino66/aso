@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from aso.api.auth import AuthService, required_role
-from aso.bootstrap import build_service
+from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
 from aso.governance.models import ContextPatch
 from aso.observability.broker import EventBroker
@@ -385,6 +385,22 @@ def create_app(
         return _card_op(
             orchestration_id,
             lambda: svc.open_pr(orchestration_id, card_id, branch=body.branch, title=body.title),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/race")
+    def race_card(orchestration_id: str, card_id: str) -> Any:
+        """Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs."""
+        _guard(orchestration_id)
+        providers = build_candidate_providers()
+        if not providers:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Nenhum candidato configurado: defina ASO_CANDIDATE_COMMANDS e ASO_TARGET_REPO."
+                ),
+            )
+        return _card_op(
+            orchestration_id, lambda: svc.race_card(orchestration_id, card_id, providers)
         )
 
     @app.get("/v1/orchestrations/{orchestration_id}/pulls")

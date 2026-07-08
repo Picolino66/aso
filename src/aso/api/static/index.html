@@ -55,6 +55,17 @@
     a { color:var(--accent); }
     .empty { color:var(--muted); padding:16px; text-align:center; }
     code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+    .diffgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:10px; margin-top:8px; }
+    .diffcol { border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--panel-2); }
+    .diffcol.reco { border-color:var(--ok); }
+    .diffhead { padding:6px 10px; font-size:12px; border-bottom:1px solid var(--border); background:var(--panel); }
+    .diffcol pre { margin:0; padding:8px 10px; overflow-x:auto; font-size:11.5px; line-height:1.55;
+      font-family:ui-monospace,Menlo,Consolas,monospace; max-height:340px; overflow-y:auto; }
+    .dl { display:block; white-space:pre; }
+    .dl.add { color:var(--ok); background:rgba(34,197,94,.08); }
+    .dl.del { color:var(--err); background:rgba(239,68,68,.08); }
+    .dl.hunk { color:var(--info); }
+    .dl.meta { color:var(--muted); }
   </style>
 </head>
 <body>
@@ -196,8 +207,55 @@
       c.innerHTML = `<div class="board">${cols.filter(k=>by[k]).map(k=>`
         <div class="col"><h3>${k} (${by[k].length})</h3>
           ${by[k].map(x=>`<div class="kcard"><div class="t">${x.type} · ${esc(x.assignee||'—')}</div>${esc(x.title)}
-            <div style="margin-top:6px"><button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">Abrir PR</button></div></div>`).join('')}
-        </div>`).join('') || '<div class="empty">sem cards</div>'}</div>`;
+            <div style="margin-top:6px">
+              <button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">Abrir PR</button>
+              <button class="btn sm ghost" onclick="raceCard('${id}','${x.id}')">Candidatos</button>
+            </div></div>`).join('')}
+        </div>`).join('') || '<div class="empty">sem cards</div>'}</div>
+        <div id="racePanel"></div>`;
+    }
+
+    async function raceCard(id, cardId) {
+      const panel = document.getElementById('racePanel');
+      panel.innerHTML = '<div class="muted" style="margin-top:14px">Rodando candidatos CLI em paralelo…</div>';
+      const r = await fetch(`/v1/orchestrations/${id}/cards/${cardId}/race`, {
+        method:'POST', headers: token()?{'Authorization':'Bearer '+token()}:{} });
+      if (!r.ok) {
+        const d = await r.json().catch(()=>({}));
+        panel.innerHTML = `<div class="empty" style="margin-top:14px">Corrida indisponível (${r.status}): ${esc(d.detail||'')}</div>`;
+        return;
+      }
+      const cmp = await r.json(); const rec = cmp.recommended_branch;
+      panel.innerHTML = `<h3 style="margin:16px 0 6px">Candidatos — card <code>${esc(cardId)}</code></h3>
+        <table><tr><th>Executor</th><th>Branch</th><th style="text-align:right">Diff</th><th>Arquivos</th><th></th></tr>
+        ${cmp.candidates.map(x=>`<tr style="${x.branch===rec?'background:rgba(47,125,79,.14)':''}">
+          <td>${esc(x.executor)}</td>
+          <td>${x.branch?`<code>${esc(x.branch)}</code>`:'<span class="muted">—</span>'}</td>
+          <td style="text-align:right">${x.error?'—':x.diff_lines}</td>
+          <td>${x.error?`<span style="color:#b3261e">falha: ${esc(x.error)}</span>`:esc((x.files||[]).join(', ')||'—')}</td>
+          <td>${x.branch===rec?'<span style="font-family:monospace;font-size:11px;color:#2f7d4f">✓ recomendado</span>':''}</td>
+        </tr>`).join('')}</table>
+        ${rec?`<button class="btn sm ok" style="margin-top:8px" onclick="openPrBranch('${id}','${cardId}','${esc(rec)}')">Abrir PR do recomendado</button>`:''}
+        <div class="muted" style="margin:6px 0 4px">Heurística: menor diff válido (§26A.6). Cada candidato roda em worktree/branch isolado; falha de um não derruba os demais.</div>
+        <div class="diffgrid">
+          ${cmp.candidates.filter(x=>!x.error).map(x=>`
+            <div class="diffcol ${x.branch===rec?'reco':''}">
+              <div class="diffhead">${esc(x.executor)} · <code>${esc(x.branch)}</code>${x.branch===rec?' <span style="color:#2f7d4f">✓</span>':''}</div>
+              <pre>${diffHtml(x.diff||'(sem diff)')}</pre>
+            </div>`).join('')}
+        </div>`;
+    }
+    function diffHtml(diff) {
+      return diff.split('\n').map(l => {
+        const cls = l.startsWith('+')&&!l.startsWith('+++') ? 'add'
+                  : l.startsWith('-')&&!l.startsWith('---') ? 'del'
+                  : l.startsWith('@@') ? 'hunk'
+                  : l.startsWith('diff ')||l.startsWith('+++')||l.startsWith('---')||l.startsWith('index ') ? 'meta' : '';
+        return `<span class="dl ${cls}">${esc(l)||'&nbsp;'}</span>`;
+      }).join('\n');
+    }
+    async function openPrBranch(id, cardId, branch) {
+      await post(`/v1/orchestrations/${id}/cards/${cardId}/open-pr`, { branch }); currentTab='pulls'; openOrch(id);
     }
 
     async function renderAdrs(id, c) {
