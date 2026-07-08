@@ -37,6 +37,7 @@ from aso.db.models import (
     PlannedAgentRow,
     PullRequestRow,
     QualityGateResultRow,
+    SloEvaluationRow,
     SnapshotRow,
     ValueItemRow,
 )
@@ -49,6 +50,7 @@ from aso.governance.models import (
     HumanApproval,
     PullRequest,
     QualityGateResult,
+    SloEvaluation,
     Snapshot,
 )
 from aso.kanban.models import Board, BoardColumn, CardEvent, KanbanCard
@@ -76,6 +78,7 @@ _CHILD_TABLES = (
     ContextPatchRow,
     PullRequestRow,
     CandidateRunRow,
+    SloEvaluationRow,
     ValueItemRow,
     GateCriterionRow,
     AdrOptionRow,
@@ -208,6 +211,8 @@ class SqlAlchemyOrchestrationRepository:
                 session.add(PullRequestRow(**pr.model_dump(mode="json")))
             for run in state.candidate_runs:
                 session.add(CandidateRunRow(**run.model_dump(mode="json")))
+            for ev in state.slo_evaluations:
+                session.add(SloEvaluationRow(**ev.model_dump(mode="json")))
             for seq, event in enumerate(state.events):
                 session.add(
                     EventRow(
@@ -402,6 +407,13 @@ class SqlAlchemyOrchestrationRepository:
                     .order_by(CandidateRunRow.created_at)
                 )
             )
+            slo_rows = list(
+                session.scalars(
+                    select(SloEvaluationRow)
+                    .where(SloEvaluationRow.orchestration_id == oid)
+                    .order_by(SloEvaluationRow.created_at)
+                )
+            )
             event_rows = list(
                 session.scalars(
                     select(EventRow).where(EventRow.orchestration_id == oid).order_by(EventRow.seq)
@@ -522,6 +534,7 @@ class SqlAlchemyOrchestrationRepository:
                 patches=[ContextPatch(**_cols(r)) for r in patch_rows],
                 pull_requests=[PullRequest(**_cols(r)) for r in pr_rows],
                 candidate_runs=[CandidateRun(**_cols(r)) for r in run_rows],
+                slo_evaluations=[SloEvaluation(**_cols(r)) for r in slo_rows],
                 events=[
                     {"type": r.type, "payload": r.payload, "created_at": r.created_at}
                     for r in event_rows

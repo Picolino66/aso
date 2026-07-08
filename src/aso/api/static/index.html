@@ -304,12 +304,17 @@
       return `<span class="pill" style="background:${color}22;color:${color}">${esc(s)}</span>`;
     }
     async function renderSlo(id, c) {
-      const r = await api(`/v1/orchestrations/${id}/slo`);
+      const [r, hist] = await Promise.all([
+        api(`/v1/orchestrations/${id}/slo`),
+        api(`/v1/orchestrations/${id}/slo-history?limit=20`),
+      ]);
       const eb = r.error_budget;
       const burnPct = Math.min(100, Math.round(eb.consumed_pct));
       const barColor = eb.severity==='critical' ? 'var(--err)' : eb.severity==='warning' ? 'var(--warn)' : 'var(--ok)';
       const trendIcon = eb.trend==='rising' ? '▲' : eb.trend==='falling' ? '▼' : '▬';
       c.innerHTML = `
+        <div class="row" style="margin-bottom:10px"><button class="btn sm" onclick="evalSlo('${id}')">Avaliar agora</button>
+          <span class="muted" style="align-self:center">amostras: ${eb.samples||0}</span></div>
         <div class="card" style="margin-bottom:12px">
           <h3 style="margin:0 0 6px">Orçamento de erro — taxa de falhas de execução ${sevPill(eb.severity)}</h3>
           <div class="muted">${eb.failures}/${eb.executions} falhas · taxa ${eb.fail_rate} · orçamento ${eb.budget} · tendência ${trendIcon} ${esc(eb.trend)}</div>
@@ -324,8 +329,15 @@
         ${r.alerts.length ? `<h3 style="margin:14px 0 6px">Alertas ativos</h3>
           <table><tr><th>Severidade</th><th>SLO</th><th>Mensagem</th></tr>
           ${r.alerts.map(a=>`<tr><td>${sevPill(a.severity)}</td><td>${esc(a.slo)}</td><td>${esc(a.message)}</td></tr>`).join('')}</table>`
-          : '<div class="muted" style="margin-top:10px">Sem alertas — todos os SLOs dentro do orçamento.</div>'}`;
+          : '<div class="muted" style="margin-top:10px">Sem alertas — todos os SLOs dentro do orçamento.</div>'}
+        ${hist.length ? `<h3 style="margin:14px 0 6px">Histórico de burn-rate (${hist.length} amostras)</h3>
+          <table><tr><th>Quando</th><th style="text-align:right">Burn-rate</th><th style="text-align:right">% consumido</th><th>Severidade</th></tr>
+          ${hist.slice().reverse().map(h=>`<tr><td class="muted">${esc(h.created_at)}</td>
+            <td style="text-align:right">${h.burn_rate}×</td><td style="text-align:right">${h.consumed_pct}%</td>
+            <td>${sevPill(h.severity)}</td></tr>`).join('')}</table>`
+          : '<div class="muted" style="margin-top:10px">Sem histórico — clique em "Avaliar agora" para registrar a 1ª amostra.</div>'}`;
     }
+    async function evalSlo(id) { await post(`/v1/orchestrations/${id}/slo/evaluate`, {}); renderTab(id); }
 
     async function renderAdrs(id, c) {
       const adrs = await api(`/v1/orchestrations/${id}/adrs`);

@@ -34,6 +34,7 @@ from aso.governance.models import (
     HumanApproval,
     PullRequest,
     QualityGateResult,
+    SloEvaluation,
     Snapshot,
 )
 from aso.governance.quality_gate_engine import Criterion, QualityGateEngine
@@ -78,6 +79,7 @@ class OrchestrationBundle:
     approvals: list[HumanApproval] = field(default_factory=list)
     pull_requests: list[PullRequest] = field(default_factory=list)
     candidate_runs: list[CandidateRun] = field(default_factory=list)
+    slo_evaluations: list[SloEvaluation] = field(default_factory=list)
 
 
 class OrchestrationService:
@@ -243,6 +245,7 @@ class OrchestrationService:
             patches=list(b.bus.patches),
             pull_requests=list(b.pull_requests),
             candidate_runs=list(b.candidate_runs),
+            slo_evaluations=list(b.slo_evaluations),
             board=b.board,
             cards=b.board_service.cards_of(b.board.id),
             card_events=list(b.board_service.card_events),
@@ -312,6 +315,7 @@ class OrchestrationService:
             approvals=list(state.approvals),
             pull_requests=list(state.pull_requests),
             candidate_runs=list(state.candidate_runs),
+            slo_evaluations=list(state.slo_evaluations),
         )
 
     def get(self, orchestration_id: str) -> Orchestration:
@@ -529,6 +533,32 @@ class OrchestrationService:
         if card_id:
             return [r for r in runs if r.card_id == card_id]
         return list(runs)
+
+    # ---------------------------------------------------------- SLO (série temporal)
+    def record_slo_evaluation(
+        self, orchestration_id: str, evaluation: SloEvaluation
+    ) -> SloEvaluation:
+        """Persiste uma amostra de avaliação de SLO (série temporal de burn-rate, F7)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            b.slo_evaluations.append(evaluation)
+            b.event_log.append(
+                "SloEvaluated",
+                {
+                    "id": evaluation.id,
+                    "burn_rate": evaluation.burn_rate,
+                    "severity": evaluation.severity,
+                },
+            )
+            self._persist(b)
+            return evaluation
+
+    def list_slo_evaluations(
+        self, orchestration_id: str, *, limit: int | None = None
+    ) -> list[SloEvaluation]:
+        """Amostras de SLO em ordem cronológica (as `limit` mais recentes, se dado)."""
+        evals = list(self._bundle(orchestration_id).slo_evaluations)
+        return evals[-limit:] if limit else evals
 
     # ------------------------------------------------- context patches / auditoria
     def list_patches(self, orchestration_id: str, status: str | None = None) -> list[ContextPatch]:

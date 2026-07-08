@@ -140,6 +140,24 @@ class CandidateRun(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+class SloEvaluation(BaseModel):
+    """Amostra pontual da avaliação de SLO (F7) — série temporal de burn-rate.
+
+    Persistida a cada avaliação para permitir burn-rate/tendência sobre uma janela
+    real de tempo (em vez de um cálculo instantâneo), e alimentar alertas externos.
+    """
+
+    id: str = Field(default_factory=lambda: gen_id("slo"))
+    orchestration_id: str
+    fail_rate: float = 0.0
+    burn_rate: float = 0.0
+    consumed_pct: float = 0.0
+    severity: str = "ok"
+    breaches: list[str] = Field(default_factory=list)
+    alerts_count: int = 0
+    created_at: str = Field(default_factory=now_iso)
+
+
 class ADR(BaseModel):
     """Architecture Decision Record (§21)."""
 

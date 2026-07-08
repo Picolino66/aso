@@ -1978,6 +1978,37 @@
         "TASK-61"
       ],
       "evidence": "126 testes verdes; test_slo_error_budget (saudável, estourado c/ burn>1, endpoint expõe error_budget); Docker: /slo error_budget + aba SLO no /ui"
+    },
+    {
+      "id": "TASK-64",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "MVP-5 F7: série temporal de SLO + burn-rate no Prometheus",
+      "description": "Entidade SloEvaluation persistida em slo_evaluations (migração 7a759f873114); POST .../slo/evaluate registra uma amostra e GET .../slo-history devolve a série (limit). A tendência do error-budget passa a usar a janela real de amostras persistidas (fallback para 1ª vs 2ª metade quando não há histórico); campo 'samples' no error_budget. /metrics Prometheus expõe aso_slo_burn_rate e aso_error_budget_consumed_pct por orquestração. Aba 'SLO' no console ganha 'Avaliar agora' + tabela de histórico de burn-rate.",
+      "assignee_type": "agent",
+      "assignee": "ObservabilityAgent",
+      "spec": "requerimentos.md §F7",
+      "acceptance_criteria": [
+        "avaliação de SLO persistida e listável (série)",
+        "tendência por janela real quando há histórico",
+        "aso_slo_burn_rate/consumed_pct no Prometheus por orquestração",
+        "console: avaliar agora + histórico",
+        "migração aplica no Postgres"
+      ],
+      "linked_requirements": [
+        "§F7"
+      ],
+      "linked_adrs": [
+        "ADR-0006",
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-63"
+      ],
+      "evidence": "129 testes verdes; test_slo_history (persistência+reload, tendência rising por histórico, Prometheus gauges); Docker/Postgres: /slo/evaluate 201, /slo-history persistido, gauges no /metrics, SMOKE OK"
     }
   ]
 }

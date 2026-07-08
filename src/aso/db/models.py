@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     Boolean,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -360,6 +361,21 @@ class CandidateRunRow(Base):
     card_id: Mapped[str] = mapped_column(String)
     recommended_branch: Mapped[str | None] = mapped_column(String, nullable=True)
     candidates: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[str] = mapped_column(String)
+
+
+class SloEvaluationRow(Base):
+    __tablename__ = "slo_evaluations"
+    __table_args__ = (Index("ix_slo_evals_orch_created", "orchestration_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
+    fail_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    burn_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    consumed_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    severity: Mapped[str] = mapped_column(String, default="ok")
+    breaches: Mapped[list[str]] = mapped_column(JSON, default=list)
+    alerts_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String)
 
 

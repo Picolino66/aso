@@ -21,7 +21,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
-from aso.governance.models import ContextPatch
+from aso.governance.models import ContextPatch, SloEvaluation
 from aso.observability.broker import EventBroker
 from aso.observability.logging import get_logger
 from aso.observability.metrics import MetricsService
@@ -322,6 +322,29 @@ def create_app(
     def slo_report(orchestration_id: str) -> Any:
         _guard(orchestration_id)
         return metrics.slo_report(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/slo/evaluate", status_code=201)
+    def slo_evaluate(orchestration_id: str) -> Any:
+        """Avalia e persiste uma amostra de SLO (série temporal de burn-rate, F7)."""
+        _guard(orchestration_id)
+        report = metrics.slo_report(orchestration_id)
+        eb = report["error_budget"]
+        evaluation = SloEvaluation(
+            orchestration_id=orchestration_id,
+            fail_rate=eb["fail_rate"],
+            burn_rate=eb["burn_rate"],
+            consumed_pct=eb["consumed_pct"],
+            severity=eb["severity"],
+            breaches=report["breaches"],
+            alerts_count=len(report["alerts"]),
+        )
+        return svc.record_slo_evaluation(orchestration_id, evaluation)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/slo-history")
+    def slo_history(orchestration_id: str, limit: int | None = None) -> Any:
+        """Série temporal de avaliações de SLO persistidas (as mais recentes)."""
+        _guard(orchestration_id)
+        return svc.list_slo_evaluations(orchestration_id, limit=limit)
 
     @app.get("/v1/orchestrations/{orchestration_id}/execution-metrics")
     def execution_metrics(orchestration_id: str) -> Any:

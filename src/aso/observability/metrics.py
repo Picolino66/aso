@@ -135,6 +135,22 @@ class MetricsService:
         ]
         for status, count in sorted(g["cards_by_status"].items()):
             lines.append(f'aso_cards{{status="{status}"}} {count}')
+
+        # Burn-rate / orçamento de erro por orquestração (§F7) — para scraping/alerta externo.
+        budgets = [(o.id, self.slo_report(o.id)["error_budget"]) for o in self.svc.list_all()]
+        lines += [
+            "# HELP aso_slo_burn_rate Burn-rate do orçamento de erro por orquestração",
+            "# TYPE aso_slo_burn_rate gauge",
+        ]
+        for oid, eb in budgets:
+            lines.append(f'aso_slo_burn_rate{{orchestration_id="{oid}"}} {eb["burn_rate"]}')
+        lines += [
+            "# HELP aso_error_budget_consumed_pct Percentual do orçamento de erro consumido",
+            "# TYPE aso_error_budget_consumed_pct gauge",
+        ]
+        for oid, eb in budgets:
+            pct = eb["consumed_pct"]
+            lines.append(f'aso_error_budget_consumed_pct{{orchestration_id="{oid}"}} {pct}')
         return "\n".join(lines) + "\n"
 
     def _symptom_slo(self, name: str, target: Any, actual: Any, ok: bool) -> dict[str, Any]:
@@ -188,6 +204,20 @@ class MetricsService:
         fail_rate = failures / n if n else 0.0
         budget = _failure_budget()
         consumed_pct = round(100 * fail_rate / budget, 1)
+        # Tendência sobre janela real de tempo quando há histórico persistido de
+        # avaliações (§F7); caso contrário, aproxima pela 1ª vs 2ª metade das execuções.
+        history = self.svc.list_slo_evaluations(orchestration_id)
+        if history:
+            prev = history[-1].consumed_pct
+            trend = (
+                "rising"
+                if consumed_pct > prev + 1
+                else "falling"
+                if consumed_pct < prev - 1
+                else "stable"
+            )
+        else:
+            trend = self._failure_trend(executed)
         error_budget = {
             "sli": "taxa_de_falhas_de_execucao",
             "executions": n,
@@ -196,7 +226,8 @@ class MetricsService:
             "budget": budget,
             "consumed_pct": consumed_pct,
             "burn_rate": round(fail_rate / budget, 3),
-            "trend": self._failure_trend(executed),
+            "trend": trend,
+            "samples": len(history),
             "severity": _severity(consumed_pct),
         }
 
