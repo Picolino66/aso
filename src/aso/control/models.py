@@ -13,6 +13,10 @@ class Orchestration(BaseModel):
 
     id: str = Field(default_factory=lambda: gen_id("orch"))
     project_id: str | None = None
+    # Pasta de trabalho desta orquestração (workspace): onde os agentes CLI criam
+    # código e rodam gates, substituindo o `ASO_TARGET_REPO` global só para ela.
+    # `None` → cai no comportamento legado (env/provider global).
+    target_path: str | None = None
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE
     # A esteira começa em F1 (discovery) e avança até F7 sob o autopilot.
     current_phase: Phase = Phase.F1

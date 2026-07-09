@@ -23,6 +23,7 @@ from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
+from aso.execution.workspace import WorkspaceError, WorkspaceService
 from aso.governance.models import ContextPatch, SloEvaluation
 from aso.observability.broker import EventBroker
 from aso.observability.logging import get_logger
@@ -38,6 +39,13 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 class CreateOrchestrationBody(BaseModel):
     user_request: str
     project_id: str | None = None
+    # Pasta de trabalho (workspace) desta orquestração; validada/normalizada no create.
+    target_path: str | None = None
+
+
+class AnalyzeFolderBody(BaseModel):
+    executor: str | None = None
+    effort: str | None = None
 
 
 class PlanBody(BaseModel):
@@ -239,9 +247,25 @@ def create_app(
         except KeyError as exc:  # noqa: F841
             raise HTTPException(status_code=404, detail="Orquestração inexistente") from None
 
+    @app.get("/v1/fs/dirs")
+    def list_dirs(path: str | None = Query(default=None)) -> Any:
+        """Lista subdiretórios (navegador de pastas da UI). Só nomes/paths de pastas."""
+        try:
+            return WorkspaceService().list_dirs(path)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
     @app.post("/v1/orchestrations", status_code=201)
     def create_orchestration(body: CreateOrchestrationBody) -> Any:
-        return svc.create_orchestration(body.user_request, project_id=body.project_id)
+        target_path: str | None = None
+        if body.target_path and body.target_path.strip():
+            try:
+                target_path = str(WorkspaceService().validate(body.target_path))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return svc.create_orchestration(
+            body.user_request, project_id=body.project_id, target_path=target_path
+        )
 
     @app.post("/v1/orchestrations/{orchestration_id}/plan", status_code=201)
     def plan_with_llm(orchestration_id: str, body: PlanBody) -> Any:
@@ -358,6 +382,18 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/analyze-folder", status_code=201)
+    def analyze_folder(orchestration_id: str, body: AnalyzeFolderBody | None = None) -> Any:
+        """Analisa a pasta da orquestração e gera/atualiza a documentação docs-first."""
+        _guard(orchestration_id)
+        body = body or AnalyzeFolderBody()
+        try:
+            return svc.analyze_folder(orchestration_id, executor=body.executor, effort=body.effort)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except (ValueError, WorkspaceError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.post("/v1/orchestrations/{orchestration_id}/advance-phase")
@@ -527,12 +563,14 @@ def create_app(
     def race_card(orchestration_id: str, card_id: str) -> Any:
         """Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs."""
         _guard(orchestration_id)
-        providers = build_candidate_providers()
+        # Candidatos rodam na pasta (workspace) desta orquestração, se definida.
+        providers = build_candidate_providers(svc.get(orchestration_id).target_path)
         if not providers:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Nenhum candidato configurado: defina ASO_CANDIDATE_COMMANDS e ASO_TARGET_REPO."
+                    "Nenhum candidato configurado: defina ASO_CANDIDATE_COMMANDS e a pasta "
+                    "da orquestração (ou ASO_TARGET_REPO)."
                 ),
             )
         return _card_op(

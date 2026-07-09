@@ -2456,6 +2456,40 @@
         "TASK-76"
       ],
       "evidence": "seed rodado: 18 perfis criados (claude-*/codex-* × low/medium/high), default claude-sonnet-high, comando com aspas + model_reasoning_effort; bash -n OK"
+    },
+    {
+      "id": "TASK-79",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Workspace por orquestração + documentação docs-first",
+      "description": "Nova orquestração passa a selecionar uma pasta (workspace): Orchestration.target_path (coluna nullable + migração Alembic manual b3d1f0a24c7e) substitui o ASO_TARGET_REPO global só para aquela orquestração. ExecutorCatalog.build ganhou repo_override; helper _provider_for atrela o provider à pasta em run_phase/run_card/run_plan/run_quality_gate e na corrida (fallback ao provider global). Novo módulo execution/workspace.py (WorkspaceService: validate/ensure_git com HEAD/list_dirs; WorkspaceAnalyzer) e execution/docs_scaffold.py (scaffold determinístico pt-BR no padrão ai-docs-self-healing: docs/index.md + docs/modules/<módulo>/<feature>.md, 8 seções). Service.analyze_folder: pasta vazia → scaffold; projeto existente → agente selecionado documenta em worktree e o diff é mesclado; evento WorkspaceAnalyzed + ContextPatch engineering.docs_first. API: GET /v1/fs/dirs, POST /orchestrations com target_path, POST /analyze-folder. Console: navegador de pastas (modal), seletor de agente na criação, botão 'Analisar pasta' e status docs.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0008-workspace-por-orquestracao.md",
+      "acceptance_criteria": [
+        "Orchestration.target_path persiste (migração + alembic check sem diff)",
+        "providers CLI/gate usam a pasta da orquestração (fallback ASO_TARGET_REPO)",
+        "pasta vazia gera scaffold docs-first e commita; HEAD garantido por ensure_git",
+        "projeto existente documentado pelo agente em worktree, diff mesclado",
+        "GET /v1/fs/dirs lista só diretórios; POST /analyze-folder retorna report",
+        "console: selecionar pasta + agente, Analisar pasta e status docs"
+      ],
+      "linked_requirements": [
+        "§10",
+        "§26A",
+        "§27"
+      ],
+      "linked_adrs": [
+        "ADR-0008"
+      ],
+      "dependencies": [
+        "TASK-73",
+        "TASK-78"
+      ],
+      "evidence": "184 testes verdes (17 novos), cobertura 93.02%; ruff/format/mypy OK; alembic upgrade head + check sem diff"
     }
   ]
 }

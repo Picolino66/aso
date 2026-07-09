@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from aso.agents.executor import AgentExecutionError, ExecutionProvider
+from aso.agents.executor import AgentExecutionError, ExecutionProvider, LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.agents.registry import AgentRegistry
 from aso.agents.supervisor import AgentSupervisor
@@ -25,8 +25,16 @@ from aso.control.execution_planner import ExecutionPlanner
 from aso.control.models import DecisionInput, ExecutionPlan, Orchestration
 from aso.execution.candidates import CandidateRunner
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
+from aso.execution.docs_scaffold import write_scaffold
 from aso.execution.gate_command import run_gate_command
 from aso.execution.settings_store import ExecutorSettingsStore
+from aso.execution.workspace import (
+    WorkspaceAnalyzer,
+    WorkspaceError,
+    WorkspaceReport,
+    WorkspaceService,
+)
+from aso.execution.worktree import WorktreeError, WorktreeManager
 from aso.governance.adr_registry import ADRRegistry
 from aso.governance.context_store import OrchestratorContextStore
 from aso.governance.contextbus import BusResult, ContextBus, PermissionPolicy
@@ -60,6 +68,7 @@ from aso.shared.types import (
     ExecutionMode,
     GateStatus,
     PatchStatus,
+    PatchType,
     Phase,
 )
 
@@ -183,11 +192,15 @@ class OrchestrationService:
         user_request: str,
         *,
         project_id: str | None = None,
+        target_path: str | None = None,
         execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE,
         decision_input: DecisionInput | None = None,
     ) -> Orchestration:
         orchestration = Orchestration(
-            project_id=project_id, execution_mode=execution_mode, user_request=user_request
+            project_id=project_id,
+            target_path=target_path,
+            execution_mode=execution_mode,
+            user_request=user_request,
         )
         oid = orchestration.id
         events = EventLog()
@@ -1097,11 +1110,35 @@ class OrchestrationService:
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
     # ------------------------------------------------------------------ execução
-    def resolve_provider(self, executor: str | None) -> ExecutionProvider | None:
-        """Resolve o provider de um executor escolhido (catálogo); None → default."""
+    def resolve_provider(
+        self, executor: str | None, *, target_path: str | None = None
+    ) -> ExecutionProvider | None:
+        """Resolve o provider de um executor escolhido (catálogo); None → default.
+
+        `target_path` é a pasta da orquestração (workspace): repassada ao catálogo
+        como `repo_override`, faz os agentes CLI operarem nela em vez do repo global.
+        """
         if not executor or self._catalog is None:
             return None
-        return self._catalog.build(executor)
+        return self._catalog.build(executor, repo_override=target_path)
+
+    def _provider_for(
+        self, b: OrchestrationBundle, executor: str | None
+    ) -> ExecutionProvider | None:
+        """Provider a usar nesta orquestração, atrelado à pasta dela (se houver).
+
+        - executor escolhido → resolve do catálogo com a pasta como repo;
+        - sem executor, mas com pasta definida → usa o executor default do catálogo,
+          também atrelado à pasta (evita cair no provider global, que aponta para
+          o `ASO_TARGET_REPO`);
+        - senão → provider global do bootstrap (comportamento legado).
+        """
+        tp = b.orchestration.target_path
+        if executor and self._catalog is not None:
+            return self.resolve_provider(executor, target_path=tp)
+        if tp and self._catalog is not None:
+            return self.resolve_provider(self._catalog.default_name(), target_path=tp)
+        return self._provider
 
     def list_executors(self) -> list[dict[str, object]]:
         """Executores disponíveis (para escolha por etapa na UI/API)."""
@@ -1171,12 +1208,17 @@ class OrchestrationService:
             return None, local.all(), exc
 
     def _execute_wave(
-        self, jobs: list[tuple[AgentSpec, dict[str, Any]]], concurrent: bool
+        self,
+        jobs: list[tuple[AgentSpec, dict[str, Any]]],
+        concurrent: bool,
+        provider: ExecutionProvider | None = None,
     ) -> list[tuple[AgentOutput | None, list[DomainEvent], Exception | None]]:
         if concurrent and len(jobs) > 1:
             with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as pool:
-                return list(pool.map(lambda job: self._execute_isolated(*job), jobs))
-        return [self._execute_isolated(*job) for job in jobs]
+                return list(
+                    pool.map(lambda job: self._execute_isolated(job[0], job[1], provider), jobs)
+                )
+        return [self._execute_isolated(agent, task, provider) for agent, task in jobs]
 
     def _apply_execution(
         self,
@@ -1234,6 +1276,10 @@ class OrchestrationService:
         agent = b.agent_registry.get(card.assignee)
         if agent is None:
             raise KeyError(f"Agente não registrado: {card.assignee}")
+        # Chamada direta (ex.: /cards/{id}/run) sem provider → usa o provider
+        # atrelado à pasta desta orquestração (não o global do bootstrap).
+        if provider is None:
+            provider = self._provider_for(b, None)
         task = self._build_task(b, card, agent, effort=effort)
         output, events, error = self._execute_isolated(agent, task, provider)
         results = self._apply_execution(b, card_id, output, events, error)
@@ -1265,6 +1311,8 @@ class OrchestrationService:
         """Executa o plano em ondas topológicas; agentes de uma onda rodam concorrentes (§13)."""
         b = self._bundle(orchestration_id)
         plan = b.plan
+        # Provider atrelado à pasta (workspace) desta orquestração.
+        wave_provider = self._provider_for(b, None)
         cards_by_agent = {c.assignee: c for c in b.board_service.cards_of(b.board.id)}
         agents = {a.agent: a for a in plan.agents}
         done: set[str] = set()
@@ -1285,7 +1333,9 @@ class OrchestrationService:
                 spec = b.agent_registry.get(name)
                 if card is not None and spec is not None and card.status == ColumnKey.READY:
                     jobs.append((card.id, spec, self._build_task(b, card, spec)))
-            outputs = self._execute_wave([(spec, task) for _cid, spec, task in jobs], concurrent)
+            outputs = self._execute_wave(
+                [(spec, task) for _cid, spec, task in jobs], concurrent, wave_provider
+            )
             for (card_id, _spec, _task), (output, events, error) in zip(jobs, outputs, strict=True):
                 self._apply_execution(b, card_id, output, events, error)
                 executed.append(card_id)
@@ -1341,7 +1391,8 @@ class OrchestrationService:
         # Gate real (M5): nas fases de código, roda os testes/lint configurados no repo
         # alvo — só aprova com a suíte verde (não avança com testes vermelhos, §gate).
         gate_cmd = os.environ.get("ASO_GATE_TEST_COMMAND")
-        repo = os.environ.get("ASO_TARGET_REPO")
+        # Roda o gate na pasta da orquestração (workspace); env global é fallback.
+        repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
         if gate_cmd and repo and target_phase in (Phase.F5, Phase.F6):
             criteria.append(
                 Criterion("tests_pass", lambda _c: run_gate_command(shlex.split(gate_cmd), repo))
@@ -1364,6 +1415,144 @@ class OrchestrationService:
         self._persist(b)
         return result
 
+    # ---------------------------------------------------- workspace + docs-first
+    def _docs_task(
+        self, b: OrchestrationBundle, report: WorkspaceReport, *, effort: str | None = None
+    ) -> dict[str, Any]:
+        """Monta a tarefa (JSON via stdin) que instrui o agente a documentar docs-first."""
+        acao = "atualizar (de forma localizada, sem recriar)" if report.has_aso_docs else "criar"
+        modulos = ", ".join(report.detected_modules) or "(nenhum detectado)"
+        instrucao = (
+            "Documente este projeto no padrão docs-first (IA-first), em pt-BR. "
+            f"Ação: {acao} a documentação em /docs. "
+            "Estrutura obrigatória: docs/index.md (ponto de entrada que a IA lê antes do "
+            "código) e docs/modules/<módulo>/<feature>.md. Cada feature deve conter as 8 "
+            "seções: Descrição, Localização no código, Entrada, Saída, Dependências, "
+            "Regras de negócio, Fluxo resumido, Possíveis erros. Leia o código para "
+            "preencher com fatos reais, mantenha índices e links internos válidos e, se já "
+            "houver documentação ASO, atualize sem recriar tudo. "
+            f"Módulos detectados: {modulos}."
+        )
+        task: dict[str, Any] = {
+            "orchestration_id": b.orchestration.id,
+            "phase": Phase.F6.value,
+            "target_path": "engineering.docs_first",
+            "content": {"request": instrucao, "by": "DocumentationAgent"},
+        }
+        if effort:
+            task["effort"] = effort
+        return task
+
+    def analyze_folder(
+        self,
+        orchestration_id: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+    ) -> dict[str, object]:
+        """Analisa a pasta da orquestração e gera/atualiza a documentação docs-first.
+
+        - Valida a pasta e garante repo git com HEAD (worktrees exigem HEAD).
+        - Pasta vazia → escreve um scaffold determinístico (sem agente) e commita.
+        - Projeto existente → o agente selecionado documenta em worktree isolado e o
+          diff é mesclado (governado) na pasta; sem agente real, cai no scaffold.
+        - Rede de segurança: garante ao menos a navegação docs-first mínima.
+        - Registra evento + ContextPatch de resumo (rastreabilidade, sem aprovação —
+          docs = baixo risco).
+        """
+        b = self._bundle(orchestration_id)
+        tp = b.orchestration.target_path
+        if not tp:
+            raise ValueError("Orquestração sem pasta de trabalho (workspace) definida.")
+        ws = WorkspaceService()
+        root = ws.validate(tp)
+        git_initialized = ws.ensure_git(root)
+        report = WorkspaceAnalyzer(ws).analyze(root)
+
+        created: list[str] = []
+        mode: str
+        if report.is_empty:
+            mode = "scaffold"
+            created = write_scaffold(root, report.detected_modules)
+            ws.commit_all(root, "aso: docs-first (scaffold)")
+        else:
+            provider = self._provider_for(b, executor)
+            spec = b.agent_registry.get("DocumentationAgent")
+            if (
+                provider is not None
+                and spec is not None
+                and not isinstance(provider, LocalMockExecutionProvider)
+            ):
+                mode = "agent"
+                task = self._docs_task(b, report, effort=effort)
+                try:
+                    output = provider.execute(spec, task)
+                except AgentExecutionError as exc:
+                    raise WorkspaceError(f"Falha ao documentar com o agente: {exc}") from exc
+                branch = output.artifacts.get("branch")
+                if branch:
+                    try:
+                        WorktreeManager(str(root)).merge(str(branch))
+                    except WorktreeError:
+                        # Agente não gerou diff mesclável — a rede de segurança cobre.
+                        pass
+            else:
+                mode = "scaffold"
+                created = write_scaffold(root, report.detected_modules)
+                ws.commit_all(root, "aso: docs-first (scaffold)")
+
+        after = WorkspaceAnalyzer(ws).analyze(root)
+        if not after.has_aso_docs:
+            # Rede de segurança: garante docs/index.md + docs/modules/ navegáveis.
+            extra = write_scaffold(root, after.detected_modules)
+            if extra:
+                created += extra
+                ws.commit_all(root, "aso: docs-first (scaffold de segurança)")
+                after = WorkspaceAnalyzer(ws).analyze(root)
+
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            b.event_log.append(
+                "WorkspaceAnalyzed",
+                {
+                    "orchestration_id": orchestration_id,
+                    "path": str(root),
+                    "mode": mode,
+                    "has_aso_docs": after.has_aso_docs,
+                    "git_initialized": git_initialized,
+                },
+            )
+            patch = ContextPatch(
+                orchestration_id=orchestration_id,
+                agent="DocumentationAgent",
+                phase=b.orchestration.current_phase,
+                patch_type=PatchType.UPDATE,
+                target_path="engineering.docs_first",
+                content={
+                    "path": str(root),
+                    "mode": mode,
+                    "created": created,
+                    "detected_modules": after.detected_modules,
+                    "has_aso_docs": after.has_aso_docs,
+                },
+                evidence=[f"mode={mode}", f"has_aso_docs={after.has_aso_docs}"],
+            )
+            b.bus.submit(patch)
+            self._persist(b)
+        self._log.info(
+            "workspace_analyzed",
+            orchestration_id=orchestration_id,
+            mode=mode,
+            has_aso_docs=after.has_aso_docs,
+        )
+        return {
+            "path": str(root),
+            "mode": mode,
+            "git_initialized": git_initialized,
+            "created": created,
+            "report": after.model_dump(),
+        }
+
     # ------------------------------------------------------------- autopilot (M3)
     def run_phase(
         self,
@@ -1379,12 +1568,19 @@ class OrchestrationService:
         `executor`/`effort` escolhem o agente e o esforço desta etapa; a escolha é
         guardada na aprovação para o auto-avanço (M4) manter a mesma configuração.
         """
-        provider = self.resolve_provider(executor)
-        # Sem esforço explícito, herda o esforço do perfil do executor (ex.: 'high').
-        if effort is None and executor and self._catalog is not None:
-            prof = self._catalog.get(executor)
-            if prof is not None and prof.effort:
-                effort = prof.effort
+        # Resolve o provider já atrelado à pasta (workspace) desta orquestração.
+        b0 = self._bundle(orchestration_id)
+        provider = self._provider_for(b0, executor)
+        # Sem esforço explícito, herda o esforço do perfil do executor efetivo
+        # (o escolhido ou, quando há pasta, o default do catálogo).
+        if effort is None and self._catalog is not None:
+            name_for_effort = executor or (
+                self._catalog.default_name() if b0.orchestration.target_path else None
+            )
+            if name_for_effort:
+                prof = self._catalog.get(name_for_effort)
+                if prof is not None and prof.effort:
+                    effort = prof.effort
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
             if b.orchestration.status == "cancelled":  # kill-switch (M6)

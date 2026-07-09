@@ -104,17 +104,24 @@ class ExecutorCatalog:
         return next(iter(self._profiles))
 
     # -------------------------------------------------------------- construção
-    def build(self, name: str) -> ExecutionProvider:
-        """Constrói o provider do perfil (lê secrets do ambiente). Levanta se faltar."""
+    def build(self, name: str, *, repo_override: str | None = None) -> ExecutionProvider:
+        """Constrói o provider do perfil (lê secrets do ambiente). Levanta se faltar.
+
+        `repo_override` é a pasta da orquestração (workspace); quando informado,
+        substitui o `ASO_TARGET_REPO` global para os executores CLI.
+        """
         profile = self._profiles.get(name)
         if profile is None:
             raise KeyError(f"Executor desconhecido: {name}")
         if profile.kind == "mock":
             return LocalMockExecutionProvider()
         if profile.kind == "cli":
-            repo = os.environ.get("ASO_TARGET_REPO")
+            repo = repo_override or os.environ.get("ASO_TARGET_REPO")
             if not (profile.command and repo):
-                raise ValueError(f"Executor CLI '{name}' exige command + ASO_TARGET_REPO.")
+                raise ValueError(
+                    f"Executor CLI '{name}' exige command + pasta da orquestração "
+                    "(ou ASO_TARGET_REPO)."
+                )
             return CliAgentExecutionProvider(
                 shlex.split(profile.command), repo, executor_id=profile.name
             )

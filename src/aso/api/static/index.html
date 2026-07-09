@@ -68,6 +68,16 @@
     .dl.del { color:var(--err); background:rgba(239,68,68,.08); }
     .dl.hunk { color:var(--info); }
     .dl.meta { color:var(--muted); }
+    /* ===== Modal (navegador de pastas) ===== */
+    .overlay { position:fixed; inset:0; background:rgba(2,6,23,.7); display:flex; align-items:center; justify-content:center; z-index:20; }
+    .modal { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); width:min(680px,92vw); max-height:82vh; display:flex; flex-direction:column; padding:16px; }
+    .modal h2 { margin:0 0 10px; }
+    .fslist { flex:1; overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); }
+    .fsrow { padding:8px 10px; cursor:pointer; border-bottom:1px solid #1f2b3e; font-size:13px; }
+    .fsrow:hover { background:var(--panel); }
+    .fscur { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; margin:6px 0; }
+    .docstatus { margin-top:8px; font-size:12px; }
+    .docstatus .pill { margin-right:6px; }
   </style>
 </head>
 <body>
@@ -83,8 +93,17 @@
     <div>
       <div class="card">
         <h2>Nova orquestração</h2>
+        <label class="muted">Pasta de trabalho (workspace)</label>
+        <div class="row" style="gap:6px;align-items:stretch">
+          <input id="orchPath" placeholder="/caminho/do/projeto (vazio ou existente)" style="flex:1;margin-bottom:8px" />
+          <button class="btn ghost sm" style="margin-bottom:8px" onclick="openFolderModal()">Procurar…</button>
+        </div>
+        <label class="muted">Agente</label>
+        <select id="orchExec"><option value="">default</option></select>
+        <label class="muted">Demanda (o que o ASO deve construir)</label>
         <textarea id="req" rows="3" placeholder="Descreva a demanda..."></textarea>
         <button class="btn" onclick="createOrch()">Criar</button>
+        <div class="muted" style="margin-top:6px">Selecione a pasta → crie → <b>Analisar pasta</b> (gera docs-first) → Autopilot.</div>
       </div>
       <div class="card">
         <h2>Orquestrações</h2>
@@ -103,7 +122,7 @@
     };
     const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
     const del = (p) => api(p, { method:'DELETE' });
-    function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); loadOrchestrations(); }
+    function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); loadOrchestrations(); loadExecs(); }
     const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const statusPill = (s) => {
@@ -217,21 +236,81 @@
       }
     }
 
+    let _pendingExec = null;   // agente escolhido na criação, pré-selecionado no detalhe
+    let _fsPath = null;        // caminho atual do navegador de pastas
+
+    async function loadExecs() {
+      const sel = document.getElementById('orchExec');
+      if (!sel) return;
+      try {
+        const execs = await api('/v1/executors');
+        sel.innerHTML = '<option value="">default</option>' + execs.map(e =>
+          `<option value="${esc(e.name)}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('');
+      } catch (_) { /* sem token ainda; recarrega ao entrar */ }
+    }
+
     async function createOrch() {
       const text = document.getElementById('req').value.trim();
-      if (!text) return;
-      const o = await post('/v1/orchestrations', { user_request:text });
+      const path = document.getElementById('orchPath').value.trim();
+      _pendingExec = document.getElementById('orchExec').value || null;
+      if (!text) { alert('Descreva a demanda.'); return; }
+      let o;
+      try {
+        o = await post('/v1/orchestrations', { user_request:text, target_path: path || null });
+      } catch (s) { alert('Falha ao criar (código '+s+'). Verifique o caminho da pasta.'); return; }
       document.getElementById('req').value = '';
       current = o.id; currentTab = 'kanban';
       await loadOrchestrations(); await openOrch(o.id);
     }
 
+    // ---- Navegador de pastas (modal) ----
+    async function openFolderModal(start) {
+      let box = document.getElementById('fsModal');
+      if (!box) {
+        box = el(`<div class="overlay" id="fsModal"><div class="modal">
+          <div class="row between"><h2>Selecionar pasta</h2><button class="btn ghost sm" onclick="closeFolderModal()">✕</button></div>
+          <div class="fscur" id="fsCur"></div>
+          <div class="fslist" id="fsList"><div class="empty">carregando…</div></div>
+          <div class="row" style="margin-top:10px;justify-content:flex-end">
+            <button class="btn ghost" onclick="fsUp()">⬆ Acima</button>
+            <button class="btn" onclick="fsUseCurrent()">Usar esta pasta</button>
+          </div></div></div>`);
+        document.body.appendChild(box);
+      }
+      box.style.display = 'flex';
+      await fsNavigate(start || document.getElementById('orchPath').value.trim() || null);
+    }
+    function closeFolderModal() { const b = document.getElementById('fsModal'); if (b) b.style.display='none'; }
+    async function fsNavigate(path) {
+      let data;
+      try { data = await api('/v1/fs/dirs' + (path ? ('?path=' + encodeURIComponent(path)) : '')); }
+      catch (s) { alert('Não foi possível abrir a pasta (código '+s+').'); return; }
+      _fsPath = data.path;
+      document.getElementById('fsCur').textContent = data.path;
+      const rows = data.dirs.map(d => `<div class="fsrow" onclick="fsNavigate('${esc(d.path).replace(/'/g,"\\'")}')">📁 ${esc(d.name)}</div>`).join('');
+      document.getElementById('fsList').innerHTML = rows || '<div class="empty">sem subpastas</div>';
+    }
+    function fsUp() { const b = _fsPath && _fsPath.replace(/\/+$/,''); const parent = b && b.slice(0, b.lastIndexOf('/')) || '/'; fsNavigate(parent || '/'); }
+    function fsUseCurrent() { if (_fsPath) document.getElementById('orchPath').value = _fsPath; closeFolderModal(); }
+
+    async function analyzeFolder(id) {
+      const s = _sel();
+      let r;
+      try { r = await post(`/v1/orchestrations/${id}/analyze-folder`, s); }
+      catch (st) { alert('Falha ao analisar a pasta (código '+st+'). A orquestração tem pasta definida?'); return; }
+      const rep = r.report || {};
+      alert(`Análise concluída (${r.mode}). docs-first: ${rep.has_aso_docs?'OK':'gerado'}. ` +
+            (r.git_initialized?'Git inicializado. ':'') + `Arquivos criados: ${(r.created||[]).length}.`);
+      await openOrch(id);
+    }
+
     async function openOrch(id) {
       current = id; await loadOrchestrations(); ensureStream(id);
-      const [m, slo, approvals, exec, execs] = await Promise.all([
+      const [m, slo, approvals, exec, execs, orch] = await Promise.all([
         api(`/v1/orchestrations/${id}/metrics`), api(`/v1/orchestrations/${id}/slo`),
         api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`),
-        api(`/v1/executors`).catch(()=>[])]);
+        api(`/v1/executors`).catch(()=>[]), api(`/v1/orchestrations/${id}`).catch(()=>({}))]);
+      const wsPath = orch.target_path || null;
       const sloOk = slo.breaches.length === 0;
       const SLO_LABELS = { sem_conflitos_abertos:'sem conflitos', sem_cards_bloqueados:'cards bloqueados', snapshot_da_fase_gerado:'snapshot ausente', taxa_de_falhas_de_execucao:'taxa de falhas alta' };
       const sloText = sloOk ? 'OK' : slo.breaches.map(b=>SLO_LABELS[b]||b).join(', ');
@@ -270,17 +349,27 @@
             </label>
           </div>
           <div class="row" style="margin-top:8px">
+            <button class="btn ghost" onclick="analyzeFolder('${id}')" ${wsPath?'':'disabled'} title="${wsPath?'':'Defina a pasta ao criar a orquestração'}">📄 Analisar pasta</button>
             <button class="btn" onclick="startAutopilot('${id}')">▶ Autopilot</button>
             <button class="btn ghost" onclick="runPhase('${id}')">Rodar fase</button>
             <button class="btn ghost" onclick="runAll('${id}')">Rodar cards</button>
             <button class="btn ghost" onclick="runGate('${id}')">Rodar gate</button>
           </div>
-          <div class="muted" style="margin-top:4px">Escolha o agente e o esforço; o Autopilot roda a fase e pausa na aprovação — aprovar (aba <b>approvals</b>) avança sozinho mantendo a escolha.</div>
+          <div class="docstatus muted">
+            ${wsPath ? `pasta: <code>${esc(wsPath)}</code>` : '<span class="pill warn">sem pasta de trabalho</span>'}
+          </div>
+          <div class="muted" style="margin-top:4px">Escolha o agente e o esforço. <b>Analisar pasta</b> gera/atualiza a documentação docs-first (a IA lê os docs antes do código). Depois o Autopilot roda a fase e pausa na aprovação — aprovar (aba <b>approvals</b>) avança sozinho mantendo a escolha.</div>
         </div>
         <div class="card">
           <div class="tabs">${tabs.map(t => `<div class="tab ${t===currentTab?'active':''}" onclick="setTab('${id}','${t}')">${t}</div>`).join('')}</div>
           <div id="tabc"><div class="empty">carregando...</div></div>
         </div>`;
+      // Pré-seleciona o agente escolhido na criação (se ainda existir na lista).
+      if (_pendingExec) {
+        const es = document.getElementById('execSel');
+        if (es && [...es.options].some(o => o.value === _pendingExec)) es.value = _pendingExec;
+        _pendingExec = null;
+      }
       renderTab(id);
     }
 
@@ -614,6 +703,7 @@
 
     document.getElementById('tok').value = token();
     loadOrchestrations();
+    loadExecs();
   </script>
 </body>
 </html>

@@ -8,7 +8,6 @@
   "snapshot_version": "O7",
   "last_stable_snapshot": "O7",
   "execution_mode": "full-pipeline",
-
   "product": {
     "name": "ASO Runtime — Autonomous Software Orchestrator Runtime",
     "domain": "Engenharia de software autônoma e orquestração multiagente (AgentOps / DevEx)",
@@ -111,23 +110,66 @@
       "API funcional e/ou UI simples + logs básicos"
     ],
     "metrics": [
-      { "nome": "Criar orquestração", "criterio": "É possível criar uma orquestração", "tipo": "aceite-mvp" },
-      { "nome": "Gerar ExecutionPlan", "criterio": "Sistema gera um ExecutionPlan válido", "tipo": "aceite-mvp" },
-      { "nome": "Contexto canônico", "criterio": "Sistema cria e versiona OrchestratorContext", "tipo": "aceite-mvp" },
-      { "nome": "Kanban por orquestração", "criterio": "Board e cards criados automaticamente", "tipo": "aceite-mvp" },
-      { "nome": "Decisão multiagente", "criterio": "Sistema decide single vs multi-agent com justificativa", "tipo": "aceite-mvp" },
-      { "nome": "Execução de agente", "criterio": "Pelo menos um agente (mock) executa e produz output estruturado", "tipo": "aceite-mvp" },
-      { "nome": "Patch governado", "criterio": "ContextBus valida e aplica ContextPatch", "tipo": "aceite-mvp" },
-      { "nome": "Governança de decisão", "criterio": "Sistema registra ao menos uma ADR", "tipo": "aceite-mvp" },
-      { "nome": "Quality gate", "criterio": "Sistema roda um quality gate simples", "tipo": "aceite-mvp" },
-      { "nome": "Snapshot", "criterio": "Sistema gera um snapshot após gate aprovado", "tipo": "aceite-mvp" },
-      { "nome": "Observabilidade mínima", "criterio": "Timeline e logs básicos exibidos", "tipo": "aceite-mvp" }
+      {
+        "nome": "Criar orquestração",
+        "criterio": "É possível criar uma orquestração",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Gerar ExecutionPlan",
+        "criterio": "Sistema gera um ExecutionPlan válido",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Contexto canônico",
+        "criterio": "Sistema cria e versiona OrchestratorContext",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Kanban por orquestração",
+        "criterio": "Board e cards criados automaticamente",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Decisão multiagente",
+        "criterio": "Sistema decide single vs multi-agent com justificativa",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Execução de agente",
+        "criterio": "Pelo menos um agente (mock) executa e produz output estruturado",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Patch governado",
+        "criterio": "ContextBus valida e aplica ContextPatch",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Governança de decisão",
+        "criterio": "Sistema registra ao menos uma ADR",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Quality gate",
+        "criterio": "Sistema roda um quality gate simples",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Snapshot",
+        "criterio": "Sistema gera um snapshot após gate aprovado",
+        "tipo": "aceite-mvp"
+      },
+      {
+        "nome": "Observabilidade mínima",
+        "criterio": "Timeline e logs básicos exibidos",
+        "tipo": "aceite-mvp"
+      }
     ],
     "feedback_insights": [],
     "evolution_backlog": [],
     "strategy_update": null
   },
-
   "market": {
     "landscape": "Ferramentas e frameworks de orquestração de agentes de código e workflows agentic em rápida evolução",
     "competitors": [
@@ -144,13 +186,11 @@
       "Roteamento multi-provider e multi-CLI-agent"
     ]
   },
-
   "business": {
     "model": "Ferramenta/produto de engenharia (runtime + UI + CLI); modelos SaaS/billing/marketplace estão fora do MVP 1",
     "revenue_streams": [],
     "value_proposition": "Governança e execução agentic ponta a ponta com rastreabilidade total e qualidade não negociável."
   },
-
   "requirements": {
     "functional": [
       "Criar e gerenciar orquestrações (F1–F7) em múltiplos modos de execução",
@@ -182,7 +222,6 @@
       "Documentação, UI e comentários de código em pt-BR"
     ]
   },
-
   "scope": {
     "included": [
       "Multiagentes atuando em multitarefas com isolamento e controle central",
@@ -216,27 +255,52 @@
       "MVP 5 — Produto completo (F1–F7, UI completa, snapshots avançados, operação F7)"
     ]
   },
-
   "feasibility": {
     "verdict": "VIAVEL_COM_RISCOS",
     "risks": [
-      { "id": "RISK-01", "descricao": "Complexidade de coordenar múltiplos agentes paralelos com consistência de contexto", "mitigacao": "ContextBus soberano + ConflictDetector + snapshots imutáveis; começar com mock" },
-      { "id": "RISK-02", "descricao": "Integração heterogênea com CLI agents (Claude Code, Codex, Aider) e adapters", "mitigacao": "AgentAdapter contract abstrato; adiar para MVP 3/4 após validar core" },
-      { "id": "RISK-03", "descricao": "Custo e limites de tokens em execuções longas", "mitigacao": "CostTracker, budgets por provider, CompressionEngine de contexto" },
-      { "id": "RISK-04", "descricao": "Escopo muito amplo (7 fases + Kanban + providers) levando a over-engineering", "mitigacao": "Roadmap incremental MVP 1→5; entregar core primeiro (§39 rule 1)" },
-      { "id": "RISK-05", "descricao": "Ações destrutivas de agentes (deploy, secrets, reset de banco)", "mitigacao": "HumanApprovalEngine obrigatório + worktree isolado + tools com permissão" }
+      {
+        "id": "RISK-01",
+        "descricao": "Complexidade de coordenar múltiplos agentes paralelos com consistência de contexto",
+        "mitigacao": "ContextBus soberano + ConflictDetector + snapshots imutáveis; começar com mock"
+      },
+      {
+        "id": "RISK-02",
+        "descricao": "Integração heterogênea com CLI agents (Claude Code, Codex, Aider) e adapters",
+        "mitigacao": "AgentAdapter contract abstrato; adiar para MVP 3/4 após validar core"
+      },
+      {
+        "id": "RISK-03",
+        "descricao": "Custo e limites de tokens em execuções longas",
+        "mitigacao": "CostTracker, budgets por provider, CompressionEngine de contexto"
+      },
+      {
+        "id": "RISK-04",
+        "descricao": "Escopo muito amplo (7 fases + Kanban + providers) levando a over-engineering",
+        "mitigacao": "Roadmap incremental MVP 1→5; entregar core primeiro (§39 rule 1)"
+      },
+      {
+        "id": "RISK-05",
+        "descricao": "Ações destrutivas de agentes (deploy, secrets, reset de banco)",
+        "mitigacao": "HumanApprovalEngine obrigatório + worktree isolado + tools com permissão"
+      }
     ],
     "constraints": [
       "Sem execução de código real no MVP 1",
       "Provider mock antes de provider real"
     ]
   },
-
   "architecture": {
     "pattern": "modular-monolith",
     "style": "Clean/Hexagonal (Ports & Adapters) + DDD",
     "services": [],
-    "boundaries": ["control", "kanban", "agents", "execution", "governance", "observability"],
+    "boundaries": [
+      "control",
+      "kanban",
+      "agents",
+      "execution",
+      "governance",
+      "observability"
+    ],
     "component_diagram": "docs/phases/F2-architecture.md",
     "data_flows": [
       "Agente -> ContextPatch -> ContextBus (validação 7 etapas) -> OrchestratorContext",
@@ -245,26 +309,100 @@
     ],
     "communication_patterns": "Interfaces/eventos de domínio entre módulos; escrita no contexto somente via ContextBus",
     "layer_map": {
-      "driving_adapters": ["api (FastAPI)", "cli (Typer)"],
-      "application": ["casos de uso por plane"],
-      "domain": ["control", "kanban", "agents", "execution", "governance", "observability"],
-      "driven_adapters": ["db (SQLAlchemy/Postgres)", "llm_providers (httpx)", "cli_agents (subprocess/pty)", "git (worktrees)"]
+      "driving_adapters": [
+        "api (FastAPI)",
+        "cli (Typer)"
+      ],
+      "application": [
+        "casos de uso por plane"
+      ],
+      "domain": [
+        "control",
+        "kanban",
+        "agents",
+        "execution",
+        "governance",
+        "observability"
+      ],
+      "driven_adapters": [
+        "db (SQLAlchemy/Postgres)",
+        "llm_providers (httpx)",
+        "cli_agents (subprocess/pty)",
+        "git (worktrees)"
+      ]
     },
     "module_responsibilities": [
-      { "module": "control", "responsibility": "OrchestratorRuntime, PhaseController, MultiAgentDecisionEngine, AgentSupervisor, AgentRouter, ExecutionPlanner, DependencyGraph, HumanApprovalEngine" },
-      { "module": "kanban", "responsibility": "Board, Card, Swimlane, dependências, assignment, eventos de card" },
-      { "module": "agents", "responsibility": "AgentRegistry, AgentSupervisor, AgentExecutor, AgentAdapterRegistry, SkillRegistry/Resolver, ToolPermissionEngine" },
-      { "module": "execution", "responsibility": "ExecutionProvider (Local/Mock, Cli, AgentWrapper), WorktreeManager, TerminalRuntime, PR/CI/Review observers" },
-      { "module": "governance", "responsibility": "OrchestratorContext, ContextBus, ContextPatchValidator, ConflictDetector, QualityGateEngine, ADRRegistry, SnapshotEngine, ContractValidator" },
-      { "module": "observability", "responsibility": "TraceService, EventLog, CostTracker, TokenUsageTracker, AgentRunTimeline, AuditLog" }
+      {
+        "module": "control",
+        "responsibility": "OrchestratorRuntime, PhaseController, MultiAgentDecisionEngine, AgentSupervisor, AgentRouter, ExecutionPlanner, DependencyGraph, HumanApprovalEngine"
+      },
+      {
+        "module": "kanban",
+        "responsibility": "Board, Card, Swimlane, dependências, assignment, eventos de card"
+      },
+      {
+        "module": "agents",
+        "responsibility": "AgentRegistry, AgentSupervisor, AgentExecutor, AgentAdapterRegistry, SkillRegistry/Resolver, ToolPermissionEngine"
+      },
+      {
+        "module": "execution",
+        "responsibility": "ExecutionProvider (Local/Mock, Cli, AgentWrapper), WorktreeManager, TerminalRuntime, PR/CI/Review observers"
+      },
+      {
+        "module": "governance",
+        "responsibility": "OrchestratorContext, ContextBus, ContextPatchValidator, ConflictDetector, QualityGateEngine, ADRRegistry, SnapshotEngine, ContractValidator"
+      },
+      {
+        "module": "observability",
+        "responsibility": "TraceService, EventLog, CostTracker, TokenUsageTracker, AgentRunTimeline, AuditLog"
+      }
     ],
     "integration_contracts": [
-      { "name": "LLMProvider", "type": "http", "targets": ["deepseek", "openai", "anthropic", "local"], "note": "OpenAI-compatible + nativo" },
-      { "name": "AgentAdapter", "type": "process", "targets": ["claude_code", "codex", "aider"], "ref": "requerimentos.md §27" },
-      { "name": "WorktreeManager", "type": "process", "targets": ["git"] },
-      { "name": "CI/PR/Review observers", "type": "observer", "targets": ["ci", "pr", "review"], "status": "deferred (MVP 3-4)" }
+      {
+        "name": "LLMProvider",
+        "type": "http",
+        "targets": [
+          "deepseek",
+          "openai",
+          "anthropic",
+          "local"
+        ],
+        "note": "OpenAI-compatible + nativo"
+      },
+      {
+        "name": "AgentAdapter",
+        "type": "process",
+        "targets": [
+          "claude_code",
+          "codex",
+          "aider"
+        ],
+        "ref": "requerimentos.md §27"
+      },
+      {
+        "name": "WorktreeManager",
+        "type": "process",
+        "targets": [
+          "git"
+        ]
+      },
+      {
+        "name": "CI/PR/Review observers",
+        "type": "observer",
+        "targets": [
+          "ci",
+          "pr",
+          "review"
+        ],
+        "status": "deferred (MVP 3-4)"
+      }
     ],
-    "external_dependencies": ["PostgreSQL 16", "LLM provider APIs", "git", "CLI agents locais"],
+    "external_dependencies": [
+      "PostgreSQL 16",
+      "LLM provider APIs",
+      "git",
+      "CLI agents locais"
+    ],
     "infrastructure_strategy": {
       "deployment": "local-first, processo único (API + workers asyncio)",
       "containers": "Docker Compose para Postgres",
@@ -276,7 +414,10 @@
       "validation": "Pydantic v2",
       "persistence": "PostgreSQL 16 (JSONB) + SQLAlchemy 2.x + Alembic",
       "concurrency": "asyncio",
-      "llm_clients": ["httpx (OpenAI-compatible)", "anthropic SDK"],
+      "llm_clients": [
+        "httpx (OpenAI-compatible)",
+        "anthropic SDK"
+      ],
       "cli_agents": "subprocess/PTY via AgentAdapter",
       "git": "git via subprocess (WorktreeManager)",
       "cli": "Typer",
@@ -291,82 +432,363 @@
       "human_approval": "obrigatório para ações críticas (§24)",
       "isolation": "worktree/sandbox por agente que altera código; isolamento por projeto",
       "io_validation": "Pydantic; outputs de agentes só via ContextPatch validado",
-      "threat_model": ["prompt/output injection -> validação de patch + gates", "command injection -> allowlist de tools", "secret leakage -> mascaramento + env-only + audit"],
+      "threat_model": [
+        "prompt/output injection -> validação de patch + gates",
+        "command injection -> allowlist de tools",
+        "secret leakage -> mascaramento + env-only + audit"
+      ],
       "audit": "AuditLog append-only",
-      "limits": ["custo", "iterações", "tempo por execução", "concorrência"]
+      "limits": [
+        "custo",
+        "iterações",
+        "tempo por execução",
+        "concorrência"
+      ]
     },
     "distributed_config": null,
-    "async_config": { "runtime": "asyncio", "concurrency_limits": "configuráveis (§26A.10)" },
-    "scale_decisions": ["vertical-first", "extração de serviços apenas sob gargalo validado em F7"],
+    "async_config": {
+      "runtime": "asyncio",
+      "concurrency_limits": "configuráveis (§26A.10)"
+    },
+    "scale_decisions": [
+      "vertical-first",
+      "extração de serviços apenas sob gargalo validado em F7"
+    ],
     "reassessment_report": null,
-    "adrs": ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0004"]
+    "adrs": [
+      "ADR-0001",
+      "ADR-0002",
+      "ADR-0003",
+      "ADR-0004"
+    ]
   },
-
   "ux": {
     "journeys": [
-      { "id": "J1", "name": "Criar orquestração", "persona": "persona-tech-lead", "channel": "CLI/API" },
-      { "id": "J2", "name": "Acompanhar execução no Kanban", "persona": "persona-eng-manager", "channel": "CLI/API" },
-      { "id": "J3", "name": "Aprovar ação crítica", "persona": "persona-plataforma", "channel": "CLI/API" },
-      { "id": "J4", "name": "Revisar decisão (ADRs)", "persona": "persona-plataforma", "channel": "CLI/API" },
-      { "id": "J5", "name": "Rollback de fase", "persona": "persona-plataforma", "channel": "CLI/API" }
+      {
+        "id": "J1",
+        "name": "Criar orquestração",
+        "persona": "persona-tech-lead",
+        "channel": "CLI/API"
+      },
+      {
+        "id": "J2",
+        "name": "Acompanhar execução no Kanban",
+        "persona": "persona-eng-manager",
+        "channel": "CLI/API"
+      },
+      {
+        "id": "J3",
+        "name": "Aprovar ação crítica",
+        "persona": "persona-plataforma",
+        "channel": "CLI/API"
+      },
+      {
+        "id": "J4",
+        "name": "Revisar decisão (ADRs)",
+        "persona": "persona-plataforma",
+        "channel": "CLI/API"
+      },
+      {
+        "id": "J5",
+        "name": "Rollback de fase",
+        "persona": "persona-plataforma",
+        "channel": "CLI/API"
+      }
     ],
     "wireframes": [],
     "design_system": {},
     "usability_issues": [],
-    "validated_journeys": ["J1", "J2", "J3", "J4", "J5"],
+    "validated_journeys": [
+      "J1",
+      "J2",
+      "J3",
+      "J4",
+      "J5"
+    ],
     "accessibility_compliance": "n/a (UI web diferida no MVP-1; foco CLI/API)"
   },
-
   "contracts": {
-    "schemas": ["docs/domain-model.md"],
+    "schemas": [
+      "docs/domain-model.md"
+    ],
     "api_version": "v1",
     "api_spec": "contracts/openapi.yaml",
-    "dtos": ["CreateOrchestration", "Orchestration", "OrchestratorContext", "CreateCard", "KanbanCard", "ContextPatch", "Conflict", "QualityGateResult", "ADR", "HumanApproval"],
+    "dtos": [
+      "CreateOrchestration",
+      "Orchestration",
+      "OrchestratorContext",
+      "CreateCard",
+      "KanbanCard",
+      "ContextPatch",
+      "Conflict",
+      "QualityGateResult",
+      "ADR",
+      "HumanApproval"
+    ],
     "consistency_model": "strong",
-    "transaction_boundaries": ["Escrita única no contexto via ContextBus com locks por target_keys", "Agregados por plane (control/kanban/agents/execution/governance/observability)"],
+    "transaction_boundaries": [
+      "Escrita única no contexto via ContextBus com locks por target_keys",
+      "Agregados por plane (control/kanban/agents/execution/governance/observability)"
+    ],
     "concurrency_strategy": "asyncio + locks por target_keys no ContextBus; idempotência via Idempotency-Key",
     "versioning": "path-based /v1; mudança incompatível => /v2 + atualização de consumidores; migrations Alembic"
   },
-
   "engineering": {
     "project_structure": "src/aso/{control,kanban,agents,execution,governance,observability,shared,api,cli,db}",
-    "governance_rules": { "dependency_rule": "aponta para dentro (Clean Architecture)", "context_writes": "somente via ContextBus" },
-    "patterns_applied": ["Modular Monolith", "Hexagonal (Ports & Adapters)", "DDD", "Event-driven (Kanban automation)"],
+    "governance_rules": {
+      "dependency_rule": "aponta para dentro (Clean Architecture)",
+      "context_writes": "somente via ContextBus"
+    },
+    "patterns_applied": [
+      "Modular Monolith",
+      "Hexagonal (Ports & Adapters)",
+      "DDD",
+      "Event-driven (Kanban automation)"
+    ],
     "cicd_config": "",
-    "quality_thresholds": { "coverage": 80, "critical_lint_violations": 0 },
+    "quality_thresholds": {
+      "coverage": 80,
+      "critical_lint_violations": 0
+    },
     "module_map": {
       "shared": [],
-      "governance": ["shared"],
-      "kanban": ["shared"],
-      "observability": ["shared"],
-      "agents": ["shared", "governance"],
-      "execution": ["shared", "agents"],
-      "control": ["shared", "governance", "kanban", "agents", "execution", "observability"],
-      "api": ["control"],
-      "cli": ["control"]
+      "governance": [
+        "shared"
+      ],
+      "kanban": [
+        "shared"
+      ],
+      "observability": [
+        "shared"
+      ],
+      "agents": [
+        "shared",
+        "governance"
+      ],
+      "execution": [
+        "shared",
+        "agents"
+      ],
+      "control": [
+        "shared",
+        "governance",
+        "kanban",
+        "agents",
+        "execution",
+        "observability"
+      ],
+      "api": [
+        "control"
+      ],
+      "cli": [
+        "control"
+      ]
     },
-    "feature_breakdown": ["EPIC-1", "EPIC-2", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-6", "EPIC-7", "EPIC-8"],
-    "backlog": [
-      { "id": "TASK-01", "epic": "EPIC-1", "title": "Estrutura base + tooling", "spec": "specs/project-setup.md", "priority": "critical", "depends_on": [] },
-      { "id": "TASK-02", "epic": "EPIC-2", "title": "Modelos de domínio", "spec": "specs/domain-models.md", "priority": "critical", "depends_on": ["TASK-01"] },
-      { "id": "TASK-03", "epic": "EPIC-2", "title": "OrchestratorContext versionado", "spec": "specs/orchestrator-context.md", "priority": "critical", "depends_on": ["TASK-02"] },
-      { "id": "TASK-04", "epic": "EPIC-3", "title": "Kanban básico + automação", "spec": "specs/kanban.md", "priority": "high", "depends_on": ["TASK-02"] },
-      { "id": "TASK-05", "epic": "EPIC-4", "title": "ExecutionPlan", "spec": "specs/execution-plan.md", "priority": "high", "depends_on": ["TASK-03"] },
-      { "id": "TASK-06", "epic": "EPIC-4", "title": "MultiAgentDecisionEngine", "spec": "specs/multiagent-decision-engine.md", "priority": "high", "depends_on": ["TASK-03"] },
-      { "id": "TASK-07", "epic": "EPIC-5", "title": "AgentRegistry", "spec": "specs/agent-registry.md", "priority": "high", "depends_on": ["TASK-02"] },
-      { "id": "TASK-08", "epic": "EPIC-5", "title": "AgentExecutor mock", "spec": "specs/agent-executor-mock.md", "priority": "high", "depends_on": ["TASK-07"] },
-      { "id": "TASK-09", "epic": "EPIC-6", "title": "ContextPatch + ContextBus", "spec": "specs/context-patch-contextbus.md", "priority": "critical", "depends_on": ["TASK-03"] },
-      { "id": "TASK-10", "epic": "EPIC-6", "title": "ADRRegistry", "spec": "specs/adr-registry.md", "priority": "high", "depends_on": ["TASK-02"] },
-      { "id": "TASK-11", "epic": "EPIC-6", "title": "QualityGateEngine", "spec": "specs/quality-gate-engine.md", "priority": "critical", "depends_on": ["TASK-03"] },
-      { "id": "TASK-12", "epic": "EPIC-6", "title": "SnapshotEngine", "spec": "specs/snapshot-engine.md", "priority": "high", "depends_on": ["TASK-11"] },
-      { "id": "TASK-13", "epic": "EPIC-7", "title": "API mínima", "spec": "specs/api-minimal.md", "priority": "medium", "depends_on": ["TASK-09", "TASK-11", "TASK-12"] },
-      { "id": "TASK-14", "epic": "EPIC-7", "title": "CLI mínima", "spec": "specs/cli-minimal.md", "priority": "medium", "depends_on": ["TASK-13"] },
-      { "id": "TASK-15", "epic": "EPIC-8", "title": "Observabilidade + docs", "spec": "specs/observability-basic.md", "priority": "medium", "depends_on": ["TASK-13"] }
+    "feature_breakdown": [
+      "EPIC-1",
+      "EPIC-2",
+      "EPIC-3",
+      "EPIC-4",
+      "EPIC-5",
+      "EPIC-6",
+      "EPIC-7",
+      "EPIC-8"
     ],
-    "priorities": ["EPIC-1", "EPIC-2", "EPIC-6", "EPIC-3", "EPIC-4", "EPIC-5", "EPIC-7", "EPIC-8"],
+    "backlog": [
+      {
+        "id": "TASK-01",
+        "epic": "EPIC-1",
+        "title": "Estrutura base + tooling",
+        "spec": "specs/project-setup.md",
+        "priority": "critical",
+        "depends_on": []
+      },
+      {
+        "id": "TASK-02",
+        "epic": "EPIC-2",
+        "title": "Modelos de domínio",
+        "spec": "specs/domain-models.md",
+        "priority": "critical",
+        "depends_on": [
+          "TASK-01"
+        ]
+      },
+      {
+        "id": "TASK-03",
+        "epic": "EPIC-2",
+        "title": "OrchestratorContext versionado",
+        "spec": "specs/orchestrator-context.md",
+        "priority": "critical",
+        "depends_on": [
+          "TASK-02"
+        ]
+      },
+      {
+        "id": "TASK-04",
+        "epic": "EPIC-3",
+        "title": "Kanban básico + automação",
+        "spec": "specs/kanban.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-02"
+        ]
+      },
+      {
+        "id": "TASK-05",
+        "epic": "EPIC-4",
+        "title": "ExecutionPlan",
+        "spec": "specs/execution-plan.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-03"
+        ]
+      },
+      {
+        "id": "TASK-06",
+        "epic": "EPIC-4",
+        "title": "MultiAgentDecisionEngine",
+        "spec": "specs/multiagent-decision-engine.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-03"
+        ]
+      },
+      {
+        "id": "TASK-07",
+        "epic": "EPIC-5",
+        "title": "AgentRegistry",
+        "spec": "specs/agent-registry.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-02"
+        ]
+      },
+      {
+        "id": "TASK-08",
+        "epic": "EPIC-5",
+        "title": "AgentExecutor mock",
+        "spec": "specs/agent-executor-mock.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-07"
+        ]
+      },
+      {
+        "id": "TASK-09",
+        "epic": "EPIC-6",
+        "title": "ContextPatch + ContextBus",
+        "spec": "specs/context-patch-contextbus.md",
+        "priority": "critical",
+        "depends_on": [
+          "TASK-03"
+        ]
+      },
+      {
+        "id": "TASK-10",
+        "epic": "EPIC-6",
+        "title": "ADRRegistry",
+        "spec": "specs/adr-registry.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-02"
+        ]
+      },
+      {
+        "id": "TASK-11",
+        "epic": "EPIC-6",
+        "title": "QualityGateEngine",
+        "spec": "specs/quality-gate-engine.md",
+        "priority": "critical",
+        "depends_on": [
+          "TASK-03"
+        ]
+      },
+      {
+        "id": "TASK-12",
+        "epic": "EPIC-6",
+        "title": "SnapshotEngine",
+        "spec": "specs/snapshot-engine.md",
+        "priority": "high",
+        "depends_on": [
+          "TASK-11"
+        ]
+      },
+      {
+        "id": "TASK-13",
+        "epic": "EPIC-7",
+        "title": "API mínima",
+        "spec": "specs/api-minimal.md",
+        "priority": "medium",
+        "depends_on": [
+          "TASK-09",
+          "TASK-11",
+          "TASK-12"
+        ]
+      },
+      {
+        "id": "TASK-14",
+        "epic": "EPIC-7",
+        "title": "CLI mínima",
+        "spec": "specs/cli-minimal.md",
+        "priority": "medium",
+        "depends_on": [
+          "TASK-13"
+        ]
+      },
+      {
+        "id": "TASK-15",
+        "epic": "EPIC-8",
+        "title": "Observabilidade + docs",
+        "spec": "specs/observability-basic.md",
+        "priority": "medium",
+        "depends_on": [
+          "TASK-13"
+        ]
+      }
+    ],
+    "priorities": [
+      "EPIC-1",
+      "EPIC-2",
+      "EPIC-6",
+      "EPIC-3",
+      "EPIC-4",
+      "EPIC-5",
+      "EPIC-7",
+      "EPIC-8"
+    ],
     "test_coverage_threshold": 80,
-    "coverage_report": { "tests": 167, "coverage": "93.71%", "status": "green", "lint": "ruff OK", "typecheck": "mypy strict OK", "scope": "F1–F7 (esteira inicia em F1 e percorre F1→F7) + clareza (logs sem ruído /health + eventos de domínio no stdout; card mostra erro; botão disabled; SLO com rótulo) + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6) + MVP-5 F7 (custo por card + SLO error-budget/burn-rate + série temporal + Prometheus) + snapshots avançados (diff por seção + restauração seletiva + dry-run §23) + AUTOPILOT M1–M6 (LlmClient DeepSeek/OpenAI/Anthropic + PlanningService /plan; PhaseRunner + loop de auto-avanço /autopilot; RoutingExecutionProvider por fase + gate real ASO_GATE_TEST_COMMAND; ExecutorCatalog selecionável por etapa [agente/modelo/esforço] + tela ⚙ Config CRUD de executores persistida em arquivo [ExecutorSettingsStore], chaves só por env; GET/POST/DELETE /executors; kill-switch; ADR-0007) + endurecimento de concorrência + console '▶ Autopilot' + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE" },
-    "cards_done": ["TASK-01", "TASK-02", "TASK-03", "TASK-04", "TASK-05", "TASK-06", "TASK-07", "TASK-08", "TASK-09", "TASK-10", "TASK-11", "TASK-12", "TASK-13", "TASK-14", "TASK-15", "TASK-16", "TASK-17", "TASK-18", "TASK-19", "TASK-20", "TASK-21", "TASK-22"],
+    "coverage_report": {
+      "tests": 184,
+      "coverage": "93.02%",
+      "status": "green",
+      "lint": "ruff OK",
+      "typecheck": "mypy strict OK",
+      "scope": "F1–F7 (esteira inicia em F1 e percorre F1→F7) + clareza (logs sem ruído /health + eventos de domínio no stdout; card mostra erro; botão disabled; SLO com rótulo) + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6) + MVP-5 F7 (custo por card + SLO error-budget/burn-rate + série temporal + Prometheus) + snapshots avançados (diff por seção + restauração seletiva + dry-run §23) + AUTOPILOT M1–M6 (LlmClient DeepSeek/OpenAI/Anthropic + PlanningService /plan; PhaseRunner + loop de auto-avanço /autopilot; RoutingExecutionProvider por fase + gate real ASO_GATE_TEST_COMMAND; ExecutorCatalog selecionável por etapa [agente/modelo/esforço] + tela ⚙ Config CRUD de executores persistida em arquivo [ExecutorSettingsStore], chaves só por env; GET/POST/DELETE /executors; kill-switch; ADR-0007) + endurecimento de concorrência + console '▶ Autopilot' + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE + WORKSPACE POR ORQUESTRAÇÃO (Orchestration.target_path substitui ASO_TARGET_REPO por orquestração; ExecutorCatalog.build repo_override + _provider_for; migração b3d1f0a24c7e) + DOCS-FIRST (execution/workspace.py: WorkspaceService/ensure_git com HEAD/list_dirs + WorkspaceAnalyzer; execution/docs_scaffold.py scaffold pt-BR padrão ai-docs-self-healing; analyze_folder = scaffold p/ vazia ou agente em worktree; GET /v1/fs/dirs; POST /analyze-folder; console com navegador de pastas + seletor de agente na criação + 'Analisar pasta'; ADR-0008)"
+    },
+    "cards_done": [
+      "TASK-01",
+      "TASK-02",
+      "TASK-03",
+      "TASK-04",
+      "TASK-05",
+      "TASK-06",
+      "TASK-07",
+      "TASK-08",
+      "TASK-09",
+      "TASK-10",
+      "TASK-11",
+      "TASK-12",
+      "TASK-13",
+      "TASK-14",
+      "TASK-15",
+      "TASK-16",
+      "TASK-17",
+      "TASK-18",
+      "TASK-19",
+      "TASK-20",
+      "TASK-21",
+      "TASK-22"
+    ],
     "increments_post_o5": [
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
       "TASK-17 — Normalização §29 (tabelas por entidade) + migrations Alembic (alembic check limpo)",
@@ -424,11 +846,11 @@
       "TASK-71 — AUTOPILOT M5: RoutingExecutionProvider roteia por fase (planner LLM F1–F4 / coder CLI F5–F6, fallback p/ único); bootstrap monta o router com ASO_LLM_* + ASO_CLI_COMMAND/ASO_TARGET_REPO; gate real (gate_command.run_gate_command) roda ASO_GATE_TEST_COMMAND no repo alvo nas fases de código — testes vermelhos reprovam o gate (não avança), verdes aprovam",
       "TASK-72 — Seleção de executor por etapa + M6 kill-switch: ExecutorCatalog (ASO_EXECUTORS JSON + defaults) com perfis mock/llm/cli, model e effort (low/medium/high); resolve_provider/list_executors; run_card/run_phase/start_autopilot aceitam executor+effort (guardados na aprovação, propagam no auto-avanço); GET /executors + seletor no console; kill-switch bloqueia execução em orquestração cancelada",
       "TASK-73 — Tela ⚙ Config de executores: CRUD dos perfis no console; ExecutorSettingsStore persiste em arquivo JSON (ASO_EXECUTORS_FILE) apenas metadados (inclui nome da env var da chave), NUNCA o segredo; UI mostra status da chave (presente/ausente); endpoints POST/DELETE /v1/executors (admin) + GET; bootstrap semeia catálogo do arquivo ou do ambiente; 'mock' protegido",
-      "TASK-74 — Clareza (diagnóstico de logs/estado): (A) logs sem ruído — gateway pula /health e /metrics, _QuietAccessFilter no uvicorn.access, eventos de domínio no stdout (phase_completed, autopilot_advanced/completed, agent_failed, pr_merged); (B) UI — card Failed/Blocked mostra block_reason, CSS .btn[disabled], badge SLO com rótulos amigáveis; (C) esteira coerente — Orchestration nasce em F1 (não F5), _phase_for_agent mapeia papel→fase, prompt de planejamento distribui F1–F7, gate de fase vazia aprova vacuamente (não trava F1–F4). Guarda-corpos restantes (budget de tokens/custo, timeout, sandbox) seguem como evolução"
+      "TASK-74 — Clareza (diagnóstico de logs/estado): (A) logs sem ruído — gateway pula /health e /metrics, _QuietAccessFilter no uvicorn.access, eventos de domínio no stdout (phase_completed, autopilot_advanced/completed, agent_failed, pr_merged); (B) UI — card Failed/Blocked mostra block_reason, CSS .btn[disabled], badge SLO com rótulos amigáveis; (C) esteira coerente — Orchestration nasce em F1 (não F5), _phase_for_agent mapeia papel→fase, prompt de planejamento distribui F1–F7, gate de fase vazia aprova vacuamente (não trava F1–F4). Guarda-corpos restantes (budget de tokens/custo, timeout, sandbox) seguem como evolução",
+      "TASK-79 — Workspace por orquestração + docs-first: Orchestration.target_path (migração manual b3d1f0a24c7e, fallback ASO_TARGET_REPO) atrela providers CLI/gate/corrida à pasta via _provider_for; novos módulos execution/workspace.py e execution/docs_scaffold.py; Service.analyze_folder gera/atualiza docs (scaffold determinístico p/ pasta vazia; agente selecionado em worktree p/ projeto existente, diff mesclado; evento WorkspaceAnalyzed + ContextPatch engineering.docs_first); API GET /v1/fs/dirs + POST /orchestrations(target_path) + POST /analyze-folder; console: modal navegador de pastas, seletor de agente na criação, botão 'Analisar pasta' e status docs; ADR-0008. 184 testes / 93.02% / ruff+mypy OK / alembic check sem diff."
     ],
     "maintenance_log": []
   },
-
   "agentic": {
     "project_structure": {
       "docs/": "documentação canônica (fonte de verdade)",
@@ -459,15 +881,35 @@
       "docs/phases/F4-planning.md": "F4"
     },
     "specs_map": {
-      "TASK-01": "specs/project-setup.md", "TASK-02": "specs/domain-models.md", "TASK-03": "specs/orchestrator-context.md",
-      "TASK-04": "specs/kanban.md", "TASK-05": "specs/execution-plan.md", "TASK-06": "specs/multiagent-decision-engine.md",
-      "TASK-07": "specs/agent-registry.md", "TASK-08": "specs/agent-executor-mock.md", "TASK-09": "specs/context-patch-contextbus.md",
-      "TASK-10": "specs/adr-registry.md", "TASK-11": "specs/quality-gate-engine.md", "TASK-12": "specs/snapshot-engine.md",
-      "TASK-13": "specs/api-minimal.md", "TASK-14": "specs/cli-minimal.md", "TASK-15": "specs/observability-basic.md"
+      "TASK-01": "specs/project-setup.md",
+      "TASK-02": "specs/domain-models.md",
+      "TASK-03": "specs/orchestrator-context.md",
+      "TASK-04": "specs/kanban.md",
+      "TASK-05": "specs/execution-plan.md",
+      "TASK-06": "specs/multiagent-decision-engine.md",
+      "TASK-07": "specs/agent-registry.md",
+      "TASK-08": "specs/agent-executor-mock.md",
+      "TASK-09": "specs/context-patch-contextbus.md",
+      "TASK-10": "specs/adr-registry.md",
+      "TASK-11": "specs/quality-gate-engine.md",
+      "TASK-12": "specs/snapshot-engine.md",
+      "TASK-13": "specs/api-minimal.md",
+      "TASK-14": "specs/cli-minimal.md",
+      "TASK-15": "specs/observability-basic.md"
     },
-    "tasks_workflow": { "board": ".aso/kanban/board.json", "index": "tasks/README.md", "order": "respeita depends_on" },
-    "agents_map": { "index": "agents/README.md", "detail": "docs/agents.md", "count": 16 },
-    "skills_map": { "index": "skills/README.md" },
+    "tasks_workflow": {
+      "board": ".aso/kanban/board.json",
+      "index": "tasks/README.md",
+      "order": "respeita depends_on"
+    },
+    "agents_map": {
+      "index": "agents/README.md",
+      "detail": "docs/agents.md",
+      "count": 16
+    },
+    "skills_map": {
+      "index": "skills/README.md"
+    },
     "traceability_rules": [
       "requisito → ADR → spec → task/card → implementação → teste → gate → snapshot",
       "todo card referencia linked_requirements, linked_adrs, linked_contracts e spec",
@@ -481,63 +923,188 @@
       "ADR-0005 — Consistência de dados e versionamento de API (ACCEPTED)"
     ]
   },
-
   "quality": {
-    "gates_passed": ["F1", "F2", "F3", "F4", "F5", "F6", "F7"],
+    "gates_passed": [
+      "F1",
+      "F2",
+      "F3",
+      "F4",
+      "F5",
+      "F6",
+      "F7"
+    ],
     "gates_failed": [],
     "test_results": null,
     "coverage_report": null,
     "security_report": null,
     "qa_report": null
   },
-
   "operations": {
-    "deployment_record": { "strategy": "docker compose (Postgres + API), alembic upgrade no boot", "plan": "docs/deploy.md", "status": "validado localmente com Postgres real (smoke OK); deploy em produção fora do MVP §7" },
-    "smoke_test_results": { "api": "GET /v1/orchestrations 200", "cli": "aso run OK", "docker_e2e": "scripts/smoke.sh contra Postgres: SMOKE OK" },
-    "observability_config": { "metrics": "MetricsService", "events": "EventLog", "timeline": "por orquestração", "endpoints": ["/v1/metrics", "/v1/orchestrations/{id}/metrics", "/v1/orchestrations/{id}/execution-metrics", "/v1/orchestrations/{id}/execution-timeline", "/v1/orchestrations/{id}/slo", "/v1/orchestrations/{id}/slo/evaluate", "/v1/orchestrations/{id}/slo-history", "/metrics (Prometheus: aso_slo_burn_rate, aso_error_budget_consumed_pct)"] },
+    "deployment_record": {
+      "strategy": "docker compose (Postgres + API), alembic upgrade no boot",
+      "plan": "docs/deploy.md",
+      "status": "validado localmente com Postgres real (smoke OK); deploy em produção fora do MVP §7"
+    },
+    "smoke_test_results": {
+      "api": "GET /v1/orchestrations 200",
+      "cli": "aso run OK",
+      "docker_e2e": "scripts/smoke.sh contra Postgres: SMOKE OK"
+    },
+    "observability_config": {
+      "metrics": "MetricsService",
+      "events": "EventLog",
+      "timeline": "por orquestração",
+      "endpoints": [
+        "/v1/metrics",
+        "/v1/orchestrations/{id}/metrics",
+        "/v1/orchestrations/{id}/execution-metrics",
+        "/v1/orchestrations/{id}/execution-timeline",
+        "/v1/orchestrations/{id}/slo",
+        "/v1/orchestrations/{id}/slo/evaluate",
+        "/v1/orchestrations/{id}/slo-history",
+        "/metrics (Prometheus: aso_slo_burn_rate, aso_error_budget_consumed_pct)"
+      ]
+    },
     "slos": [
-      { "name": "sem_conflitos_abertos", "target": 0 },
-      { "name": "sem_cards_bloqueados", "target": 0 },
-      { "name": "snapshot_da_fase_gerado", "target": "!= O0" },
-      { "name": "taxa_de_falhas_de_execucao", "target": "<= ASO_SLO_FAILURE_BUDGET (default 0.10)", "tipo": "error-budget", "burn_rate": true }
+      {
+        "name": "sem_conflitos_abertos",
+        "target": 0
+      },
+      {
+        "name": "sem_cards_bloqueados",
+        "target": 0
+      },
+      {
+        "name": "snapshot_da_fase_gerado",
+        "target": "!= O0"
+      },
+      {
+        "name": "taxa_de_falhas_de_execucao",
+        "target": "<= ASO_SLO_FAILURE_BUDGET (default 0.10)",
+        "tipo": "error-budget",
+        "burn_rate": true
+      }
     ],
     "alerts": [
-      { "name": "conflito_aberto", "condition": "SLO sem_conflitos_abertos em breach", "severity": "high" },
-      { "name": "card_bloqueado", "condition": "SLO sem_cards_bloqueados em breach", "severity": "medium" },
-      { "name": "fase_sem_snapshot", "condition": "SLO snapshot_da_fase_gerado em breach", "severity": "low" }
+      {
+        "name": "conflito_aberto",
+        "condition": "SLO sem_conflitos_abertos em breach",
+        "severity": "high"
+      },
+      {
+        "name": "card_bloqueado",
+        "condition": "SLO sem_cards_bloqueados em breach",
+        "severity": "medium"
+      },
+      {
+        "name": "fase_sem_snapshot",
+        "condition": "SLO snapshot_da_fase_gerado em breach",
+        "severity": "low"
+      }
     ],
-    "runbooks": ["docs/operations.md", "docs/deploy.md"],
+    "runbooks": [
+      "docs/operations.md",
+      "docs/deploy.md"
+    ],
     "incidents": [],
     "cost_optimization_report": null
   },
-
   "kanban": {},
-
   "adrs": [
-    { "id": "ADR-0001", "title": "Arquitetura do runtime: Modular Monolith + Hexagonal", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0001-runtime-architecture.md" },
-    { "id": "ADR-0002", "title": "Kanban como plano de execução", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0002-kanban-as-execution-plane.md" },
-    { "id": "ADR-0003", "title": "ContextBus como governança soberana do contexto", "status": "ACCEPTED", "phase": "F2", "file": "docs/adrs/ADR-0003-contextbus-governance.md" },
-    { "id": "ADR-0004", "title": "Stack de implementação: Python", "status": "ACCEPTED", "phase": "F2", "supersedes": "requerimentos.md §37 (TS monorepo)", "file": "docs/adrs/ADR-0004-tech-stack-python.md" },
-    { "id": "ADR-0005", "title": "Consistência de dados e versionamento de API", "status": "ACCEPTED", "phase": "F3", "file": "docs/adrs/ADR-0005-data-consistency-and-api-versioning.md" },
-    { "id": "ADR-0006", "title": "Persistência via repository ports + adapters (SQLAlchemy)", "status": "ACCEPTED", "phase": "F5", "override": "estende engineering congelada em O5", "file": "docs/adrs/ADR-0006-persistence-repository-adapters.md" },
-    { "id": "ADR-0007", "title": "Provedor LLM injetável e planejamento por LLM (autopilot)", "status": "ACCEPTED", "phase": "F5", "file": "docs/adrs/ADR-0007-llm-provider-and-autopilot.md" }
+    {
+      "id": "ADR-0001",
+      "title": "Arquitetura do runtime: Modular Monolith + Hexagonal",
+      "status": "ACCEPTED",
+      "phase": "F2",
+      "file": "docs/adrs/ADR-0001-runtime-architecture.md"
+    },
+    {
+      "id": "ADR-0002",
+      "title": "Kanban como plano de execução",
+      "status": "ACCEPTED",
+      "phase": "F2",
+      "file": "docs/adrs/ADR-0002-kanban-as-execution-plane.md"
+    },
+    {
+      "id": "ADR-0003",
+      "title": "ContextBus como governança soberana do contexto",
+      "status": "ACCEPTED",
+      "phase": "F2",
+      "file": "docs/adrs/ADR-0003-contextbus-governance.md"
+    },
+    {
+      "id": "ADR-0004",
+      "title": "Stack de implementação: Python",
+      "status": "ACCEPTED",
+      "phase": "F2",
+      "supersedes": "requerimentos.md §37 (TS monorepo)",
+      "file": "docs/adrs/ADR-0004-tech-stack-python.md"
+    },
+    {
+      "id": "ADR-0005",
+      "title": "Consistência de dados e versionamento de API",
+      "status": "ACCEPTED",
+      "phase": "F3",
+      "file": "docs/adrs/ADR-0005-data-consistency-and-api-versioning.md"
+    },
+    {
+      "id": "ADR-0006",
+      "title": "Persistência via repository ports + adapters (SQLAlchemy)",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "override": "estende engineering congelada em O5",
+      "file": "docs/adrs/ADR-0006-persistence-repository-adapters.md"
+    },
+    {
+      "id": "ADR-0007",
+      "title": "Provedor LLM injetável e planejamento por LLM (autopilot)",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0007-llm-provider-and-autopilot.md"
+    }
   ],
   "snapshots": [
-    { "snapshot_version": "O1", "phase": "F1", "created_at": "2026-07-02T00:00:00Z" },
-    { "snapshot_version": "O2", "phase": "F2", "created_at": "2026-07-02T01:00:00Z" },
-    { "snapshot_version": "O3", "phase": "F3", "created_at": "2026-07-02T02:00:00Z" },
-    { "snapshot_version": "O4", "phase": "F4", "created_at": "2026-07-02T03:00:00Z" },
-    { "snapshot_version": "O5", "phase": "F5", "created_at": "2026-07-02T06:00:00Z" },
-    { "snapshot_version": "O6", "phase": "F6", "created_at": "2026-07-03T00:00:00Z" },
-    { "snapshot_version": "O7", "phase": "F7", "created_at": "2026-07-03T01:00:00Z" }
+    {
+      "snapshot_version": "O1",
+      "phase": "F1",
+      "created_at": "2026-07-02T00:00:00Z"
+    },
+    {
+      "snapshot_version": "O2",
+      "phase": "F2",
+      "created_at": "2026-07-02T01:00:00Z"
+    },
+    {
+      "snapshot_version": "O3",
+      "phase": "F3",
+      "created_at": "2026-07-02T02:00:00Z"
+    },
+    {
+      "snapshot_version": "O4",
+      "phase": "F4",
+      "created_at": "2026-07-02T03:00:00Z"
+    },
+    {
+      "snapshot_version": "O5",
+      "phase": "F5",
+      "created_at": "2026-07-02T06:00:00Z"
+    },
+    {
+      "snapshot_version": "O6",
+      "phase": "F6",
+      "created_at": "2026-07-03T00:00:00Z"
+    },
+    {
+      "snapshot_version": "O7",
+      "phase": "F7",
+      "created_at": "2026-07-03T01:00:00Z"
+    }
   ],
   "conflicts": [],
   "approvals": [],
-
   "orchestration": {
     "external_skills_activated": []
   },
-
   "metadata": {
     "source_requirements": "requerimentos.md",
     "language": "pt-BR",

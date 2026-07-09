@@ -40,6 +40,8 @@ class OrchestrationRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     project_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Pasta de trabalho da orquestração (workspace); NULL = legado (repo global).
+    target_path: Mapped[str | None] = mapped_column(String, nullable=True)
     execution_mode: Mapped[str] = mapped_column(String)
     current_phase: Mapped[str] = mapped_column(String)
     snapshot_version: Mapped[str] = mapped_column(String)

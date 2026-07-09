@@ -53,16 +53,17 @@ def build_service() -> OrchestrationService:
     )
 
 
-def build_candidate_providers() -> list[ExecutionProvider]:
+def build_candidate_providers(target_repo: str | None = None) -> list[ExecutionProvider]:
     """Constrói os agentes CLI candidatos a partir do ambiente (§26A.6).
 
-    `ASO_CANDIDATE_COMMANDS` (JSON) + `ASO_TARGET_REPO` definem N agentes CLI que
+    `ASO_CANDIDATE_COMMANDS` (JSON) + a pasta alvo definem N agentes CLI que
     competem por card em worktrees isolados. Cada item pode ser:
     - string: o próprio comando (id derivado do índice, ex.: `cli_1`);
     - objeto: `{"id": "claude", "command": "claude -p"}`.
+    `target_repo` (pasta da orquestração) tem prioridade sobre `ASO_TARGET_REPO`.
     Retorna lista vazia se não configurado (o endpoint de corrida responde 409).
     """
-    target_repo = os.environ.get("ASO_TARGET_REPO")
+    target_repo = target_repo or os.environ.get("ASO_TARGET_REPO")
     raw = os.environ.get("ASO_CANDIDATE_COMMANDS")
     if not (target_repo and raw):
         return []

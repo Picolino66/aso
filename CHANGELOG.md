@@ -77,6 +77,19 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
     F1–F7; e **fases sem cards não travam** o gate (aprovação vacua), então o autopilot
     percorre a esteira inteira.
 
+- **Workspace por orquestração + documentação docs-first (ADR-0008):** ao criar uma
+  orquestração agora se **seleciona uma pasta** (vazia ou com projeto) — `Orchestration.target_path`
+  (migração `b3d1f0a24c7e`) **substitui o `ASO_TARGET_REPO` global só para aquela orquestração**
+  (env vira *fallback*); `ExecutorCatalog.build(repo_override=…)` + o helper `_provider_for`
+  atrelam os agentes CLI, o gate de testes e a corrida à pasta escolhida. Novo passo
+  **"Analisar pasta"** (`POST .../analyze-folder`) gera/atualiza a documentação **docs-first**
+  no padrão da skill `ai-docs-self-healing` (`docs/index.md` + `docs/modules/<módulo>/<feature>.md`,
+  8 seções): **pasta vazia → scaffold determinístico** (sem agente); **projeto existente → o
+  agente selecionado documenta em worktree isolado** com o diff mesclado (governado) — evento
+  `WorkspaceAnalyzed` + `ContextPatch` `engineering.docs_first`. **`GET /v1/fs/dirs`** (navegador
+  de pastas: só diretórios, nunca conteúdo). Console: **navegador de pastas (modal)**, **seletor
+  de agente na criação** e botão **"Analisar pasta"** com status docs. Módulos novos
+  `execution/workspace.py` e `execution/docs_scaffold.py`.
 - **Seed de executores (`manager.sh seed`):** `scripts/seed-executors.sh` cadastra **Codex CLI
   e Claude CLI** com **todos os modelos × todos os níveis** (`low`/`medium`/`high`) — 18
   perfis prontos para escolher no console. Os comandos usam o wrapper com o caminho **entre
