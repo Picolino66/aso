@@ -2009,6 +2009,38 @@
         "TASK-63"
       ],
       "evidence": "129 testes verdes; test_slo_history (persistência+reload, tendência rising por histórico, Prometheus gauges); Docker/Postgres: /slo/evaluate 201, /slo-history persistido, gauges no /metrics, SMOKE OK"
+    },
+    {
+      "id": "TASK-65",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Snapshots avançados: diff semântico por seção + restauração seletiva",
+      "description": "snapshot_diff passa a incluir section_details (por seção alterada: chaves added/removed/modified). Nova restauração seletiva restore_section: restaura APENAS uma seção a partir de um snapshot (store.restore_section registra no histórico e incrementa versão), espelhando o protocolo de rollback (bypass do bus + ADR de rastreabilidade). Endpoint POST .../snapshots/{version}/restore-section exige admin. Console: detalhe de diff por seção + ação 'Restaurar seção'.",
+      "assignee_type": "agent",
+      "assignee": "GovernanceAgent",
+      "spec": "requerimentos.md §23",
+      "acceptance_criteria": [
+        "diff com section_details (added/removed/modified) por seção",
+        "restauração seletiva de uma seção a partir de snapshot",
+        "restore-section = admin + ADR de rastreabilidade",
+        "404 para seção/snapshot inexistente",
+        "console: diff por seção + restaurar seção"
+      ],
+      "linked_requirements": [
+        "§23",
+        "§17"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-12",
+        "TASK-29"
+      ],
+      "evidence": "132 testes verdes; test_snapshot_advanced (section_details, restauração seletiva service+endpoint, 404); Docker/Postgres: diff section_details + restore-section 202 + UI + SMOKE OK"
     }
   ]
 }

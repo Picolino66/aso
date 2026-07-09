@@ -419,9 +419,30 @@
     async function doDiff(id) {
       const a=document.getElementById('sa').value, b=document.getElementById('sb').value;
       const d = await api(`/v1/orchestrations/${id}/snapshots/${a}/diff/${b}`);
+      const det = d.section_details || {};
       document.getElementById('diff').innerHTML = `<div class="card" style="margin-top:10px">
         <div>seções alteradas: <b>${esc((d.changed_sections||[]).join(', ')||'—')}</b></div>
-        <div class="muted">congeladas +: ${esc((d.frozen_added||[]).join(', ')||'—')} · -: ${esc((d.frozen_removed||[]).join(', ')||'—')}</div></div>`;
+        <div class="muted" style="margin-bottom:6px">congeladas +: ${esc((d.frozen_added||[]).join(', ')||'—')} · -: ${esc((d.frozen_removed||[]).join(', ')||'—')}</div>
+        ${(d.changed_sections||[]).length?`<table><tr><th>Seção</th><th>+ adicionadas</th><th>- removidas</th><th>~ alteradas</th><th></th></tr>
+          ${(d.changed_sections||[]).map(s=>{const x=det[s]||{};return `<tr>
+            <td><code>${esc(s)}</code></td>
+            <td style="color:var(--ok)">${esc((x.added||[]).join(', ')||'—')}</td>
+            <td style="color:var(--err)">${esc((x.removed||[]).join(', ')||'—')}</td>
+            <td style="color:var(--warn)">${esc((x.modified||[]).join(', ')||'—')}</td>
+            <td><button class="btn sm ghost" onclick="restoreSection('${id}','${a}','${esc(s)}')">Restaurar de ${esc(a)}</button></td>
+          </tr>`;}).join('')}</table>
+          <div class="muted" style="margin-top:4px">Restaurar seção é ação crítica (admin) — restaura só aquela seção a partir do snapshot da esquerda.</div>`:''}
+      </div>`;
+    }
+    async function restoreSection(id, version, section) {
+      if (!confirm(`Restaurar a seção "${section}" a partir do snapshot ${version}?`)) return;
+      const r = await fetch(`/v1/orchestrations/${id}/snapshots/${version}/restore-section`, {
+        method:'POST', headers: {'Content-Type':'application/json', ...(token()?{'Authorization':'Bearer '+token()}:{})},
+        body: JSON.stringify({ section }) });
+      if (!r.ok) { alert('Restauração bloqueada ('+r.status+'): requer papel admin.'); return; }
+      const d = await r.json();
+      alert(`Seção "${d.section}" restaurada (contexto v${d.context_version}).`);
+      openOrch(id);
     }
 
     async function renderPatches(id, c) {

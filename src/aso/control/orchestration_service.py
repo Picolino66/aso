@@ -763,13 +763,66 @@ class OrchestrationService:
         fa, fb = set(sa.frozen_sections), set(sb.frozen_sections)
         keys = set(sa.payload) | set(sb.payload)
         changed = [k for k in keys if sa.payload.get(k) != sb.payload.get(k)]
+        # Diff semântico por seção: quais chaves foram adicionadas/removidas/alteradas.
+        details: dict[str, dict[str, list[str]]] = {}
+        for section in changed:
+            va, vb = sa.payload.get(section), sb.payload.get(section)
+            if isinstance(va, dict) and isinstance(vb, dict):
+                ka, kb = set(va), set(vb)
+                details[section] = {
+                    "added": sorted(kb - ka),
+                    "removed": sorted(ka - kb),
+                    "modified": sorted(k for k in ka & kb if va.get(k) != vb.get(k)),
+                }
+            else:
+                # Seção não-dicionário (ou ausente de um lado): mudança atômica.
+                in_a, in_b = section in sa.payload, section in sb.payload
+                details[section] = {
+                    "added": [] if in_a else [section],
+                    "removed": [] if in_b else [section],
+                    "modified": [section] if in_a and in_b else [],
+                }
         return {
             "from": from_v,
             "to": to_v,
             "frozen_added": sorted(fb - fa),
             "frozen_removed": sorted(fa - fb),
             "changed_sections": sorted(changed),
+            "section_details": details,
         }
+
+    def restore_section(
+        self, orchestration_id: str, snapshot_version: str, section: str
+    ) -> dict[str, object]:
+        """Restauração seletiva de UMA seção a partir de um snapshot (§23, ação crítica).
+
+        Espelha o protocolo de rollback (bypass do bus + ADR de rastreabilidade), mas
+        restringe o efeito a uma única seção. Endpoint exige papel admin.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            snap = b.snapshot_engine.get(snapshot_version)
+            if snap is None:
+                raise KeyError(f"Snapshot inexistente: {snapshot_version}")
+            if section not in snap.payload:
+                raise KeyError(f"Seção inexistente no snapshot: {section}")
+            version = b.store.restore_section(section, snap.payload[section])
+            b.adr_registry.create(
+                title=f"Restauração seletiva: {section} ← {snapshot_version}",
+                decision=f"Seção '{section}' restaurada a partir do snapshot {snapshot_version}.",
+                phase=b.orchestration.current_phase,
+                context="Restauração seletiva de seção (protocolo de contexto §23).",
+            )
+            b.event_log.append(
+                "SectionRestored",
+                {"section": section, "from_snapshot": snapshot_version, "version": version},
+            )
+            self._persist(b)
+            return {
+                "section": section,
+                "from_snapshot": snapshot_version,
+                "context_version": version,
+            }
 
     # ------------------------------------------------- cards: mover/atribuir (§28.2)
     def move_card(self, orchestration_id: str, card_id: str, to_column: str) -> KanbanCard:

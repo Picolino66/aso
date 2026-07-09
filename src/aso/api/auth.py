@@ -58,7 +58,7 @@ class AuthService:
 
 def required_role(method: str, path: str) -> str:
     """Papel mínimo exigido para (método, caminho)."""
-    if path.endswith(("/approve", "/reject", "/rollback", "/merge", "/race")):
+    if path.endswith(("/approve", "/reject", "/rollback", "/merge", "/race", "/restore-section")):
         return "admin"
     if method == "GET":
         return "viewer"

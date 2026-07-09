@@ -51,6 +51,10 @@ class RollbackBody(BaseModel):
     to_snapshot: str
 
 
+class RestoreSectionBody(BaseModel):
+    section: str
+
+
 class ApprovalBody(BaseModel):
     action: str
     risk: str = "medium"
@@ -470,6 +474,18 @@ def create_app(
         _guard(orchestration_id)
         try:
             return svc.rollback(orchestration_id, body.to_snapshot)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    @app.post(
+        "/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section",
+        status_code=202,
+    )
+    def restore_section(orchestration_id: str, version: str, body: RestoreSectionBody) -> Any:
+        """Restauração seletiva de uma seção a partir de um snapshot (§23; admin)."""
+        _guard(orchestration_id)
+        try:
+            return svc.restore_section(orchestration_id, version, body.section)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 

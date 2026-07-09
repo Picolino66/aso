@@ -120,6 +120,26 @@ class OrchestratorContextStore:
         self.frozen_sections = set(frozen_sections)
         self.version += 1
 
+    def restore_section(self, section: str, value: Any) -> int:
+        """Restaura APENAS uma seção do contexto (restauração seletiva §23).
+
+        Registra no histórico (auditável) e incrementa a versão. Escrita atômica.
+        """
+        with self._write_lock:
+            self._payload[section] = copy.deepcopy(value)
+            self.version += 1
+            self.history.append(
+                HistoryEntry(
+                    version=self.version,
+                    patch_id=f"restore:{section}",
+                    agent="snapshot",
+                    target_path=section,
+                    patch_type="restore",
+                    context_hash=self.context_hash(),
+                )
+            )
+            return self.version
+
     def hydrate(
         self,
         *,
