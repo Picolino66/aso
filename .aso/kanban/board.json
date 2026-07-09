@@ -2099,6 +2099,205 @@
         "TASK-65"
       ],
       "evidence": "135 testes verdes; test_restore_section_preview_is_readonly_and_reports_impact (no_op, não muta versão, 404); Docker: preview no_op=True + UI + SMOKE OK"
+    },
+    {
+      "id": "TASK-68",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Autopilot M1+M2: cérebro LLM + planejamento do produto",
+      "description": "M1 — porta LlmClient (stdlib urllib) com adapters OpenAI-compatible (DeepSeek/OpenAI) e Anthropic + FakeLlmClient (offline) + build_llm_client_from_env (ASO_LLM_*); PromptBuilder (prompt system+user a partir do contexto, saída JSON); LlmExecutionProvider (executa card via LLM → ContextPatch; parse_llm_json tolerante a cercas). M2 — PlanningService transforma a ideia em ProjectPlan validado (produto+ADRs+backlog); OrchestrationService.populate_from_plan materializa cards+ADRs governados; endpoint POST /orchestrations/{id}/plan (LLM injetável no create_app; 409 sem LLM).",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "requerimentos.md §14,§27",
+      "acceptance_criteria": [
+        "cliente LLM injetável e testável offline",
+        "provider LLM produz ContextPatch",
+        "planejamento gera plano estruturado validado",
+        "/plan materializa cards+ADRs reais",
+        "409 sem LLM configurado"
+      ],
+      "linked_requirements": [
+        "§14",
+        "§26A",
+        "§27"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-46",
+        "TASK-06"
+      ],
+      "evidence": "140 testes verdes; test_llm_autopilot (parse, provider, planning, /plan cria 3 cards+1 ADR, 409); Docker: /plan 409 sem LLM + SMOKE OK"
+    },
+    {
+      "id": "TASK-69",
+      "epic": "EPIC-1",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Autopilot M3: PhaseRunner + aprovação por fase",
+      "description": "run_phase executa uma fase ponta a ponta (roda os cards Ready da fase → run_quality_gate → snapshot da fase) e, se o gate passa, abre uma HumanApproval de avanço (payload kind=phase_gate, phase). _next_phase e advance_phase (F1→…→F7; 409 na última). Endpoints POST /run-phase e POST /advance-phase. Não avança sozinho — o auto-avanço na aprovação é o M4.",
+      "assignee_type": "agent",
+      "assignee": "control",
+      "spec": "requerimentos.md §8.6,§F7",
+      "acceptance_criteria": [
+        "run_phase roda cards+gate+snapshot e abre aprovação de fase",
+        "aprovação pendente do tipo phase_gate",
+        "advance_phase avança e bloqueia em F7",
+        "endpoints run-phase/advance-phase"
+      ],
+      "linked_requirements": [
+        "§8.6",
+        "§24",
+        "§F7"
+      ],
+      "linked_adrs": [
+        "ADR-0007",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-68",
+        "TASK-40"
+      ],
+      "evidence": "143 testes verdes; test_phase_runner (run_phase gate+snapshot+aprovação, advance até F7 + bloqueio, endpoints); Docker: run-phase gate PASSED/O5/next F6 + advance 200 + SMOKE OK"
+    },
+    {
+      "id": "TASK-70",
+      "epic": "EPIC-1",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Autopilot M4: loop de auto-avanço por aprovação",
+      "description": "start_autopilot dá partida (roda a fase atual e abre a 1ª aprovação de avanço). Ao APROVAR uma aprovação phase_gate, decide_approval encadeia _advance_after_phase_gate: avança de fase e roda a próxima automaticamente, que abre uma NOVA aprovação pendente e para ali (pausa só na aprovação). Ao aprovar a última fase (F7), marca a orquestração como completed. Endpoint POST /autopilot + botão '▶ Autopilot' e 'Rodar fase' no console.",
+      "assignee_type": "agent",
+      "assignee": "control",
+      "spec": "requerimentos.md §8.6,§13,§F7",
+      "acceptance_criteria": [
+        "start_autopilot roda fase atual e abre aprovação",
+        "aprovar phase_gate avança e roda a próxima sozinho",
+        "encadeia F1→F7 pausando em cada aprovação",
+        "última fase aprovada → status completed",
+        "endpoint /autopilot + console"
+      ],
+      "linked_requirements": [
+        "§8.6",
+        "§13",
+        "§24",
+        "§F7"
+      ],
+      "linked_adrs": [
+        "ADR-0007",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-69",
+        "TASK-41"
+      ],
+      "evidence": "147 testes verdes; test_autopilot_loop (start, auto-avanço ao aprovar, encadeia até F7+completed, endpoint); Docker: start F5→aprovar→F6 (auto), console startAutopilot, SMOKE OK"
+    },
+    {
+      "id": "TASK-71",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Autopilot M5: execução de código real + gate rodando testes",
+      "description": "RoutingExecutionProvider roteia por fase (planner LLM em F1–F4, coder CLI em F5–F6; fallback para o único disponível). bootstrap.build_service monta o router quando há LLM (ASO_LLM_*) e CLI (ASO_CLI_COMMAND+ASO_TARGET_REPO). Quality gate real (gate_command.run_gate_command): nas fases de código, roda ASO_GATE_TEST_COMMAND no ASO_TARGET_REPO e só aprova com exit 0 — testes vermelhos reprovam o gate e a fase não avança (sem aprovação).",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "requerimentos.md §26,§F5",
+      "acceptance_criteria": [
+        "router: planejamento→planner, código→coder, fallback p/ único",
+        "gate roda testes no repo alvo nas fases de código",
+        "testes vermelhos → gate FAILED, sem snapshot/aprovação",
+        "testes verdes → gate PASSED + aprovação"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§13"
+      ],
+      "linked_adrs": [
+        "ADR-0007",
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-68",
+        "TASK-46",
+        "TASK-69"
+      ],
+      "evidence": "152 testes verdes; test_m5_code_execution (roteamento por fase+fallback, gate vermelho bloqueia, verde aprova); Docker boot + SMOKE OK"
+    },
+    {
+      "id": "TASK-72",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Seleção de executor por etapa (agente/modelo/esforço) + M6 kill-switch",
+      "description": "ExecutorCatalog (ASO_EXECUTORS JSON, defaults do ambiente) com perfis kind=mock|llm|cli, model e effort (low/medium/high); build() monta o provider concreto lendo secrets do env. OrchestrationService.resolve_provider/list_executors; run_card/run_phase/start_autopilot aceitam executor+effort (efforte vai na task; a escolha é guardada na aprovação e propaga no auto-avanço). Endpoint GET /executors + bodies em /run-phase e /autopilot. Console: seletor de agente e esforço. M6: kill-switch — orquestração cancelada bloqueia execução (run_card/run_phase).",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "requerimentos.md §26A,§27",
+      "acceptance_criteria": [
+        "catálogo lista/consome ASO_EXECUTORS + defaults",
+        "escolher executor+esforço por etapa e no autopilot",
+        "escolha propagada no auto-avanço via aprovação",
+        "GET /executors + seletor no console",
+        "kill-switch bloqueia execução se cancelada"
+      ],
+      "linked_requirements": [
+        "§26A",
+        "§27",
+        "§24"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-70",
+        "TASK-71"
+      ],
+      "evidence": "158 testes verdes; test_executor_selection (catálogo, effort na task, escolha na aprovação, kill-switch, endpoints); Docker: /executors + autopilot mock/high + seletor no /ui + SMOKE OK"
+    },
+    {
+      "id": "TASK-73",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Tela de configurações de executores (agentes)",
+      "description": "Tela ⚙ Config no console para CRUD dos perfis de executor (nome, tipo mock/llm/cli, provider, modelo, esforço, comando, env var da chave, default). ExecutorSettingsStore persiste os perfis em arquivo JSON (ASO_EXECUTORS_FILE, default .aso/executors.json) — NUNCA o valor da chave; a UI mostra apenas o status (chave presente/ausente) lendo a env var. Endpoints POST/DELETE /v1/executors (admin) + GET; bootstrap semeia o catálogo do arquivo (ou do ambiente). mock protegido contra remoção.",
+      "assignee_type": "agent",
+      "assignee": "UXAgent",
+      "spec": "requerimentos.md §30,§27",
+      "acceptance_criteria": [
+        "tela de config CRUD de executores no console",
+        "perfis persistidos sem secrets (só nome da env var)",
+        "status da chave (presente/ausente) por env var",
+        "POST/DELETE /executors exigem admin; mock não removível",
+        "catálogo semeado do arquivo no boot"
+      ],
+      "linked_requirements": [
+        "§27",
+        "§30",
+        "§38"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-72"
+      ],
+      "evidence": "162 testes verdes; test_executor_settings (CRUD, persistência, status de chave sem expor segredo, endpoints, mock protegido); Docker: criar/listar/remover + 409 mock + config no /ui + SMOKE OK"
     }
   ]
 }

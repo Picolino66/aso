@@ -9,6 +9,7 @@ usado por API e CLI.
 from __future__ import annotations
 
 import os
+import shlex
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,9 @@ from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.execution_planner import ExecutionPlanner
 from aso.control.models import DecisionInput, ExecutionPlan, Orchestration
 from aso.execution.candidates import CandidateRunner
+from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
+from aso.execution.gate_command import run_gate_command
+from aso.execution.settings_store import ExecutorSettingsStore
 from aso.governance.adr_registry import ADRRegistry
 from aso.governance.context_store import OrchestratorContextStore
 from aso.governance.contextbus import BusResult, ContextBus, PermissionPolicy
@@ -113,9 +117,14 @@ class OrchestrationService:
         *,
         max_races_per_card: int | None = None,
         max_slo_samples: int | None = None,
+        catalog: ExecutorCatalog | None = None,
+        executor_store: ExecutorSettingsStore | None = None,
     ) -> None:
         self._bundles: dict[str, OrchestrationBundle] = {}
         self._provider = provider
+        # Catálogo de executores selecionáveis por etapa (Claude/Codex/DeepSeek/…).
+        self._catalog = catalog
+        self._executor_store = executor_store  # persiste perfis (sem secrets)
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._read_cache = TTLCache(ttl_seconds=1.0)  # cache de leitura para agregações
         # Retenção de corridas por card: evita o candidate_runs crescer sem limite.
@@ -237,6 +246,55 @@ class OrchestrationService:
         self._bundles[oid] = bundle
         self._persist(bundle)
         return orchestration
+
+    def populate_from_plan(self, orchestration_id: str, plan: Any) -> dict[str, object]:
+        """Materializa um ProjectPlan (LLM) no board: cards concretos + ADRs (M2).
+
+        Recebe um `ProjectPlan` (control.planning). Cria um card por item do backlog
+        e registra as ADRs propostas — sob o lock por orquestração e persistido.
+        Não passa pelo ContextBus (espelha create_orchestration, que cria cards/ADRs
+        diretamente); os cards nascem em Ready, prontos para execução governada.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            for adr in plan.adrs:
+                b.adr_registry.create(
+                    title=adr.title,
+                    decision=adr.decision,
+                    phase=b.orchestration.current_phase,
+                    context=f"Plano LLM para: {b.orchestration.user_request}",
+                    rationale=adr.rationale,
+                )
+            created: list[str] = []
+            for item in plan.backlog:
+                try:
+                    phase = Phase(item.phase)
+                except ValueError:
+                    phase = Phase.F5
+                card = KanbanCard(
+                    board_id=b.board.id,
+                    orchestration_id=orchestration_id,
+                    phase=phase,
+                    type=CardType.TASK,
+                    title=item.title,
+                    assignee_type=AssigneeType.AGENT,
+                    assignee=f"{item.domain}",
+                    status=ColumnKey.READY,
+                    acceptance_criteria=list(item.acceptance_criteria),
+                )
+                b.board_service.add_card(card)
+                created.append(card.id)
+            b.event_log.append(
+                "PlanPopulated",
+                {"cards": len(created), "adrs": len(plan.adrs), "product": plan.product.name},
+            )
+            self._persist(b)
+            return {
+                "orchestration_id": orchestration_id,
+                "cards_created": created,
+                "adrs_created": len(plan.adrs),
+                "product": plan.product.model_dump(),
+            }
 
     # -------------------------------------------------------------- persistência
     def _bundle(self, orchestration_id: str) -> OrchestrationBundle:
@@ -735,7 +793,63 @@ class OrchestrationService:
                 {"approval_id": approval_id, "status": approval.status, "by": approved_by},
             )
             self._persist(bundle)
-            return approval
+            # Autopilot (M4): aprovar um portão de fase avança e roda a próxima fase.
+            is_phase_gate = approved and approval.payload.get("kind") == "phase_gate"
+            autopilot_phase = approval.payload.get("phase") if is_phase_gate else None
+            autopilot_executor = approval.payload.get("executor") if is_phase_gate else None
+            autopilot_effort = approval.payload.get("effort") if is_phase_gate else None
+        # Fora do lock do bundle: o encadeamento re-adquire o lock por orquestração.
+        if autopilot_phase is not None:
+            self._advance_after_phase_gate(
+                bundle.orchestration.id,
+                str(autopilot_phase),
+                executor=autopilot_executor,
+                effort=autopilot_effort,
+            )
+        return approval
+
+    def _advance_after_phase_gate(
+        self,
+        orchestration_id: str,
+        completed_phase: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+    ) -> None:
+        """Auto-avanço do autopilot: fase aprovada → próxima fase roda sozinha (M4).
+
+        Não recursa: `run_phase` da próxima fase abre uma NOVA aprovação pendente e
+        para ali, aguardando o humano (pausa só na aprovação, como pedido).
+        """
+        try:
+            nxt = self._next_phase(Phase(completed_phase))
+        except ValueError:
+            return
+        if nxt is None:
+            # Última fase aprovada → esteira concluída.
+            with self._lock_for(orchestration_id):
+                b = self._bundle(orchestration_id)
+                b.orchestration.status = "completed"
+                b.event_log.append("AutopilotCompleted", {"phase": completed_phase})
+                self._persist(b)
+            return
+        self.advance_phase(orchestration_id)
+        self.run_phase(orchestration_id, nxt, executor=executor, effort=effort)
+
+    def start_autopilot(
+        self, orchestration_id: str, *, executor: str | None = None, effort: str | None = None
+    ) -> dict[str, object]:
+        """Dá partida no autopilot: roda a fase atual e abre a 1ª aprovação de avanço.
+
+        `executor`/`effort` escolhem o agente e o esforço; a escolha se propaga a cada
+        fase automaticamente via a aprovação (todo o pipeline usa o mesmo, salvo troca).
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            b.orchestration.status = "running"
+            b.event_log.append("AutopilotStarted", {"phase": b.orchestration.current_phase.value})
+            self._persist(b)
+        return self.run_phase(orchestration_id, executor=executor, effort=effort)
 
     def _find_approval(self, approval_id: str) -> tuple[OrchestrationBundle, HumanApproval] | None:
         for oid in self._repo.list_ids():
@@ -951,24 +1065,63 @@ class OrchestrationService:
         return {"items": items, "total": total, "page": page, "page_size": page_size}
 
     # ------------------------------------------------------------------ execução
+    def resolve_provider(self, executor: str | None) -> ExecutionProvider | None:
+        """Resolve o provider de um executor escolhido (catálogo); None → default."""
+        if not executor or self._catalog is None:
+            return None
+        return self._catalog.build(executor)
+
+    def list_executors(self) -> list[dict[str, object]]:
+        """Executores disponíveis (para escolha por etapa na UI/API)."""
+        return self._catalog.entries() if self._catalog is not None else []
+
+    def save_executor(self, profile: ExecutorProfile) -> list[dict[str, object]]:
+        """Cria/atualiza um perfil de executor (tela de configurações) e persiste."""
+        if self._catalog is None:
+            self._catalog = ExecutorCatalog()
+        self._catalog.upsert(profile)
+        if self._executor_store is not None:
+            self._executor_store.save(self._catalog.profiles())
+        return self._catalog.entries()
+
+    def delete_executor(self, name: str) -> list[dict[str, object]]:
+        """Remove um perfil de executor (exceto 'mock') e persiste."""
+        if self._catalog is None:
+            return []
+        self._catalog.remove(name)
+        if self._executor_store is not None:
+            self._executor_store.save(self._catalog.profiles())
+        return self._catalog.entries()
+
     def _build_task(
-        self, b: OrchestrationBundle, card: KanbanCard, agent: AgentSpec
+        self,
+        b: OrchestrationBundle,
+        card: KanbanCard,
+        agent: AgentSpec,
+        *,
+        effort: str | None = None,
     ) -> dict[str, Any]:
         section = agent.context_sections[0] if agent.context_sections else "engineering"
-        return {
+        task: dict[str, Any] = {
             "orchestration_id": b.orchestration.id,
             "card_id": card.id,
             "phase": b.orchestration.current_phase.value,
             "target_path": f"{section}.mock_{agent.role}",
             "content": {"by": agent.role, "request": b.orchestration.user_request},
         }
+        if effort:
+            task["effort"] = effort  # repassado ao agente (CLI/LLM) para calibrar o esforço
+        return task
 
     def _execute_isolated(
-        self, agent: AgentSpec, task: dict[str, Any]
+        self,
+        agent: AgentSpec,
+        task: dict[str, Any],
+        provider: ExecutionProvider | None = None,
     ) -> tuple[AgentOutput | None, list[DomainEvent], Exception | None]:
         """Executa o agente com supervisão (retry/nudge) em EventLog isolado (thread-safe)."""
         local = EventLog()
-        supervisor = AgentSupervisor(self._provider, event_log=local)
+        supervisor = AgentSupervisor(provider or self._provider, event_log=local)
         start = time.perf_counter()
         card_id = task.get("card_id")
         try:
@@ -1022,16 +1175,29 @@ class OrchestrationService:
             b.board_service.apply_event(card_id, "TestsPassed")  # → Testing
         return results
 
-    def run_card(self, orchestration_id: str, card_id: str) -> list[BusResult]:
-        """Executa o agente do card (supervisionado), aplica patches e move o card."""
+    def run_card(
+        self,
+        orchestration_id: str,
+        card_id: str,
+        *,
+        provider: ExecutionProvider | None = None,
+        effort: str | None = None,
+    ) -> list[BusResult]:
+        """Executa o agente do card (supervisionado), aplica patches e move o card.
+
+        `provider`/`effort` permitem escolher o executor e o esforço por etapa.
+        """
         b = self._bundle(orchestration_id)
+        if b.orchestration.status == "cancelled":  # kill-switch (M6)
+            raise ValueError("Orquestração cancelada: execução bloqueada.")
         card = b.board_service.get_card(card_id)
         if card is None or card.assignee is None:
             raise KeyError(f"Card inválido ou sem agente: {card_id}")
         agent = b.agent_registry.get(card.assignee)
         if agent is None:
             raise KeyError(f"Agente não registrado: {card.assignee}")
-        output, events, error = self._execute_isolated(agent, self._build_task(b, card, agent))
+        task = self._build_task(b, card, agent, effort=effort)
+        output, events, error = self._execute_isolated(agent, task, provider)
         results = self._apply_execution(b, card_id, output, events, error)
         self._persist(b)
         return results
@@ -1122,14 +1288,18 @@ class OrchestrationService:
         """Roda um quality gate simples e, se aprovado, gera snapshot da fase."""
         b = self._bundle(orchestration_id)
         target_phase = phase or b.orchestration.current_phase
-        b.gate_engine.register(
-            target_phase,
-            [
-                Criterion(
-                    "context_has_output", lambda _c: (b.store.version > 0, "≥1 patch aplicado")
-                )
-            ],
-        )
+        criteria = [
+            Criterion("context_has_output", lambda _c: (b.store.version > 0, "≥1 patch aplicado"))
+        ]
+        # Gate real (M5): nas fases de código, roda os testes/lint configurados no repo
+        # alvo — só aprova com a suíte verde (não avança com testes vermelhos, §gate).
+        gate_cmd = os.environ.get("ASO_GATE_TEST_COMMAND")
+        repo = os.environ.get("ASO_TARGET_REPO")
+        if gate_cmd and repo and target_phase in (Phase.F5, Phase.F6):
+            criteria.append(
+                Criterion("tests_pass", lambda _c: run_gate_command(shlex.split(gate_cmd), repo))
+            )
+        b.gate_engine.register(target_phase, criteria)
         result = b.gate_engine.run(target_phase, orchestration_id, b.store.get())
         if result.status == GateStatus.PASSED:
             version = f"O{target_phase.value[-1]}"
@@ -1146,3 +1316,95 @@ class OrchestrationService:
         b.gate_results.append(result)
         self._persist(b)
         return result
+
+    # ------------------------------------------------------------- autopilot (M3)
+    def run_phase(
+        self,
+        orchestration_id: str,
+        phase: Phase | None = None,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+    ) -> dict[str, object]:
+        """Executa uma fase ponta a ponta: roda os cards Ready da fase, roda o gate,
+        gera snapshot (se aprovado) e abre uma aprovação humana de avanço de fase (§8.6).
+
+        `executor`/`effort` escolhem o agente e o esforço desta etapa; a escolha é
+        guardada na aprovação para o auto-avanço (M4) manter a mesma configuração.
+        """
+        provider = self.resolve_provider(executor)
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if b.orchestration.status == "cancelled":  # kill-switch (M6)
+                raise ValueError("Orquestração cancelada: execução bloqueada.")
+            target = phase or b.orchestration.current_phase
+            card_ids = [
+                c.id
+                for c in b.board_service.cards_of(b.board.id)
+                if c.phase == target and c.status == ColumnKey.READY
+            ]
+
+        ran: list[str] = []
+        failed: list[str] = []
+        for cid in card_ids:
+            try:
+                self.run_card(orchestration_id, cid, provider=provider, effort=effort)
+                ran.append(cid)
+            except Exception:  # noqa: BLE001 — card inválido não derruba a fase inteira
+                failed.append(cid)
+
+        gate = self.run_quality_gate(orchestration_id, target)
+        approval_id: str | None = None
+        snapshot: str | None = None
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if gate.status == GateStatus.PASSED:
+                snapshot = b.orchestration.snapshot_version
+                approval = HumanApproval(
+                    orchestration_id=orchestration_id,
+                    action=f"Aprovar avanço da fase {target.value}",
+                    risk="medium",
+                    reason=f"Fase {target.value} concluída (gate PASSED): "
+                    f"{len(ran)} cards executados.",
+                    payload={
+                        "kind": "phase_gate",
+                        "phase": target.value,
+                        "executor": executor,
+                        "effort": effort,
+                    },
+                )
+                b.approvals.append(approval)
+                approval_id = approval.id
+            b.event_log.append(
+                "PhaseCompleted",
+                {"phase": target.value, "cards": len(ran), "gate": gate.status.value},
+            )
+            self._persist(b)
+            nxt = self._next_phase(target)
+        return {
+            "phase": target.value,
+            "cards_ran": ran,
+            "cards_failed": failed,
+            "gate_status": gate.status.value,
+            "snapshot": snapshot,
+            "approval_id": approval_id,
+            "next_phase": nxt.value if nxt else None,
+        }
+
+    @staticmethod
+    def _next_phase(phase: Phase) -> Phase | None:
+        order = list(Phase)
+        idx = order.index(phase)
+        return order[idx + 1] if idx + 1 < len(order) else None
+
+    def advance_phase(self, orchestration_id: str) -> Orchestration:
+        """Avança a orquestração para a próxima fase (F1→…→F7). Ação governada."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            nxt = self._next_phase(b.orchestration.current_phase)
+            if nxt is None:
+                raise ValueError("Já está na última fase (F7); não há próxima.")
+            b.orchestration.current_phase = nxt
+            b.event_log.append("PhaseAdvanced", {"to": nxt.value})
+            self._persist(b)
+            return b.orchestration

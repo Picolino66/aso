@@ -3,6 +3,7 @@
 Seleciona aqui (e não no domínio) as implementações concretas:
 - `ASO_DATABASE_URL`  -> SqlAlchemyOrchestrationRepository (Postgres/SQLite); senão in-memory.
 - `ASO_CLI_COMMAND` + `ASO_TARGET_REPO` -> CliAgentExecutionProvider (worktrees); senão mock.
+- `ASO_LLM_*` -> LlmExecutionProvider (planejamento); roteado por fase com o CLI (M5).
 - `ASO_CANDIDATE_COMMANDS` + `ASO_TARGET_REPO` -> agentes CLI candidatos (§26A.6).
 """
 
@@ -15,20 +16,41 @@ import shlex
 from aso.agents.executor import ExecutionProvider
 from aso.control.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
+from aso.execution.catalog import ExecutorCatalog, build_catalog_from_env
 from aso.execution.cli_provider import CliAgentExecutionProvider
+from aso.execution.llm_client import build_llm_client_from_env
+from aso.execution.llm_provider import LlmExecutionProvider
+from aso.execution.routing_provider import RoutingExecutionProvider
+from aso.execution.settings_store import ExecutorSettingsStore
 
 
 def build_service() -> OrchestrationService:
     url = os.environ.get("ASO_DATABASE_URL")
     repository = SqlAlchemyOrchestrationRepository(url) if url else None
 
-    provider: ExecutionProvider | None = None
     cli_command = os.environ.get("ASO_CLI_COMMAND")
     target_repo = os.environ.get("ASO_TARGET_REPO")
+    coder: ExecutionProvider | None = None
     if cli_command and target_repo:
-        provider = CliAgentExecutionProvider(shlex.split(cli_command), target_repo)
+        coder = CliAgentExecutionProvider(shlex.split(cli_command), target_repo)
 
-    return OrchestrationService(provider=provider, repository=repository)
+    llm = build_llm_client_from_env()
+    planner: ExecutionProvider | None = LlmExecutionProvider(llm) if llm else None
+
+    # Roteia por fase quando há os dois; senão usa o único disponível; senão mock.
+    if planner and coder:
+        provider: ExecutionProvider | None = RoutingExecutionProvider(planner=planner, coder=coder)
+    else:
+        provider = coder or planner
+
+    # Catálogo: perfis persistidos na tela de config (arquivo) têm prioridade;
+    # senão, deriva do ambiente (ASO_EXECUTORS + defaults). Chaves sempre no env.
+    store = ExecutorSettingsStore()
+    stored = store.load()
+    catalog = ExecutorCatalog(stored) if stored else build_catalog_from_env()
+    return OrchestrationService(
+        provider=provider, repository=repository, catalog=catalog, executor_store=store
+    )
 
 
 def build_candidate_providers() -> list[ExecutionProvider]:

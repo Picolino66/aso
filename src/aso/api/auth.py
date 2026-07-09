@@ -62,4 +62,7 @@ def required_role(method: str, path: str) -> str:
         return "admin"
     if method == "GET":
         return "viewer"
+    # Configuração de executores (criar/editar/remover perfis) é ação administrativa.
+    if method != "GET" and "/executors" in path:
+        return "admin"
     return "operator"

@@ -21,6 +21,8 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
+from aso.control.planning import PlanningService
+from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.governance.models import ContextPatch, SloEvaluation
 from aso.observability.broker import EventBroker
 from aso.observability.logging import get_logger
@@ -38,8 +40,35 @@ class CreateOrchestrationBody(BaseModel):
     project_id: str | None = None
 
 
+class PlanBody(BaseModel):
+    idea: str
+
+
 class RunGateBody(BaseModel):
     phase: Phase | None = None
+
+
+class RunPhaseBody(BaseModel):
+    phase: Phase | None = None
+    executor: str | None = None
+    effort: str | None = None
+
+
+class AutopilotBody(BaseModel):
+    executor: str | None = None
+    effort: str | None = None
+
+
+class ExecutorBody(BaseModel):
+    name: str
+    kind: str = "cli"  # mock | llm | cli
+    provider: str = ""
+    model: str = ""
+    effort: str = "medium"
+    command: str = ""
+    base_url: str = ""
+    api_key_env: str = ""
+    is_default: bool = False
 
 
 class FeedbackBody(BaseModel):
@@ -95,11 +124,16 @@ class ContextPatchBody(BaseModel):
 
 
 def create_app(
-    service: OrchestrationService | None = None, auth: AuthService | None = None
+    service: OrchestrationService | None = None,
+    auth: AuthService | None = None,
+    *,
+    llm_client: LlmClient | None = None,
 ) -> FastAPI:
-    """Cria a aplicação FastAPI, opcionalmente com service/auth injetados (testes)."""
+    """Cria a aplicação FastAPI, opcionalmente com service/auth/llm injetados (testes)."""
     svc = service or OrchestrationService()
     auth = auth or AuthService.from_env()
+    # Cérebro do autopilot: cliente LLM injetado (testes) ou montado do ambiente.
+    planning_client = llm_client or build_llm_client_from_env()
     metrics = MetricsService(svc)
     log = get_logger()
     tracer = get_tracer()
@@ -206,6 +240,20 @@ def create_app(
     def create_orchestration(body: CreateOrchestrationBody) -> Any:
         return svc.create_orchestration(body.user_request, project_id=body.project_id)
 
+    @app.post("/v1/orchestrations/{orchestration_id}/plan", status_code=201)
+    def plan_with_llm(orchestration_id: str, body: PlanBody) -> Any:
+        """Planeja o produto com o LLM (M2) e materializa cards+ADRs no board."""
+        _guard(orchestration_id)
+        if planning_client is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "LLM não configurado: defina ASO_LLM_PROVIDER/ASO_LLM_API_KEY/ASO_LLM_MODEL."
+                ),
+            )
+        plan = PlanningService(planning_client).plan(body.idea)
+        return svc.populate_from_plan(orchestration_id, plan)
+
     @app.get("/v1/orchestrations")
     def list_orchestrations(
         response: Response,
@@ -275,6 +323,58 @@ def create_app(
     def run_plan(orchestration_id: str) -> Any:
         _guard(orchestration_id)
         return svc.run_plan(orchestration_id)
+
+    @app.get("/v1/executors")
+    def list_executors() -> Any:
+        """Executores disponíveis para escolha por etapa (nome, tipo, modelo, esforços)."""
+        return svc.list_executors()
+
+    @app.post("/v1/executors", status_code=201)
+    def upsert_executor(body: ExecutorBody) -> Any:
+        """Cria/atualiza um perfil de executor (tela de configurações). Chave fica no env."""
+        from aso.execution.catalog import ExecutorProfile
+
+        return svc.save_executor(ExecutorProfile(**body.model_dump()))
+
+    @app.delete("/v1/executors/{name}")
+    def delete_executor(name: str) -> Any:
+        """Remove um perfil de executor (exceto 'mock')."""
+        try:
+            return svc.delete_executor(name)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/run-phase")
+    def run_phase(orchestration_id: str, body: RunPhaseBody) -> Any:
+        """Executa uma fase ponta a ponta e abre a aprovação de avanço (autopilot M3)."""
+        _guard(orchestration_id)
+        try:
+            return svc.run_phase(
+                orchestration_id, body.phase, executor=body.executor, effort=body.effort
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/advance-phase")
+    def advance_phase(orchestration_id: str) -> Any:
+        """Avança para a próxima fase (governado)."""
+        _guard(orchestration_id)
+        try:
+            return svc.advance_phase(orchestration_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/autopilot")
+    def start_autopilot(orchestration_id: str, body: AutopilotBody | None = None) -> Any:
+        """Dá partida no autopilot (M4): roda a fase atual; aprovar avança sozinho."""
+        _guard(orchestration_id)
+        body = body or AutopilotBody()
+        try:
+            return svc.start_autopilot(orchestration_id, executor=body.executor, effort=body.effort)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.get("/v1/orchestrations/{orchestration_id}/cards/stats")
     def cards_stats(orchestration_id: str) -> Any:

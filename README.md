@@ -153,6 +153,12 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 | `ASO_SLO_FAILURE_BUDGET` | orçamento de erro da taxa de falhas de execução no `/slo` (default 0.10) |
 | `ASO_MAX_SLO_SAMPLES` | retenção de amostras de SLO por orquestração (default 200) |
+| `ASO_LLM_PROVIDER` / `ASO_LLM_API_KEY` / `ASO_LLM_MODEL` | cérebro do autopilot: `deepseek`/`openai`/`anthropic` + chave + modelo (planejamento via `POST .../plan`) |
+| `ASO_LLM_BASE_URL` | URL base do provedor LLM (opcional; default por provedor) |
+| `ASO_GATE_TEST_COMMAND` | comando de testes/lint rodado no gate das fases de código (F5/F6) no `ASO_TARGET_REPO`; só aprova com exit 0 |
+| `ASO_EXECUTORS` | catálogo JSON de executores (seed inicial); ex.: `[{"name":"claude","kind":"cli","command":"claude -p","model":"sonnet"}]`. Também editável pela tela **⚙ Config** do console |
+| `ASO_EXECUTORS_FILE` | arquivo onde a tela de config persiste os perfis (default `.aso/executors.json`; monte um volume para persistir no Docker) |
+| `ASO_<NOME>_API_KEY` | chave do executor LLM chamado `<nome>` (a tela de config só referencia a env var; o segredo nunca é gravado) |
 
 ---
 

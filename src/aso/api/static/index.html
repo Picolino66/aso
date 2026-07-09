@@ -75,6 +75,7 @@
     <span style="flex:1"></span>
     <input id="tok" placeholder="token (Bearer)" style="width:200px;margin:0" />
     <button class="btn ghost sm" onclick="saveTok()">Entrar</button>
+    <button class="btn ghost sm" onclick="renderSettings()">⚙ Config</button>
   </header>
   <main>
     <div>
@@ -99,6 +100,7 @@
       return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok ? r.json() : Promise.reject(r.status));
     };
     const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
+    const del = (p) => api(p, { method:'DELETE' });
     function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); loadOrchestrations(); }
     const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -118,6 +120,84 @@
       _es = new EventSource(url);
       _esId = id;
       _es.onmessage = () => { if (_esId === id) openOrch(id); };  // re-busca ao vivo
+    }
+
+    async function renderSettings() {
+      const d = document.getElementById('detail');
+      let execs = [];
+      try { execs = await api('/v1/executors'); }
+      catch (s) { d.innerHTML = `<div class="card"><div class="empty">Não foi possível carregar (${s}). Entre com um token admin.</div></div>`; return; }
+      _execs = {}; execs.forEach(e => _execs[e.name] = e);
+      const keyPill = e => e.kind !== 'llm' ? '' :
+        `<span class="pill ${e.has_key?'ok':'err'}">${e.has_key?'chave OK':'sem chave'}</span>`;
+      d.innerHTML = `
+        <div class="card">
+          <h2>⚙ Configurações · Executores (agentes)</h2>
+          <div class="muted" style="margin-bottom:8px">Defina os agentes selecionáveis por etapa. As <b>chaves de API ficam só em variáveis de ambiente</b> — aqui você informa o <b>nome da env var</b> que guarda a chave (o valor nunca é gravado).</div>
+          ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Chave (env)</th><th></th></tr>
+            ${execs.map(e=>`<tr>
+              <td><code>${esc(e.name)}</code>${e.is_default?' <span class="pill">default</span>':''}</td>
+              <td>${esc(e.kind)}</td><td>${esc(e.provider||'—')}</td><td>${esc(e.model||'—')}</td><td>${esc(e.effort||'—')}</td>
+              <td>${e.kind==='llm'?`<code>${esc(e.api_key_env||'—')}</code> ${keyPill(e)}`:'—'}</td>
+              <td>${e.name!=='mock'?`<button class="btn sm ghost" onclick="editExecutor('${esc(e.name)}')">Editar</button>
+                   <button class="btn sm err" onclick="delExecutor('${esc(e.name)}')">Remover</button>`:''}</td>
+            </tr>`).join('')}</table>` : '<div class="empty">nenhum executor</div>'}
+          <h3 style="margin:16px 0 6px">Adicionar / atualizar executor</h3>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            <input id="cfName" placeholder="nome (ex.: claude)" style="width:150px;margin:0" />
+            <select id="cfKind" style="width:auto;margin:0" onchange="_cfKind()">
+              <option value="cli">cli</option><option value="llm">llm</option><option value="mock">mock</option>
+            </select>
+            <input id="cfModel" placeholder="modelo (ex.: sonnet)" style="width:150px;margin:0" />
+            <select id="cfEffort" style="width:auto;margin:0"><option>low</option><option selected>medium</option><option>high</option></select>
+            <label class="muted" style="align-self:center"><input type="checkbox" id="cfDefault" /> default</label>
+          </div>
+          <div class="row" style="flex-wrap:wrap;gap:8px;margin-top:8px">
+            <input id="cfCommand" placeholder="comando CLI (ex.: claude -p)" style="flex:1;margin:0" />
+            <input id="cfProvider" placeholder="provider llm (deepseek/openai/anthropic)" style="width:230px;margin:0" />
+            <input id="cfKeyEnv" placeholder="env da chave (ex.: ASO_CLAUDE_API_KEY)" style="width:250px;margin:0" />
+          </div>
+          <div class="row" style="margin-top:8px"><button class="btn" onclick="saveExecutor()">Salvar executor</button></div>
+        </div>`;
+    }
+    function _cfKind() {
+      const k = document.getElementById('cfKind').value;
+      document.getElementById('cfCommand').style.display = k==='cli'?'':'none';
+      document.getElementById('cfProvider').style.display = k==='llm'?'':'none';
+      document.getElementById('cfKeyEnv').style.display = k==='llm'?'':'none';
+    }
+    let _execs = {};
+    function editExecutor(name) {
+      const e = _execs[name]; if (!e) return;
+      document.getElementById('cfName').value = e.name;
+      document.getElementById('cfKind').value = e.kind;
+      document.getElementById('cfModel').value = e.model||'';
+      document.getElementById('cfEffort').value = e.effort||'medium';
+      document.getElementById('cfDefault').checked = !!e.is_default;
+      document.getElementById('cfCommand').value = e.command||'';
+      document.getElementById('cfProvider').value = e.provider||'';
+      document.getElementById('cfKeyEnv').value = e.api_key_env||'';
+      _cfKind();
+    }
+    async function saveExecutor() {
+      const body = {
+        name: document.getElementById('cfName').value.trim(),
+        kind: document.getElementById('cfKind').value,
+        model: document.getElementById('cfModel').value.trim(),
+        effort: document.getElementById('cfEffort').value,
+        command: document.getElementById('cfCommand').value.trim(),
+        provider: document.getElementById('cfProvider').value.trim(),
+        api_key_env: document.getElementById('cfKeyEnv').value.trim(),
+        is_default: document.getElementById('cfDefault').checked,
+      };
+      if (!body.name) { alert('Informe o nome do executor.'); return; }
+      try { await post('/v1/executors', body); await renderSettings(); }
+      catch (s) { alert('Falha ao salvar ('+s+'): requer papel admin.'); }
+    }
+    async function delExecutor(name) {
+      if (!confirm(`Remover o executor "${name}"?`)) return;
+      try { await del(`/v1/executors/${encodeURIComponent(name)}`); await renderSettings(); }
+      catch (s) { alert('Falha ao remover ('+s+'): requer papel admin.'); }
     }
 
     async function loadOrchestrations() {
@@ -145,9 +225,10 @@
 
     async function openOrch(id) {
       current = id; await loadOrchestrations(); ensureStream(id);
-      const [m, slo, approvals, exec] = await Promise.all([
+      const [m, slo, approvals, exec, execs] = await Promise.all([
         api(`/v1/orchestrations/${id}/metrics`), api(`/v1/orchestrations/${id}/slo`),
-        api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`)]);
+        api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`),
+        api(`/v1/executors`).catch(()=>[])]);
       const sloOk = slo.breaches.length === 0;
       const pending = approvals.filter(a => a.status === 'pending').length;
       const tabs = ['kanban','pulls','races','costs','slo','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
@@ -171,10 +252,25 @@
             <span>retries <b>${exec.retries}</b></span><span>falhas <b>${exec.failures}</b></span>
             <span>waiting human <b>${exec.waiting_human}</b></span>
           </div>
-          <div class="row" style="margin-top:10px">
-            <button class="btn" onclick="runAll('${id}')">Rodar cards</button>
+          <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;align-items:center">
+            <label class="muted">agente
+              <select id="execSel" style="margin:0 0 0 4px;width:auto">
+                ${execs.length ? execs.map(e=>`<option value="${e.name}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('') : '<option value="">default</option>'}
+              </select>
+            </label>
+            <label class="muted">esforço
+              <select id="effortSel" style="margin:0 0 0 4px;width:auto">
+                <option value="">default</option><option>low</option><option>medium</option><option>high</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button class="btn" onclick="startAutopilot('${id}')">▶ Autopilot</button>
+            <button class="btn ghost" onclick="runPhase('${id}')">Rodar fase</button>
+            <button class="btn ghost" onclick="runAll('${id}')">Rodar cards</button>
             <button class="btn ghost" onclick="runGate('${id}')">Rodar gate</button>
           </div>
+          <div class="muted" style="margin-top:4px">Escolha o agente e o esforço; o Autopilot roda a fase e pausa na aprovação — aprovar (aba <b>approvals</b>) avança sozinho mantendo a escolha.</div>
         </div>
         <div class="card">
           <div class="tabs">${tabs.map(t => `<div class="tab ${t===currentTab?'active':''}" onclick="setTab('${id}','${t}')">${t}</div>`).join('')}</div>
@@ -498,6 +594,17 @@
       await openOrch(id);
     }
     async function runGate(id) { await post(`/v1/orchestrations/${id}/quality-gates/run`); await openOrch(id); }
+    function _sel() {
+      const e = document.getElementById('execSel'), f = document.getElementById('effortSel');
+      return { executor: (e && e.value) || null, effort: (f && f.value) || null };
+    }
+    async function startAutopilot(id) {
+      const r = await post(`/v1/orchestrations/${id}/autopilot`, _sel());
+      currentTab = 'approvals';
+      await openOrch(id);
+      if (r && r.approval_id) alert(`Fase ${r.phase} concluída (gate ${r.gate_status}). Aprove na aba "approvals" para avançar sozinho à próxima (${r.next_phase||'—'}).`);
+    }
+    async function runPhase(id) { await post(`/v1/orchestrations/${id}/run-phase`, _sel()); currentTab='approvals'; await openOrch(id); }
 
     document.getElementById('tok').value = token();
     loadOrchestrations();
