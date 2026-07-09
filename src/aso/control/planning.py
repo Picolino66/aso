@@ -20,7 +20,11 @@ _PLANNING_SYSTEM = (
     ' "adrs": [{"title": "...", "decision": "...", "rationale": "..."}],\n'
     ' "backlog": [{"title": "...", "phase": "F5", "domain": "backend",'
     ' "acceptance_criteria": ["..."]}]}\n'
-    "Use fases válidas (F1..F7). Gere um backlog enxuto e executável (5 a 15 itens)."
+    "Distribua o backlog por TODA a esteira (fases F1..F7), não só F5:\n"
+    "- F1 discovery/requisitos, F2 arquitetura, F3 dados/contratos, F4 UX/planejamento,\n"
+    "  F5 desenvolvimento, F6 testes/qualidade/docs, F7 operação/observabilidade.\n"
+    "Gere um backlog enxuto e executável (5 a 15 itens), com ao menos um item por fase "
+    "relevante à ideia."
 )
 
 

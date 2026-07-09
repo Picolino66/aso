@@ -64,6 +64,33 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 - **Autopilot — execução de código real + gate de testes (M5):** **`RoutingExecutionProvider`** roteia por fase (**LLM planeja** F1–F4, **agente CLI coda** F5–F6, com fallback para o único configurado); o `build_service` monta o roteador a partir de `ASO_LLM_*` + `ASO_CLI_COMMAND`/`ASO_TARGET_REPO`. O **quality gate das fases de código passa a rodar testes de verdade**: executa **`ASO_GATE_TEST_COMMAND`** no `ASO_TARGET_REPO` e **só aprova com a suíte verde** — testes vermelhos reprovam o gate e a fase **não avança**.
 - **Seleção de executor por etapa (agente/modelo/esforço):** **`ExecutorCatalog`** (`ASO_EXECUTORS` em JSON + defaults do ambiente) permite escolher, por fase/autopilot, **qual agente** rodar (Claude CLI, Codex, DeepSeek, ou outro), com **modelo** e **esforço** (`low`/`medium`/`high`). Endpoint **`GET /v1/executors`**, parâmetros `executor`/`effort` em `/run-phase` e `/autopilot`, e **seletor no console**; a escolha é registrada na aprovação e **propaga no auto-avanço**. **Kill-switch (M6):** orquestração cancelada bloqueia novas execuções.
 - **Tela de configurações de executores (⚙ Config):** o console ganhou uma tela para **criar/editar/remover** os perfis de agente (nome, tipo, provider, modelo, esforço, comando, env var da chave, default). Os perfis são persistidos por **`ExecutorSettingsStore`** em arquivo (`ASO_EXECUTORS_FILE`, default `.aso/executors.json`) — **apenas metadados; o valor da chave NUNCA é gravado** (a UI só exibe o *status* presente/ausente lendo a env var). Endpoints **`POST`/`DELETE /v1/executors`** exigem papel **admin**; o executor `mock` é protegido contra remoção.
+- **Clareza (logs, estado e esteira):** a partir do diagnóstico "tudo confuso":
+  - **Logs sem ruído** — o gateway não loga mais `/health`/`/metrics` e um filtro no
+    `uvicorn.access` os oculta do access log; **eventos de domínio** passam a aparecer no
+    stdout (`phase_completed`, `autopilot_advanced`/`autopilot_completed`, `agent_failed`
+    como `warning` com o motivo, `pr_merged`).
+  - **Estado visível na UI** — card em Failed/Blocked exibe o **motivo** (`block_reason`);
+    botão desabilitado fica **cinza/não-clicável** (`.btn[disabled]`); o badge de SLO usa
+    **rótulos amigáveis** ("SLOs em risco: cards bloqueados, snapshot ausente").
+  - **Esteira coerente F1→F7** — a orquestração passa a **nascer em F1** (antes F5); um mapa
+    papel→fase posiciona os cards na fase certa; o planejamento LLM distribui o backlog por
+    F1–F7; e **fases sem cards não travam** o gate (aprovação vacua), então o autopilot
+    percorre a esteira inteira.
+
+- **Seed de executores (`manager.sh seed`):** `scripts/seed-executors.sh` cadastra **Codex CLI
+  e Claude CLI** com **todos os modelos × todos os níveis** (`low`/`medium`/`high`) — 18
+  perfis prontos para escolher no console. Os comandos usam o wrapper com o caminho **entre
+  aspas** e, para o Codex, `-m <model>` + `-c model_reasoning_effort=<nível>`; ao selecionar
+  um perfil sem tocar no dropdown, o `run_phase` herda o esforço do perfil.
+- **`manager.sh` (operação local):** painel Bash em pt-BR para o modo híbrido — **Postgres
+  no Docker** e **API local** na venv (serve `/ui`). `iniciar` sobe o banco, espera ficar
+  saudável, aplica migrations e sobe o uvicorn em background; `parar`, `reiniciar`,
+  `status`, `logs`, `db-logs`, `migrate`, `test`, `check`, `psql`, `shell` + menu
+  interativo. Cria a venv e instala as dependências (incl. `psycopg`) se faltarem.
+- **Wrapper de agente CLI:** `scripts/aso-agent-wrapper.sh` adapta a tarefa do ASO (JSON no
+  stdin) em um prompt pt-BR e invoca o agente CLI (`codex exec`, `claude -p`, …) no worktree
+  do card. Selecionar o executor no console o aplica a **todas as fases** (a escolha propaga
+  pela cadeia de aprovações). README documenta a receita (Codex/Claude em F1→F7).
 
 ### Segurança
 - SAST (bandit) e SCA (pip-audit) sem apontamentos.

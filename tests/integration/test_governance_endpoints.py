@@ -43,7 +43,8 @@ def _client_ready() -> tuple[TestClient, str]:
     oid = client.post("/v1/orchestrations", json={"user_request": "X"}).json()["id"]
     card_id = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]["id"]
     client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")
-    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={})
+    # roda o gate em F5 (onde vive o card de dev) → snapshot O5
+    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F5"})
     return client, oid
 
 

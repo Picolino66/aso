@@ -8,3 +8,9 @@ __pycache__/
 .coverage
 dist/
 build/
+
+# Runtime do manager.sh (PID/log da API local)
+.aso/run/
+
+# Perfis de executor (config local, contém caminhos absolutos da máquina)
+.aso/executors.json

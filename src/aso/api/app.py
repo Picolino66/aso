@@ -149,6 +149,8 @@ def create_app(
     )
 
     _PUBLIC = ("/health", "/docs", "/redoc", "/openapi.json", "/ui", "/metrics")
+    # Paths de infraestrutura (healthcheck/scrape) — não logamos para não afogar o stdout.
+    _QUIET_PATHS = ("/health", "/metrics")
 
     @app.middleware("http")
     async def gateway(request: Request, call_next: Any) -> Any:
@@ -201,14 +203,15 @@ def create_app(
             and parts[2] == "orchestrations"
         ):
             broker.publish(parts[3])
-        log.info(
-            "request",
-            method=request.method,
-            path=path,
-            status=response.status_code,
-            ms=round((time.perf_counter() - start) * 1000, 1),
-            actor=actor,
-        )
+        if path not in _QUIET_PATHS:  # não loga ruído de healthcheck/scrape
+            log.info(
+                "request",
+                method=request.method,
+                path=path,
+                status=response.status_code,
+                ms=round((time.perf_counter() - start) * 1000, 1),
+                actor=actor,
+            )
         return _resp(response)
 
     @app.get("/health")

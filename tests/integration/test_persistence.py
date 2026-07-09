@@ -11,6 +11,7 @@ from pathlib import Path
 from aso.control.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.persistence.memory import InMemoryOrchestrationRepository
+from aso.shared.types import Phase
 
 
 def test_state_survives_new_service_instance(tmp_path: Path) -> None:
@@ -21,7 +22,7 @@ def test_state_survives_new_service_instance(tmp_path: Path) -> None:
     orch = svc1.create_orchestration("Implementar módulo X no backend")
     card = svc1.get_cards(orch.id)[0]
     svc1.run_card(orch.id, card.id)
-    svc1.run_quality_gate(orch.id)
+    svc1.run_quality_gate(orch.id, Phase.F5)
 
     # Instância 2: novo service + novo repositório sobre o MESMO banco.
     svc2 = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url))

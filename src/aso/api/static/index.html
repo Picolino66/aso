@@ -25,6 +25,8 @@
     .btn.ghost { background:var(--border); color:var(--fg); }
     .btn.sm { padding:4px 8px; font-size:12px; }
     .btn.ok { background:var(--ok); } .btn.err { background:var(--err); color:#fff; }
+    .btn[disabled] { background:var(--border); color:var(--muted); opacity:.5; cursor:not-allowed; }
+    .reason { margin-top:6px; font-size:12px; color:var(--err); background:rgba(239,68,68,.1); padding:4px 6px; border-radius:6px; }
     input, textarea, select { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--fg); border-radius:8px; padding:8px; margin-bottom:8px; font-family:inherit; }
     ul { list-style:none; padding:0; margin:0; }
     li.orch { padding:8px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
@@ -157,6 +159,7 @@
             <input id="cfProvider" placeholder="provider llm (deepseek/openai/anthropic)" style="width:230px;margin:0" />
             <input id="cfKeyEnv" placeholder="env da chave (ex.: ASO_CLAUDE_API_KEY)" style="width:250px;margin:0" />
           </div>
+          <div class="muted" style="margin-top:6px">Requer <code>ASO_TARGET_REPO</code> (repo alvo) para agentes CLI. Se o caminho tiver <b>espaços</b>, coloque-o entre aspas — ex.: <code>"/home/eu/Área de trabalho/x/aso-agent-wrapper.sh" codex exec</code>.</div>
           <div class="row" style="margin-top:8px"><button class="btn" onclick="saveExecutor()">Salvar executor</button></div>
         </div>`;
     }
@@ -230,6 +233,8 @@
         api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`),
         api(`/v1/executors`).catch(()=>[])]);
       const sloOk = slo.breaches.length === 0;
+      const SLO_LABELS = { sem_conflitos_abertos:'sem conflitos', sem_cards_bloqueados:'cards bloqueados', snapshot_da_fase_gerado:'snapshot ausente', taxa_de_falhas_de_execucao:'taxa de falhas alta' };
+      const sloText = sloOk ? 'OK' : slo.breaches.map(b=>SLO_LABELS[b]||b).join(', ');
       const pending = approvals.filter(a => a.status === 'pending').length;
       const tabs = ['kanban','pulls','races','costs','slo','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
       document.getElementById('detail').innerHTML = `
@@ -238,7 +243,7 @@
             <h2 style="margin:0">${id.slice(0,20)}…</h2>
             <span>
               <span class="pill ok">● ao vivo</span>
-              <span class="pill ${sloOk?'ok':'err'}">SLOs: ${sloOk?'OK':esc(slo.breaches.join(', '))}</span>
+              <span class="pill ${sloOk?'ok':'err'}">${sloOk?'SLOs OK':'SLOs em risco: '+esc(sloText)}</span>
             </span>
           </div>
           <div class="metrics muted" style="margin-top:8px">
@@ -305,7 +310,8 @@
       const by = {}; cards.forEach(k => (by[k.status]=by[k.status]||[]).push(k));
       c.innerHTML = `<div class="board">${cols.filter(k=>by[k]).map(k=>`
         <div class="col"><h3>${k} (${by[k].length})</h3>
-          ${by[k].map(x=>`<div class="kcard"><div class="t">${x.type} · ${esc(x.assignee||'—')}</div>${esc(x.title)}
+          ${by[k].map(x=>`<div class="kcard"><div class="t">${x.type} · ${esc(x.assignee||'—')} · <span class="muted">${esc(x.phase||'')}</span></div>${esc(x.title)}
+            ${x.block_reason?`<div class="reason">⚠ ${esc(x.block_reason)}</div>`:''}
             <div style="margin-top:6px">
               <button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">Abrir PR</button>
               <button class="btn sm ghost" onclick="raceCard('${id}','${x.id}')">Candidatos</button>

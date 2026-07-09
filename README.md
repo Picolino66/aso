@@ -66,6 +66,31 @@ pytest · ruff · mypy --strict.
 
 ## Começando
 
+### Modo híbrido — `manager.sh` (Postgres no Docker, API local)
+
+Jeito mais fácil no dia a dia: o **Postgres roda no Docker** e a **API roda local** na
+venv (servindo o console em `/ui`). Um único painel cuida de tudo:
+
+```bash
+./scripts/manager.sh            # menu interativo (iniciar/parar/logs/status/…)
+./scripts/manager.sh iniciar    # sobe o Postgres, aplica migrations e sobe a API local
+./scripts/manager.sh status     # estado do banco + API + /health
+./scripts/manager.sh logs       # segue os logs da API local
+./scripts/manager.sh parar      # para a API e o Postgres (dados preservados)
+```
+Console em **http://localhost:8000/ui**. Na 1ª execução, o script cria a venv e instala
+as dependências (incluindo o driver `psycopg`) se faltarem. Comandos extras: `reiniciar`,
+`db-logs`, `migrate`, `test`, `check`, `psql`, `shell`, `seed`.
+
+**Cadastrar Codex + Claude de uma vez** (todos os modelos × níveis low/medium/high):
+```bash
+./scripts/manager.sh seed
+```
+Cria os perfis via `scripts/seed-executors.sh` (edite os arrays de modelos conforme sua
+instalação). Para **executar** os agentes: `export ASO_TARGET_REPO=/repo` antes de iniciar
+e tenha os binários `codex`/`claude` no PATH. Os comandos já usam o wrapper com o caminho
+**entre aspas** (necessário porque o projeto fica sob "Área de trabalho").
+
 ### Com Docker (recomendado)
 
 Sobe Postgres + API (migrations no boot, healthcheck `/health`):
@@ -159,6 +184,37 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_EXECUTORS` | catálogo JSON de executores (seed inicial); ex.: `[{"name":"claude","kind":"cli","command":"claude -p","model":"sonnet"}]`. Também editável pela tela **⚙ Config** do console |
 | `ASO_EXECUTORS_FILE` | arquivo onde a tela de config persiste os perfis (default `.aso/executors.json`; monte um volume para persistir no Docker) |
 | `ASO_<NOME>_API_KEY` | chave do executor LLM chamado `<nome>` (a tela de config só referencia a env var; o segredo nunca é gravado) |
+
+### Configurar o Codex (ou Claude CLI) para todas as fases
+
+Ao **selecionar um agente** no dropdown do console e clicar **▶ Autopilot**, ele é usado
+em **todas as fases** (F1→F7) — a escolha se propaga automaticamente pela cadeia de
+aprovações. Passos:
+
+1. **Repo alvo** (obrigatório p/ agentes CLI): `export ASO_TARGET_REPO=/caminho/do/repo`.
+2. Garanta que o binário (`codex`/`claude`) está **acessível ao processo da API** (rodando
+   local via `uvicorn`, é o seu ambiente; no Docker, precisa estar na imagem).
+3. Na tela **⚙ Config**, adicione o executor:
+   - **nome**: `codex` · **tipo**: `cli` · **default**: marcado
+   - **comando CLI** (caminho absoluto do wrapper + o agente):
+     `/app/scripts/aso-agent-wrapper.sh codex exec` (ou, local, o caminho do repo)
+4. O **wrapper** [`scripts/aso-agent-wrapper.sh`](scripts/aso-agent-wrapper.sh) traduz a
+   tarefa (JSON no stdin) em um prompt em pt-BR e chama `codex exec "<prompt>"` no worktree
+   do card. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
+
+> **Caminho com espaços**: o comando do executor é separado por `shlex`, então um caminho
+> com espaços (ex.: `Área de trabalho`) precisa estar **entre aspas**:
+> `"/home/eu/Área de trabalho/.../aso-agent-wrapper.sh" codex exec`. Sem aspas, ele quebra e
+> o card falha (o motivo aparece no próprio card).
+>
+> **Quer só ver a esteira gerando código de verdade, sem chave/LLM?** Use o agente de
+> demonstração [`scripts/demo-agent.sh`](scripts/demo-agent.sh): cadastre um executor `cli`
+> com esse comando (entre aspas) e `ASO_TARGET_REPO` apontando para um repo git — ele
+> escreve um módulo real + teste, que passa por PR e merge governado.
+
+> Observação: um CLI de código roda em todas as fases se você escolher, mas em F1–F4
+> (discovery/arquitetura) o ideal é um LLM de planejamento; deixe o codex focado em F5–F6
+> se quiser melhor resultado.
 
 ---
 

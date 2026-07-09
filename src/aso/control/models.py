@@ -14,7 +14,8 @@ class Orchestration(BaseModel):
     id: str = Field(default_factory=lambda: gen_id("orch"))
     project_id: str | None = None
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE
-    current_phase: Phase = Phase.F5
+    # A esteira começa em F1 (discovery) e avança até F7 sob o autopilot.
+    current_phase: Phase = Phase.F1
     snapshot_version: str = "O0"
     status: str = "created"
     user_request: str = ""

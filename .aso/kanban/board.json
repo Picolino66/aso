@@ -2298,6 +2298,164 @@
         "TASK-72"
       ],
       "evidence": "162 testes verdes; test_executor_settings (CRUD, persistência, status de chave sem expor segredo, endpoints, mock protegido); Docker: criar/listar/remover + 409 mock + config no /ui + SMOKE OK"
+    },
+    {
+      "id": "TASK-74",
+      "epic": "EPIC-8",
+      "type": "Chore",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Clareza: logs, estado visível e esteira F1→F7",
+      "description": "Diagnóstico do 'tudo confuso' e correções: (A) logs — gateway pula _QUIET_PATHS (/health,/metrics), filtro _QuietAccessFilter no uvicorn.access, e eventos de domínio no stdout (phase_completed, autopilot_advanced/completed, agent_failed=warning, pr_merged); (B) UI — card Failed/Blocked mostra block_reason, CSS .btn[disabled] (cinza/não-clicável), badge SLO com rótulos amigáveis; (C) esteira — Orchestration nasce em F1 (não F5), _phase_for_agent mapeia papel→fase em create_orchestration, prompt de planejamento distribui backlog por F1–F7, e gate de fase vazia aprova vacuamente (não trava F1–F4). Falha de agente grava o motivo no card.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "requerimentos.md §33,§F7",
+      "acceptance_criteria": [
+        "logs sem /health e sem duplicação de ruído; eventos de domínio visíveis",
+        "card em Failed exibe o motivo (block_reason)",
+        "botão desabilitado fica cinza; SLO com rótulo amigável",
+        "orquestração começa em F1 e autopilot percorre F1→F7",
+        "fase vazia não trava o gate"
+      ],
+      "linked_requirements": [
+        "§33",
+        "§17",
+        "§F7"
+      ],
+      "linked_adrs": [
+        "ADR-0007",
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-70",
+        "TASK-73"
+      ],
+      "evidence": "167 testes verdes (cov 93.71%); test_clarity_f1 (F1, fase vazia, block_reason, filtro de log); Docker: F1→F7 completed, 0 linhas /health, eventos phase_completed/autopilot no stdout, SMOKE implícito"
+    },
+    {
+      "id": "TASK-75",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Wrapper de agente CLI (Codex/Claude) para o autopilot",
+      "description": "scripts/aso-agent-wrapper.sh traduz a tarefa do ASO (JSON no stdin) em um prompt pt-BR (fase/demanda/alvo) e invoca o agente CLI passado em $@ (ex.: 'codex exec', 'claude -p') no worktree do card — fechando a lacuna entre o formato de tarefa e o que os CLIs esperam. Selecionar o executor no console aplica-o a TODAS as fases (a escolha propaga pela cadeia de aprovações). README com a receita de configuração e pré-requisitos (ASO_TARGET_REPO + binário acessível).",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "requerimentos.md §27",
+      "acceptance_criteria": [
+        "wrapper monta prompt a partir do JSON de tarefa",
+        "invoca o agente CLI arbitrário com o prompt",
+        "documentado no README (Codex/Claude em todas as fases)"
+      ],
+      "linked_requirements": [
+        "§27",
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-72",
+        "TASK-73"
+      ],
+      "evidence": "wrapper testado com agente fake (extrai fase/demanda/alvo corretamente); 167 testes verdes; README atualizado"
+    },
+    {
+      "id": "TASK-76",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "manager.sh — operação local (Postgres no Docker + API local)",
+      "description": "scripts/manager.sh: painel Bash pt-BR para rodar o modo híbrido (Postgres via serviço docker-compose 'postgres' + API/uvicorn local na venv servindo /ui). Comandos: iniciar (sobe postgres, espera healthy, alembic upgrade head, uvicorn em background com PID/log em .aso/run), parar (mata API + para postgres preservando dados), reiniciar, status (banco+API+/health), logs, db-logs, migrate, test, check (ruff/mypy), psql, shell + menu interativo. require_venv cria a venv e instala [dev,postgres] (inclui psycopg) se faltarem. .aso/run/ no .gitignore.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "README.md",
+      "acceptance_criteria": [
+        "iniciar sobe postgres+migrations+API local e /health responde",
+        "status/logs/parar funcionam",
+        "psql/shell acessam o container do banco",
+        "cria venv e instala deps se faltarem"
+      ],
+      "linked_requirements": [
+        "§38",
+        "§F6"
+      ],
+      "linked_adrs": [
+        "ADR-0004",
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-27"
+      ],
+      "evidence": "testado ponta a ponta: iniciar→/ui no ar, orquestração persistida no Postgres (count=1), parar preserva dados; bash -n OK"
+    },
+    {
+      "id": "TASK-77",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Agente-demo + diagnóstico de comando com espaços",
+      "description": "Diagnóstico do 'não criou código': (1) o executor 'mock' é simulador (não gera código) — precisa de agente real; (2) comando de executor com caminho contendo ESPAÇOS quebra no shlex.split (projeto sob 'Área de trabalho') → agente falha e nada é gerado; correção: aspas no caminho (shlex respeita). scripts/demo-agent.sh: agente CLI offline que escreve calculadora.py + teste real no worktree, provando a esteira ponta a ponta (agente→diff→commit→PR→merge governado). UI de Config e README com a nota de aspas + como usar o demo.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "README.md",
+      "acceptance_criteria": [
+        "demo-agent escreve código real no worktree",
+        "fluxo completo: run-phase F5 → PR → merge → calculadora.py no master",
+        "testes gerados passam (2 passed)",
+        "nota de aspas na UI/README"
+      ],
+      "linked_requirements": [
+        "§26",
+        "§27"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-75",
+        "TASK-76"
+      ],
+      "evidence": "provado ao vivo: run-phase F5 gate PASSED → calculadora.py+test na branch → PR+CI+review+merge 200 → código no master → pytest 2 passed"
+    },
+    {
+      "id": "TASK-78",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Seed de executores Codex/Claude + comando manager.sh seed",
+      "description": "scripts/seed-executors.sh cadastra via POST /v1/executors os agentes Codex CLI e Claude CLI com todos os modelos (arrays editáveis: claude opus/sonnet/haiku; codex gpt-5-codex/gpt-5/o4-mini) × todos os níveis (low/medium/high) — 18 perfis. Comando usa o wrapper com caminho ENTRE ASPAS (projeto sob 'Área de trabalho'); codex recebe -m <model> e -c model_reasoning_effort=<nível>; default claude-sonnet-high. manager.sh ganhou o comando/opção 'seed' (sobe a API se preciso e roda o seed). run_phase herda o esforço do perfil quando o dropdown está em default. .aso/executors.json (config local com caminhos absolutos) adicionado ao .gitignore.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "README.md",
+      "acceptance_criteria": [
+        "seed cadastra 18 executores (codex+claude × modelos × níveis)",
+        "comando com wrapper entre aspas + flags de modelo/esforço",
+        "manager.sh seed funciona",
+        "esforço do perfil aplicado quando dropdown=default",
+        "executors.json fora do git"
+      ],
+      "linked_requirements": [
+        "§27",
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0007"
+      ],
+      "dependencies": [
+        "TASK-73",
+        "TASK-76"
+      ],
+      "evidence": "seed rodado: 18 perfis criados (claude-*/codex-* × low/medium/high), default claude-sonnet-high, comando com aspas + model_reasoning_effort; bash -n OK"
     }
   ]
 }

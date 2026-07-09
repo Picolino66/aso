@@ -45,6 +45,7 @@ from aso.governance.quality_gate_engine import Criterion, QualityGateEngine
 from aso.governance.snapshot_engine import SnapshotEngine
 from aso.kanban.board_service import BoardService
 from aso.kanban.models import Board, KanbanCard
+from aso.observability.logging import get_logger
 from aso.persistence.memory import InMemoryOrchestrationRepository
 from aso.persistence.ports import OrchestrationRepository
 from aso.persistence.state import OrchestrationState
@@ -82,6 +83,28 @@ def _section_delta(before: Any, after: Any) -> dict[str, list[str]]:
         "removed": [] if has_after else ["*"],
         "modified": ["*"] if has_before and has_after and before != after else [],
     }
+
+
+def _phase_for_agent(agent: str) -> Phase:
+    """Mapeia um agente ao papel/fase típica da esteira (heurística por nome).
+
+    Sem isto, com a esteira começando em F1, cards de desenvolvimento/QA cairiam em
+    F1. O planejamento LLM (/plan) pode sobrescrever isso com fases explícitas.
+    """
+    name = agent.lower()
+    if any(k in name for k in ("architect", "arquitet", "systemdesign", "security")):
+        return Phase.F2
+    if any(k in name for k in ("data", "api", "contract", "contrato")):
+        return Phase.F3
+    if any(k in name for k in ("ux", "ui", "planning", "planejamento", "backlog")):
+        return Phase.F4
+    if any(k in name for k in ("review", "qa", "test", "quality", "deploy", "doc")):
+        return Phase.F6
+    if any(k in name for k in ("observability", "incident", "operate", "operacao")):
+        return Phase.F7
+    if any(k in name for k in ("discovery", "market", "persona", "requirement", "requisito")):
+        return Phase.F1
+    return Phase.F5  # desenvolvimento (backend/frontend/mobile) como padrão
 
 
 @dataclass
@@ -144,6 +167,7 @@ class OrchestrationService:
         # dupla hidratação (achados de concorrência 1.1/4.1). RLock = reentrante.
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
+        self._log = get_logger()  # eventos de domínio visíveis no stdout
 
     def _lock_for(self, orchestration_id: str) -> threading.RLock:
         with self._locks_guard:
@@ -198,12 +222,13 @@ class OrchestrationService:
             rationale="Decisão do MultiAgentDecisionEngine (§14).",
         )
 
-        # Cria um card por agente planejado.
+        # Cria um card por agente planejado, na fase adequada ao papel do agente
+        # (a esteira começa em F1; sem isso, cards de dev cairiam em F1).
         for planned in plan.agents:
             card = KanbanCard(
                 board_id=board.id,
                 orchestration_id=oid,
-                phase=orchestration.current_phase,
+                phase=_phase_for_agent(planned.agent),
                 type=CardType.TASK,
                 title=f"{planned.agent}: {planned.reason or planned.role}",
                 assignee_type=AssigneeType.AGENT,
@@ -562,6 +587,9 @@ class OrchestrationService:
             if pr.card_id and b.board_service.get_card(pr.card_id):
                 b.board_service.apply_event(pr.card_id, "QualityGatePassed")  # → Done
             b.event_log.append("PRMerged", {"pr_id": pr_id, "branch": pr.branch})
+        self._log.info(
+            "pr_merged", orchestration_id=orchestration_id, pr_id=pr_id, branch=pr.branch
+        )
         self._persist(b)
         return pr
 
@@ -832,7 +860,11 @@ class OrchestrationService:
                 b.orchestration.status = "completed"
                 b.event_log.append("AutopilotCompleted", {"phase": completed_phase})
                 self._persist(b)
+            self._log.info(
+                "autopilot_completed", orchestration_id=orchestration_id, phase=completed_phase
+            )
             return
+        self._log.info("autopilot_advanced", orchestration_id=orchestration_id, to=nxt.value)
         self.advance_phase(orchestration_id)
         self.run_phase(orchestration_id, nxt, executor=executor, effort=effort)
 
@@ -1158,8 +1190,14 @@ class OrchestrationService:
         b.event_log.extend(events)
         b.board_service.apply_event(card_id, "AgentStarted")
         if error is not None or output is None:
+            reason = str(error) if error is not None else "execução não produziu saída"
             b.board_service.apply_event(card_id, "CIFailed")  # → Failed
-            b.event_log.append("AgentFailed", {"card_id": card_id, "error": str(error)})
+            # Torna o motivo visível no card (não só no event log).
+            failed_card = b.board_service.get_card(card_id)
+            if failed_card is not None:
+                failed_card.block_reason = reason
+            b.event_log.append("AgentFailed", {"card_id": card_id, "error": reason})
+            self._log.warning("agent_failed", card_id=card_id, error=reason)
             return []
         branch = output.artifacts.get("branch")
         if branch:
@@ -1288,8 +1326,17 @@ class OrchestrationService:
         """Roda um quality gate simples e, se aprovado, gera snapshot da fase."""
         b = self._bundle(orchestration_id)
         target_phase = phase or b.orchestration.current_phase
+        # Fase sem cards não trava o autopilot: o critério de output é vacuamente
+        # aprovado quando não há trabalho naquela fase (ex.: F1–F4 sem /plan).
+        has_work = any(c.phase == target_phase for c in b.board_service.cards_of(b.board.id))
         criteria = [
-            Criterion("context_has_output", lambda _c: (b.store.version > 0, "≥1 patch aplicado"))
+            Criterion(
+                "context_has_output",
+                lambda _c: (
+                    b.store.version > 0 or not has_work,
+                    "output aplicado" if has_work else "fase sem cards (vacuamente ok)",
+                ),
+            )
         ]
         # Gate real (M5): nas fases de código, roda os testes/lint configurados no repo
         # alvo — só aprova com a suíte verde (não avança com testes vermelhos, §gate).
@@ -1333,6 +1380,11 @@ class OrchestrationService:
         guardada na aprovação para o auto-avanço (M4) manter a mesma configuração.
         """
         provider = self.resolve_provider(executor)
+        # Sem esforço explícito, herda o esforço do perfil do executor (ex.: 'high').
+        if effort is None and executor and self._catalog is not None:
+            prof = self._catalog.get(executor)
+            if prof is not None and prof.effort:
+                effort = prof.effort
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
             if b.orchestration.status == "cancelled":  # kill-switch (M6)
@@ -1381,6 +1433,14 @@ class OrchestrationService:
             )
             self._persist(b)
             nxt = self._next_phase(target)
+        self._log.info(
+            "phase_completed",
+            orchestration_id=orchestration_id,
+            phase=target.value,
+            gate=gate.status.value,
+            cards_ran=len(ran),
+            cards_failed=len(failed),
+        )
         return {
             "phase": target.value,
             "cards_ran": ran,

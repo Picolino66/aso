@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from aso.control.orchestration_service import OrchestrationService
-from aso.shared.types import GateStatus
+from aso.shared.types import GateStatus, Phase
 
 
 def test_create_run_gate_snapshot_flow() -> None:
@@ -21,8 +21,8 @@ def test_create_run_gate_snapshot_flow() -> None:
     assert all(r.status.value == "applied" for r in results)
     assert svc.get_context(orch.id)["version"] == 1
 
-    # 11-12. Quality gate + snapshot.
-    gate = svc.run_quality_gate(orch.id)
+    # 11-12. Quality gate + snapshot (card de dev vive em F5).
+    gate = svc.run_quality_gate(orch.id, Phase.F5)
     assert gate.status == GateStatus.PASSED
     assert len(svc.list_snapshots(orch.id)) == 1
     assert svc.get(orch.id).snapshot_version == "O5"

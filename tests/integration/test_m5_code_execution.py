@@ -9,6 +9,7 @@ import pytest
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.routing_provider import RoutingExecutionProvider
+from aso.shared.types import Phase
 
 
 class _StubProvider:
@@ -50,11 +51,11 @@ def test_code_gate_blocks_on_failing_tests(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setenv("ASO_TARGET_REPO", str(tmp_path))
     monkeypatch.setenv("ASO_GATE_TEST_COMMAND", "bash -c 'exit 1'")  # suíte vermelha
     svc = OrchestrationService()
-    orch = svc.create_orchestration("backend")  # começa em F5
+    orch = svc.create_orchestration("backend")
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)
 
-    result = svc.run_phase(orch.id)  # fase F5
+    result = svc.run_phase(orch.id, Phase.F5)  # gate de código roda em F5
     assert result["gate_status"] == "FAILED"  # testes vermelhos reprovam o gate
     assert result["approval_id"] is None  # sem aprovação → não avança
     assert result["snapshot"] is None
@@ -68,6 +69,6 @@ def test_code_gate_passes_on_green_tests(monkeypatch: pytest.MonkeyPatch, tmp_pa
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)
 
-    result = svc.run_phase(orch.id)
+    result = svc.run_phase(orch.id, Phase.F5)
     assert result["gate_status"] == "PASSED"
     assert result["approval_id"]  # aprovação de avanço aberta
