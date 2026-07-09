@@ -5,6 +5,9 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentSpec
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
@@ -59,3 +62,13 @@ def test_service_uses_cli_provider(tmp_path: Path) -> None:
     # o patch aplicado referencia o branch do worktree
     patches = svc.list_patches(orch.id)
     assert any("cli_" in p.target_path for p in patches)
+
+
+@pytest.mark.parametrize("command", [["bash", "-c", "exit 7"], ["bash", "-c", "true"]])
+def test_cli_provider_rejeita_falha_ou_diff_vazio(tmp_path: Path, command: list[str]) -> None:
+    repo = tmp_path / "invalido"
+    _init_repo(repo)
+    provider = CliAgentExecutionProvider(command, str(repo))
+
+    with pytest.raises(AgentExecutionError):
+        provider.execute(AgentSpec(role="BackendDevelopmentAgent"), {"orchestration_id": "o"})

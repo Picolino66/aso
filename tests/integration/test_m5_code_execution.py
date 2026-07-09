@@ -56,8 +56,8 @@ def test_code_gate_blocks_on_failing_tests(monkeypatch: pytest.MonkeyPatch, tmp_
     svc.run_card(orch.id, card.id)
 
     result = svc.run_phase(orch.id, Phase.F5)  # gate de código roda em F5
-    assert result["gate_status"] == "FAILED"  # testes vermelhos reprovam o gate
-    assert result["approval_id"] is None  # sem aprovação → não avança
+    assert result["gate_status"] == "FAILED"
+    assert result["approval_id"] is None
     assert result["snapshot"] is None
 
 
@@ -71,4 +71,4 @@ def test_code_gate_passes_on_green_tests(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     result = svc.run_phase(orch.id, Phase.F5)
     assert result["gate_status"] == "PASSED"
-    assert result["approval_id"]  # aprovação de avanço aberta
+    assert result["approval_id"]

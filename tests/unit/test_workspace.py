@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,36 @@ def test_list_dirs_lista_so_diretorios(tmp_path: Path) -> None:
 def test_list_dirs_inexistente_levanta() -> None:
     with pytest.raises(ValueError, match="não existe"):
         WorkspaceService().list_dirs("/caminho/que/nao/existe/zzz")
+
+
+def test_iter_files_ordena_e_ignora_diretorios_tecnicos(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "z.py").write_text("", encoding="utf-8")
+    (tmp_path / "src" / "a.py").write_text("", encoding="utf-8")
+    (tmp_path / "README.md").write_text("", encoding="utf-8")
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "config").write_text("", encoding="utf-8")
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / "node_modules" / "pacote.js").write_text("", encoding="utf-8")
+
+    files = [
+        file.relative_to(tmp_path).as_posix() for file in WorkspaceService().iter_files(tmp_path)
+    ]
+
+    assert files == ["README.md", "src/a.py", "src/z.py"]
+
+
+def test_iter_files_pasta_vazia(tmp_path: Path) -> None:
+    assert list(WorkspaceService().iter_files(tmp_path)) == []
+
+
+def test_iter_files_sem_permissao_levanta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def deny(_: Path) -> Iterator[Path]:
+        raise PermissionError
+
+    monkeypatch.setattr(Path, "iterdir", deny)
+    with pytest.raises(ValueError, match="Sem permissão"):
+        list(WorkspaceService().iter_files(tmp_path))
 
 
 def test_analyzer_pasta_vazia(tmp_path: Path) -> None:

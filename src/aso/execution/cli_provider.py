@@ -14,6 +14,7 @@ import json
 import subprocess
 from typing import Any
 
+from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.execution.worktree import WorktreeManager
 from aso.governance.models import ContextPatch
@@ -51,9 +52,17 @@ class CliAgentExecutionProvider:
                 capture_output=True,
                 text=True,
             )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout).strip()[-1000:]
+                raise AgentExecutionError(
+                    f"Executor CLI terminou com exit={proc.returncode}: {detail or 'sem saída'}"
+                )
             diff = self.worktree.collect_diff(path)
-            if diff.strip():
-                self.worktree.commit(path, f"aso: {agent.role} ({task.get('card_id', '-')})")
+            if not diff.strip():
+                raise AgentExecutionError(
+                    "Executor CLI não produziu alterações no worktree (diff vazio)."
+                )
+            self.worktree.commit(path, f"aso: {agent.role} ({task.get('card_id', '-')})")
         finally:
             self.worktree.remove(path)
 

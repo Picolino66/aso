@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ from aso.observability.metrics import MetricsService
 from aso.observability.ratelimit import RateLimiter
 from aso.observability.tracing import get_tracer
 from aso.shared.ids import gen_id
-from aso.shared.types import PatchType, Phase
+from aso.shared.types import ExecutionMode, PatchType, Phase
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -41,6 +42,10 @@ class CreateOrchestrationBody(BaseModel):
     project_id: str | None = None
     # Pasta de trabalho (workspace) desta orquestração; validada/normalizada no create.
     target_path: str | None = None
+    execution_mode: ExecutionMode | None = None
+    executor: str | None = None
+    effort: str | None = None
+    validation_command: str | None = None
 
 
 class AnalyzeFolderBody(BaseModel):
@@ -255,6 +260,43 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
+    @app.get("/v1/fs/analyze/stream")
+    def stream_workspace_analysis(path: str = Query(...)) -> StreamingResponse:
+        """Emite o progresso da pré-análise somente leitura de uma pasta.
+
+        A lista é materializada antes de iniciar o SSE para conhecer o total e para
+        devolver erros de caminho/permissão como HTTP normal, antes dos headers do
+        streaming. A enumeração em si não toca git, docs nem o ContextBus.
+        """
+        workspace = WorkspaceService()
+        try:
+            root = workspace.validate(path)
+            files = list(workspace.iter_files(root))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        def events() -> Iterator[str]:
+            total = len(files)
+
+            def event(current: int, file: Path | None) -> str:
+                payload = {
+                    "percent": 100 if total == 0 else round(current * 100 / total),
+                    "current": current,
+                    "total": total,
+                    "file": str(file.relative_to(root)) if file is not None else None,
+                }
+                return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+            yield event(0, None)
+            for current, file in enumerate(files, start=1):
+                yield event(current, file)
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @app.post("/v1/orchestrations", status_code=201)
     def create_orchestration(body: CreateOrchestrationBody) -> Any:
         target_path: str | None = None
@@ -263,9 +305,35 @@ def create_app(
                 target_path = str(WorkspaceService().validate(body.target_path))
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return svc.create_orchestration(
-            body.user_request, project_id=body.project_id, target_path=target_path
+        mode = body.execution_mode or ExecutionMode.FULL_PIPELINE
+        if body.execution_mode == ExecutionMode.FULL_PIPELINE and planning_client is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Pipeline completo exige LLM de planejamento configurado; "
+                    "escolha execução direta ou configure ASO_LLM_*."
+                ),
+            )
+        if mode == ExecutionMode.CODE_EXECUTION and not (
+            body.validation_command or os.environ.get("ASO_GATE_TEST_COMMAND")
+        ):
+            raise HTTPException(
+                status_code=400, detail="Informe o comando de validação do workspace."
+            )
+        orch = svc.create_orchestration(
+            body.user_request,
+            project_id=body.project_id,
+            target_path=target_path,
+            execution_mode=mode,
+            executor=body.executor,
+            effort=body.effort,
+            validation_command=body.validation_command,
+            seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
         )
+        if body.execution_mode == ExecutionMode.FULL_PIPELINE and planning_client is not None:
+            plan = PlanningService(planning_client).plan(body.user_request)
+            svc.populate_from_plan(orch.id, plan)
+        return orch
 
     @app.post("/v1/orchestrations/{orchestration_id}/plan", status_code=201)
     def plan_with_llm(orchestration_id: str, body: PlanBody) -> Any:
@@ -402,6 +470,14 @@ def create_app(
         _guard(orchestration_id)
         try:
             return svc.advance_phase(orchestration_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/recover-execution")
+    def recover_invalid_execution(orchestration_id: str) -> Any:
+        _guard(orchestration_id)
+        try:
+            return svc.recover_invalid_execution(orchestration_id)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
@@ -593,6 +669,10 @@ def create_app(
         return _card_op(
             orchestration_id, lambda: svc.report_ci(orchestration_id, pr_id, body.status)
         )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/ci/run")
+    def run_pr_ci(orchestration_id: str, pr_id: str) -> Any:
+        return _card_op(orchestration_id, lambda: svc.run_pr_ci(orchestration_id, pr_id))
 
     @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")
     def report_review(orchestration_id: str, pr_id: str, body: StatusBody) -> Any:

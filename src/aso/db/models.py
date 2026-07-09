@@ -42,6 +42,10 @@ class OrchestrationRow(Base):
     project_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # Pasta de trabalho da orquestração (workspace); NULL = legado (repo global).
     target_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    selected_executor: Mapped[str | None] = mapped_column(String, nullable=True)
+    selected_effort: Mapped[str | None] = mapped_column(String, nullable=True)
+    validation_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_prepared: Mapped[bool] = mapped_column(Boolean, default=False)
     execution_mode: Mapped[str] = mapped_column(String)
     current_phase: Mapped[str] = mapped_column(String)
     snapshot_version: Mapped[str] = mapped_column(String)

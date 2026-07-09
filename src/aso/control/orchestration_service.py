@@ -194,6 +194,10 @@ class OrchestrationService:
         project_id: str | None = None,
         target_path: str | None = None,
         execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE,
+        executor: str | None = None,
+        effort: str | None = None,
+        validation_command: str | None = None,
+        seed_cards: bool = True,
         decision_input: DecisionInput | None = None,
     ) -> Orchestration:
         orchestration = Orchestration(
@@ -201,6 +205,10 @@ class OrchestrationService:
             target_path=target_path,
             execution_mode=execution_mode,
             user_request=user_request,
+            selected_executor=executor,
+            selected_effort=effort,
+            validation_command=validation_command,
+            current_phase=Phase.F5 if execution_mode == ExecutionMode.CODE_EXECUTION else Phase.F1,
         )
         oid = orchestration.id
         events = EventLog()
@@ -238,6 +246,8 @@ class OrchestrationService:
         # Cria um card por agente planejado, na fase adequada ao papel do agente
         # (a esteira começa em F1; sem isso, cards de dev cairiam em F1).
         for planned in plan.agents:
+            if not seed_cards:
+                continue
             card = KanbanCard(
                 board_id=board.id,
                 orchestration_id=oid,
@@ -309,6 +319,21 @@ class OrchestrationService:
                     phase = Phase(item.phase)
                 except ValueError:
                     phase = Phase.F5
+                domain_agents = {
+                    "backend": "BackendDevelopmentAgent",
+                    "frontend": "FrontendDevelopmentAgent",
+                    "architecture": "ArchitectureDesignAgent",
+                    "contract": "DataApiContractsAgent",
+                    "database": "DatabaseAgent",
+                    "tests": "TestingAgent",
+                    "qa": "TestingAgent",
+                    "docs": "DocumentationAgent",
+                    "devops": "DevOpsAgent",
+                    "security": "SecurityAgent",
+                }
+                assignee = domain_agents.get(item.domain, item.domain)
+                if b.agent_registry.get(assignee) is None:
+                    raise ValueError(f"Domínio/agente desconhecido no plano: {item.domain}")
                 card = KanbanCard(
                     board_id=b.board.id,
                     orchestration_id=orchestration_id,
@@ -316,7 +341,7 @@ class OrchestrationService:
                     type=CardType.TASK,
                     title=item.title,
                     assignee_type=AssigneeType.AGENT,
-                    assignee=f"{item.domain}",
+                    assignee=assignee,
                     status=ColumnKey.READY,
                     acceptance_criteria=list(item.acceptance_criteria),
                 )
@@ -540,10 +565,20 @@ class OrchestrationService:
         card = b.board_service.get_card(card_id)
         if card is None:
             raise KeyError(f"Card inexistente: {card_id}")
+        selected_branch = branch or card.branch
+        if not selected_branch and b.orchestration.validation_command:
+            raise ValueError("Card sem branch candidata para abrir PR.")
+        if not selected_branch:
+            selected_branch = f"aso/{card_id}"  # compatibilidade com o provider mock legado
+        if (
+            b.orchestration.validation_command
+            and not self._workspace_for(b).branch_diff(selected_branch).strip()
+        ):
+            raise ValueError("Não é possível abrir PR sem alterações na branch candidata.")
         pr = PullRequest(
             orchestration_id=orchestration_id,
             card_id=card_id,
-            branch=branch or card.branch or f"aso/{card_id}",
+            branch=selected_branch,
             title=title or card.title,
         )
         b.pull_requests.append(pr)
@@ -592,9 +627,7 @@ class OrchestrationService:
                     "Merge governado exige CI 'passed' e review 'approved' "
                     f"(ci={pr.ci_status}, review={pr.review_status})."
                 )
-            worktree = getattr(self._provider, "worktree", None)
-            if worktree is not None:
-                worktree.merge(pr.branch)  # merge git real na branch base
+            self._workspace_for(b).merge(pr.branch)  # merge git real na branch base
             pr.status = "merged"
             pr.merged_at = now_iso()
             if pr.card_id and b.board_service.get_card(pr.card_id):
@@ -603,6 +636,19 @@ class OrchestrationService:
         self._log.info(
             "pr_merged", orchestration_id=orchestration_id, pr_id=pr_id, branch=pr.branch
         )
+        self._persist(b)
+        return pr
+
+    def run_pr_ci(self, orchestration_id: str, pr_id: str) -> PullRequest:
+        """Executa a validação configurada na branch candidata da PR."""
+        b = self._bundle(orchestration_id)
+        pr = self._find_pr(b, pr_id)
+        command = b.orchestration.validation_command or os.environ.get("ASO_GATE_TEST_COMMAND")
+        if not command:
+            raise ValueError("Configure o comando de validação antes de rodar a CI.")
+        ok, detail = self._workspace_for(b).run_on_branch(pr.branch, shlex.split(command))
+        pr.ci_status = "passed" if ok else "failed"
+        b.event_log.append("CIReported", {"pr_id": pr_id, "status": pr.ci_status, "detail": detail})
         self._persist(b)
         return pr
 
@@ -891,10 +937,26 @@ class OrchestrationService:
         """
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
+            effective_executor = executor or b.orchestration.selected_executor
+            effective_effort = effort or b.orchestration.selected_effort
+            b.orchestration.selected_executor = effective_executor
+            b.orchestration.selected_effort = effective_effort
+            if not b.orchestration.workspace_prepared and b.orchestration.target_path:
+                self.analyze_folder(
+                    orchestration_id, executor=effective_executor, effort=effective_effort
+                )
+                b = self._bundle(orchestration_id)
+                b.orchestration.workspace_prepared = True
+            if b.orchestration.execution_mode == ExecutionMode.CODE_EXECUTION and not (
+                b.orchestration.validation_command or os.environ.get("ASO_GATE_TEST_COMMAND")
+            ):
+                raise ValueError("Configure o comando de validação antes de executar código.")
             b.orchestration.status = "running"
             b.event_log.append("AutopilotStarted", {"phase": b.orchestration.current_phase.value})
             self._persist(b)
-        return self.run_phase(orchestration_id, executor=executor, effort=effort)
+        return self.run_phase(
+            orchestration_id, executor=effective_executor, effort=effective_effort
+        )
 
     def _find_approval(self, approval_id: str) -> tuple[OrchestrationBundle, HumanApproval] | None:
         for oid in self._repo.list_ids():
@@ -927,6 +989,40 @@ class OrchestrationService:
         b.event_log.append("OrchestrationCancelled", {"orchestration_id": orchestration_id})
         self._persist(b)
         return b.orchestration
+
+    def recover_invalid_execution(self, orchestration_id: str) -> Orchestration:
+        """Invalida execuções históricas sem diff/exit válido e retorna à F5.
+
+        É uma ação administrativa explícita: não reescreve patches nem snapshots;
+        apenas fecha aprovações futuras e torna o card reexecutável sob as regras novas.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            invalid_cards = {
+                patch.card_id
+                for patch in b.bus.patches
+                if patch.card_id
+                and isinstance(patch.content, dict)
+                and (patch.content.get("exit_code", 0) != 0 or patch.content.get("diff_lines") == 0)
+            }
+            if not invalid_cards:
+                raise ValueError("Não há execução inválida para recuperar.")
+            for card_id in invalid_cards:
+                card = b.board_service.get_card(card_id)
+                if card is not None:
+                    b.board_service.move_card(
+                        card_id, ColumnKey.FAILED, reason="Execução histórica sem diff válido"
+                    )
+            for approval in b.approvals:
+                if approval.status == "pending" and approval.payload.get("kind") == "phase_gate":
+                    approval.status = "cancelled"
+            b.orchestration.current_phase = Phase.F5
+            b.orchestration.status = "waiting_human"
+            b.event_log.append(
+                "InvalidExecutionRecovered", {"cards": sorted(invalid_cards), "phase": "F5"}
+            )
+            self._persist(b)
+            return b.orchestration
 
     def resume(self, orchestration_id: str) -> Orchestration:
         b = self._bundle(orchestration_id)
@@ -1140,6 +1236,15 @@ class OrchestrationService:
             return self.resolve_provider(self._catalog.default_name(), target_path=tp)
         return self._provider
 
+    def _workspace_for(self, b: OrchestrationBundle) -> WorktreeManager:
+        """Resolve o worktree da própria orquestração, nunca o provider global."""
+        if b.orchestration.target_path:
+            return WorktreeManager(b.orchestration.target_path)
+        legacy = getattr(self._provider, "worktree", None)
+        if isinstance(legacy, WorktreeManager):
+            return legacy
+        raise ValueError("Orquestração sem pasta de trabalho para operação git.")
+
     def list_executors(self) -> list[dict[str, object]]:
         """Executores disponíveis (para escolha por etapa na UI/API)."""
         return self._catalog.entries() if self._catalog is not None else []
@@ -1283,6 +1388,8 @@ class OrchestrationService:
         task = self._build_task(b, card, agent, effort=effort)
         output, events, error = self._execute_isolated(agent, task, provider)
         results = self._apply_execution(b, card_id, output, events, error)
+        if error is None and output is not None and output.artifacts.get("branch"):
+            self.open_pr(orchestration_id, card_id, branch=str(output.artifacts["branch"]))
         self._persist(b)
         return results
 
@@ -1390,12 +1497,32 @@ class OrchestrationService:
         ]
         # Gate real (M5): nas fases de código, roda os testes/lint configurados no repo
         # alvo — só aprova com a suíte verde (não avança com testes vermelhos, §gate).
-        gate_cmd = os.environ.get("ASO_GATE_TEST_COMMAND")
+        gate_cmd = b.orchestration.validation_command or os.environ.get("ASO_GATE_TEST_COMMAND")
         # Roda o gate na pasta da orquestração (workspace); env global é fallback.
         repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
         if gate_cmd and repo and target_phase in (Phase.F5, Phase.F6):
             criteria.append(
                 Criterion("tests_pass", lambda _c: run_gate_command(shlex.split(gate_cmd), repo))
+            )
+        if b.orchestration.validation_command and target_phase in (Phase.F5, Phase.F6):
+            criteria.append(
+                Criterion(
+                    "cards_entregues",
+                    lambda _c: (
+                        all(
+                            c.status == ColumnKey.DONE
+                            for c in b.board_service.cards_of(b.board.id)
+                            if c.phase == target_phase
+                        ),
+                        "todos os cards foram mesclados"
+                        if all(
+                            c.status == ColumnKey.DONE
+                            for c in b.board_service.cards_of(b.board.id)
+                            if c.phase == target_phase
+                        )
+                        else "há cards sem merge governado",
+                    ),
+                )
             )
         b.gate_engine.register(target_phase, criteria)
         result = b.gate_engine.run(target_phase, orchestration_id, b.store.get())
@@ -1597,9 +1724,37 @@ class OrchestrationService:
         for cid in card_ids:
             try:
                 self.run_card(orchestration_id, cid, provider=provider, effort=effort)
-                ran.append(cid)
+                card = self._bundle(orchestration_id).board_service.get_card(cid)
+                if card is not None and card.status == ColumnKey.FAILED:
+                    failed.append(cid)
+                else:
+                    ran.append(cid)
             except Exception:  # noqa: BLE001 — card inválido não derruba a fase inteira
                 failed.append(cid)
+
+        if self._bundle(orchestration_id).orchestration.validation_command and target in (
+            Phase.F5,
+            Phase.F6,
+        ):
+            phase_cards = [
+                c
+                for c in self._bundle(orchestration_id).board_service.cards_of(b.board.id)
+                if c.phase == target
+            ]
+            if any(c.status != ColumnKey.DONE for c in phase_cards):
+                self._bundle(orchestration_id).event_log.append(
+                    "PhaseAwaitingDelivery", {"phase": target.value, "cards_failed": failed}
+                )
+                self._persist(self._bundle(orchestration_id))
+                return {
+                    "phase": target.value,
+                    "cards_ran": ran,
+                    "cards_failed": failed,
+                    "gate_status": "WAITING_DELIVERY",
+                    "snapshot": None,
+                    "approval_id": None,
+                    "next_phase": target.value,
+                }
 
         gate = self.run_quality_gate(orchestration_id, target)
         approval_id: str | None = None

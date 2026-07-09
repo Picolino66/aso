@@ -16,6 +16,7 @@ Tudo em pt-BR (regra de governança).
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -186,6 +187,38 @@ class WorkspaceService:
             raise ValueError(f"Sem permissão para ler: {base}") from exc
         parent = str(base.parent) if base.parent != base else None
         return {"path": str(base), "parent": parent, "dirs": dirs}
+
+    def iter_files(self, path: str | Path) -> Iterator[Path]:
+        """Enumera arquivos regulares elegíveis em ordem determinística e sem escrita.
+
+        A pré-análise do console não pode inicializar git nem gerar documentação: ela
+        apenas percorre a pasta escolhida para tornar a etapa visível ao usuário.
+        Diretórios técnicos que não representam código do projeto são podados antes
+        da descida, evitando custo e exposição desnecessária de caches/dependências.
+        """
+        root = path if isinstance(path, Path) else self.validate(path)
+
+        def walk(directory: Path) -> Iterator[Path]:
+            try:
+                entries = sorted(directory.iterdir(), key=lambda entry: entry.name.lower())
+            except PermissionError as exc:
+                raise ValueError(f"Sem permissão para ler: {directory}") from exc
+
+            for entry in entries:
+                try:
+                    # Não segue links: um atalho pode sair do workspace ou formar ciclo.
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_dir():
+                        if entry.name in _IGNORED_DIRS:
+                            continue
+                        yield from walk(entry)
+                    elif entry.is_file():
+                        yield entry
+                except PermissionError as exc:
+                    raise ValueError(f"Sem permissão para ler: {entry}") from exc
+
+        yield from walk(root)
 
 
 class WorkspaceAnalyzer:

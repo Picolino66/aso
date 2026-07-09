@@ -13,6 +13,25 @@
 
 ## Superfície de endpoints
 
+### Workspace
+```
+GET    /v1/fs/dirs                         # navegador de pastas; só diretórios
+GET    /v1/fs/analyze/stream?path=/projeto # SSE de pré-análise somente leitura
+POST   /v1/orchestrations/{id}/analyze-folder # gera/atualiza docs-first governado
+```
+
+`GET /v1/fs/analyze/stream` retorna eventos SSE com `percent`, `current`, `total`
+e `file` (caminho relativo). Ele valida e enumera apenas arquivos regulares,
+ignorando diretórios técnicos como `.git`, caches, ambientes virtuais e
+`node_modules`; não inicializa Git, não escreve documentação e não cria uma
+orquestração. O console usa esse passo antes de liberar a demanda. A geração de
+documentação docs-first continua em `POST .../analyze-folder`, já vinculada a uma
+orquestração e sujeita à governança definida na ADR-0008.
+
+Para execução de código, a criação aceita `execution_mode`, `executor`, `effort` e
+`validation_command`. O modo `code-execution` inicia em F5 e exige validação. A PR só
+avança após `POST /v1/orchestrations/{id}/pulls/{pr}/ci/run`, revisão humana e merge.
+
 ### Orchestrations (§28.1)
 ```
 POST   /v1/orchestrations

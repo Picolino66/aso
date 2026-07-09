@@ -2490,6 +2490,59 @@
         "TASK-78"
       ],
       "evidence": "184 testes verdes (17 novos), cobertura 93.02%; ruff/format/mypy OK; alembic upgrade head + check sem diff"
+    },
+    {
+      "id": "TASK-80",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Pré-análise de workspace antes da demanda",
+      "description": "A criação no console agora segue pasta → agente → análise → demanda. A pré-análise é somente leitura e transmite o progresso real dos arquivos por SSE; alterar a pasta exige nova análise. A geração docs-first governada após a criação permanece inalterada.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0008-workspace-por-orquestracao.md",
+      "acceptance_criteria": [
+        "SSE inicia em 0%, exibe arquivos elegíveis e finaliza em 100% sem escrita",
+        "diretórios técnicos são ignorados e a enumeração é determinística",
+        "console só mostra a demanda após análise bem-sucedida e a invalida ao trocar a pasta",
+        "análise docs-first existente continua governada após criar a orquestração"
+      ],
+      "linked_requirements": [
+        "§10",
+        "§27"
+      ],
+      "linked_adrs": [
+        "ADR-0008"
+      ],
+      "dependencies": [
+        "TASK-79"
+      ],
+      "evidence": "191 testes verdes, cobertura 93.01%; ruff check/format, mypy strict, alembic upgrade head + check OK."
+    },
+    {
+      "id": "TASK-81",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Entrega de código verificável e PR governada",
+      "description": "Execuções CLI sem diff ou com erro agora falham; a execução nova persiste executor/esforço/comando de validação e aguarda PR, CI na branch, revisão e merge antes do gate de fase.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0009-entrega-de-codigo-governada.md",
+      "acceptance_criteria": [
+        "exit não-zero e diff vazio bloqueiam o card",
+        "PR sem diff é rejeitada para execução estrita",
+        "CI roda na branch e merge usa o workspace da orquestração",
+        "F5 não abre aprovação enquanto entrega estiver pendente"
+      ],
+      "linked_requirements": ["§26A", "§27"],
+      "linked_adrs": ["ADR-0009"],
+      "dependencies": ["TASK-80"],
+      "evidence": "193 testes verdes, cobertura 91.51%; ruff, mypy e alembic check OK."
     }
   ]
 }

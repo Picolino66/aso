@@ -61,6 +61,30 @@ class WorktreeManager:
         with _GIT_META_LOCK:
             self._git("merge", "--no-ff", "--no-edit", "-m", message, branch)
 
+    def branch_diff(self, branch: str) -> str:
+        """Retorna o diff de uma branch candidata contra HEAD, sem alterar o repositório."""
+        with _GIT_META_LOCK:
+            return self._git("diff", "HEAD..." + branch).stdout
+
+    def run_on_branch(
+        self, branch: str, command: list[str], *, timeout: float = 300.0
+    ) -> tuple[bool, str]:
+        """Executa a validação numa cópia temporária da branch da PR."""
+        name = f"ci-{branch.rsplit('/', 1)[-1]}"
+        path = self.base / ".aso" / "worktrees" / name
+        with _GIT_META_LOCK:
+            self._git("worktree", "add", "--detach", str(path), branch)
+        try:
+            result = subprocess.run(
+                command, cwd=str(path), capture_output=True, text=True, timeout=timeout
+            )
+            detail = (result.stdout + result.stderr).strip()[-1000:]
+            return result.returncode == 0, f"exit={result.returncode} {detail}".strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, f"falha ao executar CI: {exc}"
+        finally:
+            self.remove(path)
+
     def remove(self, path: Path) -> None:
         """Remove o worktree (best-effort)."""
         with _GIT_META_LOCK:

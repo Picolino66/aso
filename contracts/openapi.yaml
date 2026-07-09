@@ -12,8 +12,25 @@ tags:
   - name: kanban
   - name: agents
   - name: governance
+  - name: workspace
 
 paths:
+  /fs/analyze/stream:
+    get:
+      tags: [workspace]
+      summary: Pré-analisa uma pasta em modo somente leitura com progresso SSE
+      parameters:
+        - { in: query, name: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: >
+            Stream text/event-stream. Cada evento contém percent (0–100), current,
+            total e file (caminho relativo ou null). Não cria git, docs ou orquestração.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+
   /orchestrations:
     get:
       tags: [orchestrations]
@@ -31,6 +48,17 @@ paths:
       responses:
         "201": { description: Criada, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
         "422": { $ref: "#/components/responses/Error" }
+
+  /orchestrations/{id}/pulls/{pr_id}/ci/run:
+    post:
+      tags: [governance]
+      summary: Executa o comando de validação na branch candidata da PR
+      parameters:
+        - { $ref: "#/components/parameters/Id" }
+        - { in: path, name: pr_id, required: true, schema: { type: string } }
+      responses:
+        "200": { description: CI executada; status passed ou failed registrado na PR }
+        "409": { $ref: "#/components/responses/Error" }
 
   /orchestrations/{id}:
     get:

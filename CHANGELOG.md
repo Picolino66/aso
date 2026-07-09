@@ -5,6 +5,17 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
 ### Adicionado
+- **Pré-análise de workspace:** `GET /v1/fs/analyze/stream` enumera arquivos elegíveis
+  em SSE, com progresso real e sem escrita. No console, a demanda de nova
+  orquestração só é exibida após a pasta ser analisada com sucesso; trocar a pasta
+  invalida essa liberação.
+
+### Alterado
+- **Entrega de código governada:** falha CLI ou diff vazio agora bloqueia o card; para
+  novas execuções com validação configurada, F5/F6 aguardam PR, CI real, revisão e
+  merge no workspace da própria orquestração antes do gate.
+- **Console:** o botão de pré-análise fica somente no card "Nova orquestração"; ele
+  não é repetido no detalhe após a criação.
 - **Governança (F5):** OrchestratorContext versionado, ContextBus (pipeline de 7 etapas), ADRRegistry, QualityGateEngine, SnapshotEngine, ConflictDetector.
 - **Kanban:** board, cards e automação por eventos (§16.7).
 - **Control:** MultiAgentDecisionEngine, ExecutionPlanner, OrchestrationService.

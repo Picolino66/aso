@@ -17,6 +17,11 @@ class Orchestration(BaseModel):
     # código e rodam gates, substituindo o `ASO_TARGET_REPO` global só para ela.
     # `None` → cai no comportamento legado (env/provider global).
     target_path: str | None = None
+    # Configuração efetiva da execução, preservada para a UI não exibir um default falso.
+    selected_executor: str | None = None
+    selected_effort: str | None = None
+    validation_command: str | None = None
+    workspace_prepared: bool = False
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE
     # A esteira começa em F1 (discovery) e avança até F7 sob o autopilot.
     current_phase: Phase = Phase.F1

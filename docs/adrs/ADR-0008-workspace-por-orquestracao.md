@@ -56,7 +56,10 @@ pastas usa `GET /v1/fs/dirs` (lista só diretórios, nunca conteúdo de arquivo)
 
 ## Consequências
 
-- Prepara o fluxo "selecionar pasta → analisar (docs) → prompt → autopilot" no console.
+- O console começa com uma pré-análise somente leitura (`GET /v1/fs/analyze/stream`),
+  que mostra os arquivos e o progresso antes de liberar o campo da demanda. Essa
+  etapa não cria Git, docs ou orquestração; a análise docs-first governada permanece
+  em `POST /analyze-folder` depois da criação.
 - O `ASO_TARGET_REPO` continua válido como padrão global e para execuções sem pasta.
 - Próximos passos possíveis: multi-repo com CRUD de projetos; drift-check contínuo de
   docs (self-healing) durante F5/F6.

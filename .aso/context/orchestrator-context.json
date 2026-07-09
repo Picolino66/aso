@@ -758,12 +758,12 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 184,
-      "coverage": "93.02%",
+      "tests": 193,
+      "coverage": "91.51%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
-      "scope": "F1–F7 (esteira inicia em F1 e percorre F1→F7) + clareza (logs sem ruído /health + eventos de domínio no stdout; card mostra erro; botão disabled; SLO com rótulo) + MVP-2 + MVP-3 + MVP-4 (PR/CI/review + merge governado) + candidatos CLI paralelos (§26A.6) + MVP-5 F7 (custo por card + SLO error-budget/burn-rate + série temporal + Prometheus) + snapshots avançados (diff por seção + restauração seletiva + dry-run §23) + AUTOPILOT M1–M6 (LlmClient DeepSeek/OpenAI/Anthropic + PlanningService /plan; PhaseRunner + loop de auto-avanço /autopilot; RoutingExecutionProvider por fase + gate real ASO_GATE_TEST_COMMAND; ExecutorCatalog selecionável por etapa [agente/modelo/esforço] + tela ⚙ Config CRUD de executores persistida em arquivo [ExecutorSettingsStore], chaves só por env; GET/POST/DELETE /executors; kill-switch; ADR-0007) + endurecimento de concorrência + console '▶ Autopilot' + auth/RBAC + observabilidade + performance + docker e2e (Postgres) + README/CLAUDE + WORKSPACE POR ORQUESTRAÇÃO (Orchestration.target_path substitui ASO_TARGET_REPO por orquestração; ExecutorCatalog.build repo_override + _provider_for; migração b3d1f0a24c7e) + DOCS-FIRST (execution/workspace.py: WorkspaceService/ensure_git com HEAD/list_dirs + WorkspaceAnalyzer; execution/docs_scaffold.py scaffold pt-BR padrão ai-docs-self-healing; analyze_folder = scaffold p/ vazia ou agente em worktree; GET /v1/fs/dirs; POST /analyze-folder; console com navegador de pastas + seletor de agente na criação + 'Analisar pasta'; ADR-0008)"
+      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + pré-análise SSE + entrega de código verificável (CLI falha/diff vazio bloqueiam; PR, CI real, revisão e merge antes do gate); 193 testes / 91.51%."
     },
     "cards_done": [
       "TASK-01",
@@ -787,7 +787,9 @@
       "TASK-19",
       "TASK-20",
       "TASK-21",
-      "TASK-22"
+      "TASK-22",
+      "TASK-80",
+      "TASK-81"
     ],
     "increments_post_o5": [
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
@@ -847,7 +849,9 @@
       "TASK-72 — Seleção de executor por etapa + M6 kill-switch: ExecutorCatalog (ASO_EXECUTORS JSON + defaults) com perfis mock/llm/cli, model e effort (low/medium/high); resolve_provider/list_executors; run_card/run_phase/start_autopilot aceitam executor+effort (guardados na aprovação, propagam no auto-avanço); GET /executors + seletor no console; kill-switch bloqueia execução em orquestração cancelada",
       "TASK-73 — Tela ⚙ Config de executores: CRUD dos perfis no console; ExecutorSettingsStore persiste em arquivo JSON (ASO_EXECUTORS_FILE) apenas metadados (inclui nome da env var da chave), NUNCA o segredo; UI mostra status da chave (presente/ausente); endpoints POST/DELETE /v1/executors (admin) + GET; bootstrap semeia catálogo do arquivo ou do ambiente; 'mock' protegido",
       "TASK-74 — Clareza (diagnóstico de logs/estado): (A) logs sem ruído — gateway pula /health e /metrics, _QuietAccessFilter no uvicorn.access, eventos de domínio no stdout (phase_completed, autopilot_advanced/completed, agent_failed, pr_merged); (B) UI — card Failed/Blocked mostra block_reason, CSS .btn[disabled], badge SLO com rótulos amigáveis; (C) esteira coerente — Orchestration nasce em F1 (não F5), _phase_for_agent mapeia papel→fase, prompt de planejamento distribui F1–F7, gate de fase vazia aprova vacuamente (não trava F1–F4). Guarda-corpos restantes (budget de tokens/custo, timeout, sandbox) seguem como evolução",
-      "TASK-79 — Workspace por orquestração + docs-first: Orchestration.target_path (migração manual b3d1f0a24c7e, fallback ASO_TARGET_REPO) atrela providers CLI/gate/corrida à pasta via _provider_for; novos módulos execution/workspace.py e execution/docs_scaffold.py; Service.analyze_folder gera/atualiza docs (scaffold determinístico p/ pasta vazia; agente selecionado em worktree p/ projeto existente, diff mesclado; evento WorkspaceAnalyzed + ContextPatch engineering.docs_first); API GET /v1/fs/dirs + POST /orchestrations(target_path) + POST /analyze-folder; console: modal navegador de pastas, seletor de agente na criação, botão 'Analisar pasta' e status docs; ADR-0008. 184 testes / 93.02% / ruff+mypy OK / alembic check sem diff."
+      "TASK-79 — Workspace por orquestração + docs-first: Orchestration.target_path (migração manual b3d1f0a24c7e, fallback ASO_TARGET_REPO) atrela providers CLI/gate/corrida à pasta via _provider_for; novos módulos execution/workspace.py e execution/docs_scaffold.py; Service.analyze_folder gera/atualiza docs (scaffold determinístico p/ pasta vazia; agente selecionado em worktree p/ projeto existente, diff mesclado; evento WorkspaceAnalyzed + ContextPatch engineering.docs_first); API GET /v1/fs/dirs + POST /orchestrations(target_path) + POST /analyze-folder; console: modal navegador de pastas, seletor de agente na criação, botão 'Analisar pasta' e status docs; ADR-0008. 184 testes / 93.02% / ruff+mypy OK / alembic check sem diff.",
+      "TASK-80 — Pré-análise de workspace antes da demanda: WorkspaceService.iter_files enumera arquivos regulares em ordem determinística e ignora diretórios técnicos; GET /v1/fs/analyze/stream transmite SSE com arquivo, contador e percentual sem escrita; console bloqueia a demanda até concluir o modal de progresso e invalida a análise ao trocar a pasta. Docs/OpenAPI/ADR-0008 sincronizados. 191 testes / 93.01% / ruff+mypy OK / alembic check sem diff.",
+      "TASK-81 — Entrega de código verificável: executor CLI rejeita exit não-zero e diff vazio; configuração persistida por orquestração (executor, esforço, comando de validação); execução estrita aguarda PR, CI real na branch, revisão e merge no workspace antes do gate. 193 testes / 91.51% / ruff+mypy OK / alembic check sem diff."
     ],
     "maintenance_log": []
   },

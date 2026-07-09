@@ -46,3 +46,4 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0004 — Stack de implementação: Python](adrs/ADR-0004-tech-stack-python.md)
 - [ADR-0005 — Consistência de dados e versionamento de API](adrs/ADR-0005-data-consistency-and-api-versioning.md)
 - [ADR-0006 — Persistência: repository ports + adapters (SQLAlchemy)](adrs/ADR-0006-persistence-repository-adapters.md)
+- [ADR-0009 — Entrega de código com evidência verificável](adrs/ADR-0009-entrega-de-codigo-governada.md)

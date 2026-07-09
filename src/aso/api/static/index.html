@@ -78,6 +78,9 @@
     .fscur { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; margin:6px 0; }
     .docstatus { margin-top:8px; font-size:12px; }
     .docstatus .pill { margin-right:6px; }
+    .progressbar { height:10px; border-radius:999px; overflow:hidden; background:var(--panel-2); border:1px solid var(--border); margin:12px 0 8px; }
+    .progressbar > div { height:100%; width:0; background:var(--accent); transition:width .12s ease; }
+    .analysisfile { min-height:36px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; overflow-wrap:anywhere; color:var(--fg); }
   </style>
 </head>
 <body>
@@ -100,10 +103,17 @@
         </div>
         <label class="muted">Agente</label>
         <select id="orchExec"><option value="">default</option></select>
-        <label class="muted">Demanda (o que o ASO deve construir)</label>
-        <textarea id="req" rows="3" placeholder="Descreva a demanda..."></textarea>
-        <button class="btn" onclick="createOrch()">Criar</button>
-        <div class="muted" style="margin-top:6px">Selecione a pasta → crie → <b>Analisar pasta</b> (gera docs-first) → Autopilot.</div>
+        <label class="muted">Modo de execução</label>
+        <select id="orchMode"><option value="code-execution">Execução direta</option><option value="full-pipeline">Pipeline completo</option></select>
+        <label class="muted">Comando de validação (testes/build)</label>
+        <input id="orchValidation" placeholder="ex.: npm test" />
+        <button id="analyzeWorkspaceBtn" class="btn ghost" onclick="analyzeWorkspace()">📄 Analisar pasta</button>
+        <div id="demandStep" hidden>
+          <label class="muted">Demanda (o que o ASO deve construir)</label>
+          <textarea id="req" rows="3" placeholder="Descreva a demanda..."></textarea>
+          <button class="btn" onclick="createOrch()">Criar</button>
+        </div>
+        <div class="muted" style="margin-top:6px">Selecione a pasta → analise → descreva a demanda → crie → gere docs-first → Autopilot.</div>
       </div>
       <div class="card">
         <h2>Orquestrações</h2>
@@ -131,6 +141,7 @@
       return `<span class="pill ${m[s]||''}">${esc(s)}</span>`;
     };
     let current = null, currentTab = 'kanban';
+    let _renderSequence = 0;
     let _es = null, _esId = null;
 
     function ensureStream(id) {
@@ -238,6 +249,7 @@
 
     let _pendingExec = null;   // agente escolhido na criação, pré-selecionado no detalhe
     let _fsPath = null;        // caminho atual do navegador de pastas
+    let _preAnalysisPath = null;
 
     async function loadExecs() {
       const sel = document.getElementById('orchExec');
@@ -252,15 +264,101 @@
     async function createOrch() {
       const text = document.getElementById('req').value.trim();
       const path = document.getElementById('orchPath').value.trim();
+      const mode = document.getElementById('orchMode').value;
+      const validation = document.getElementById('orchValidation').value.trim();
+      if (_preAnalysisPath !== path) { invalidateWorkspaceAnalysis(); alert('Analise a pasta antes de criar.'); return; }
       _pendingExec = document.getElementById('orchExec').value || null;
       if (!text) { alert('Descreva a demanda.'); return; }
       let o;
+      if (!validation) { alert('Informe o comando de validação do projeto.'); return; }
       try {
-        o = await post('/v1/orchestrations', { user_request:text, target_path: path || null });
+        o = await post('/v1/orchestrations', { user_request:text, target_path: path || null,
+          execution_mode:mode, executor:_pendingExec, validation_command:validation });
       } catch (s) { alert('Falha ao criar (código '+s+'). Verifique o caminho da pasta.'); return; }
       document.getElementById('req').value = '';
       current = o.id; currentTab = 'kanban';
       await loadOrchestrations(); await openOrch(o.id);
+    }
+
+    function invalidateWorkspaceAnalysis() {
+      _preAnalysisPath = null;
+      const step = document.getElementById('demandStep');
+      if (step) step.hidden = true;
+    }
+
+    function openAnalysisModal() {
+      let box = document.getElementById('analysisModal');
+      if (!box) {
+        box = el(`<div class="overlay" id="analysisModal" role="dialog" aria-modal="true" aria-labelledby="analysisTitle">
+          <div class="modal" style="width:min(560px,92vw)">
+            <h2 id="analysisTitle">Analisando pasta</h2>
+            <div id="analysisCount" class="muted">Preparando análise…</div>
+            <div class="progressbar" aria-label="Progresso da análise"><div id="analysisBar"></div></div>
+            <div id="analysisPercent" class="muted">0%</div>
+            <div id="analysisFile" class="analysisfile">Aguardando arquivos…</div>
+            <div class="row" style="justify-content:flex-end"><button id="analysisClose" class="btn ghost" hidden onclick="closeAnalysisModal()">Fechar</button></div>
+          </div></div>`);
+        document.body.appendChild(box);
+      }
+      box.style.display = 'flex';
+      document.getElementById('analysisBar').style.cssText = 'width:0';
+      document.getElementById('analysisPercent').textContent = '0%';
+      document.getElementById('analysisCount').textContent = 'Preparando análise…';
+      document.getElementById('analysisFile').textContent = 'Aguardando arquivos…';
+      document.getElementById('analysisClose').hidden = true;
+      return box;
+    }
+    function closeAnalysisModal() { const b = document.getElementById('analysisModal'); if (b) b.style.display = 'none'; }
+    function setAnalysisProgress(progress) {
+      document.getElementById('analysisBar').style.width = `${progress.percent}%`;
+      document.getElementById('analysisPercent').textContent = `${progress.percent}%`;
+      document.getElementById('analysisCount').textContent = `${progress.current} de ${progress.total} arquivos`;
+      document.getElementById('analysisFile').textContent = progress.file || 'Preparando análise…';
+    }
+    function showAnalysisError(message) {
+      document.getElementById('analysisCount').textContent = 'Não foi possível analisar a pasta.';
+      document.getElementById('analysisFile').textContent = message;
+      document.getElementById('analysisPercent').textContent = 'Erro';
+      const bar = document.getElementById('analysisBar'); bar.style.width = '100%'; bar.style.background = 'var(--err)';
+      document.getElementById('analysisClose').hidden = false;
+    }
+    async function analyzeWorkspace() {
+      const path = document.getElementById('orchPath').value.trim();
+      const button = document.getElementById('analyzeWorkspaceBtn');
+      openAnalysisModal();
+      button.disabled = true;
+      try {
+        if (!path) throw new Error('Informe uma pasta de trabalho antes de analisar.');
+        const response = await fetch('/v1/fs/analyze/stream?path=' + encodeURIComponent(path), {
+          headers: token() ? { Authorization: 'Bearer ' + token() } : {},
+        });
+        if (!response.ok || !response.body) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || `Falha ao analisar (código ${response.status}).`);
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+        while (true) {
+          const { value, done } = await reader.read();
+          pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const messages = pending.split('\n\n');
+          pending = messages.pop();
+          for (const message of messages) {
+            const data = message.split('\n').find(line => line.startsWith('data: '));
+            if (data) setAnalysisProgress(JSON.parse(data.slice(6)));
+          }
+          if (done) break;
+        }
+        _preAnalysisPath = path;
+        document.getElementById('demandStep').hidden = false;
+        closeAnalysisModal();
+      } catch (error) {
+        invalidateWorkspaceAnalysis();
+        showAnalysisError(error.message || 'Erro inesperado durante a análise.');
+      } finally {
+        button.disabled = false;
+      }
     }
 
     // ---- Navegador de pastas (modal) ----
@@ -291,26 +389,17 @@
       document.getElementById('fsList').innerHTML = rows || '<div class="empty">sem subpastas</div>';
     }
     function fsUp() { const b = _fsPath && _fsPath.replace(/\/+$/,''); const parent = b && b.slice(0, b.lastIndexOf('/')) || '/'; fsNavigate(parent || '/'); }
-    function fsUseCurrent() { if (_fsPath) document.getElementById('orchPath').value = _fsPath; closeFolderModal(); }
-
-    async function analyzeFolder(id) {
-      const s = _sel();
-      let r;
-      try { r = await post(`/v1/orchestrations/${id}/analyze-folder`, s); }
-      catch (st) { alert('Falha ao analisar a pasta (código '+st+'). A orquestração tem pasta definida?'); return; }
-      const rep = r.report || {};
-      alert(`Análise concluída (${r.mode}). docs-first: ${rep.has_aso_docs?'OK':'gerado'}. ` +
-            (r.git_initialized?'Git inicializado. ':'') + `Arquivos criados: ${(r.created||[]).length}.`);
-      await openOrch(id);
-    }
+    function fsUseCurrent() { if (_fsPath) { document.getElementById('orchPath').value = _fsPath; invalidateWorkspaceAnalysis(); } closeFolderModal(); }
 
     async function openOrch(id) {
+      const renderSequence = ++_renderSequence;
       current = id; await loadOrchestrations(); ensureStream(id);
       const [m, slo, approvals, exec, execs, orch] = await Promise.all([
         api(`/v1/orchestrations/${id}/metrics`), api(`/v1/orchestrations/${id}/slo`),
         api(`/v1/orchestrations/${id}/approvals`), api(`/v1/orchestrations/${id}/execution-metrics`),
         api(`/v1/executors`).catch(()=>[]), api(`/v1/orchestrations/${id}`).catch(()=>({}))]);
       const wsPath = orch.target_path || null;
+      if (renderSequence !== _renderSequence) return;
       const sloOk = slo.breaches.length === 0;
       const SLO_LABELS = { sem_conflitos_abertos:'sem conflitos', sem_cards_bloqueados:'cards bloqueados', snapshot_da_fase_gerado:'snapshot ausente', taxa_de_falhas_de_execucao:'taxa de falhas alta' };
       const sloText = sloOk ? 'OK' : slo.breaches.map(b=>SLO_LABELS[b]||b).join(', ');
@@ -339,7 +428,7 @@
           <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;align-items:center">
             <label class="muted">agente
               <select id="execSel" style="margin:0 0 0 4px;width:auto">
-                ${execs.length ? execs.map(e=>`<option value="${e.name}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('') : '<option value="">default</option>'}
+                ${execs.length ? execs.map(e=>`<option value="${e.name}" ${(orch.selected_executor ? e.name===orch.selected_executor : e.is_default)?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('') : '<option value="">default</option>'}
               </select>
             </label>
             <label class="muted">esforço
@@ -349,7 +438,6 @@
             </label>
           </div>
           <div class="row" style="margin-top:8px">
-            <button class="btn ghost" onclick="analyzeFolder('${id}')" ${wsPath?'':'disabled'} title="${wsPath?'':'Defina a pasta ao criar a orquestração'}">📄 Analisar pasta</button>
             <button class="btn" onclick="startAutopilot('${id}')">▶ Autopilot</button>
             <button class="btn ghost" onclick="runPhase('${id}')">Rodar fase</button>
             <button class="btn ghost" onclick="runAll('${id}')">Rodar cards</button>
@@ -358,7 +446,7 @@
           <div class="docstatus muted">
             ${wsPath ? `pasta: <code>${esc(wsPath)}</code>` : '<span class="pill warn">sem pasta de trabalho</span>'}
           </div>
-          <div class="muted" style="margin-top:4px">Escolha o agente e o esforço. <b>Analisar pasta</b> gera/atualiza a documentação docs-first (a IA lê os docs antes do código). Depois o Autopilot roda a fase e pausa na aprovação — aprovar (aba <b>approvals</b>) avança sozinho mantendo a escolha.</div>
+          <div class="muted" style="margin-top:4px">Executor efetivo: <b>${esc(orch.selected_executor||'default')}</b>. O Autopilot pausa quando houver PR, CI, revisão ou merge pendente.</div>
         </div>
         <div class="card">
           <div class="tabs">${tabs.map(t => `<div class="tab ${t===currentTab?'active':''}" onclick="setTab('${id}','${t}')">${t}</div>`).join('')}</div>
@@ -545,8 +633,9 @@
           <input id="apAction" placeholder="ação (ex.: deploy)" style="flex:1;margin:0" />
           <button class="btn sm" onclick="createApproval('${id}')">Solicitar aprovação</button>
         </div>
-        ${aps.length ? `<table><tr><th>Ação</th><th>Risco</th><th>Status</th><th></th></tr>
-          ${aps.map(a=>`<tr><td>${esc(a.action)}</td><td>${statusPill(a.risk)}</td><td>${statusPill(a.status)}</td>
+        ${aps.length ? `<table><tr><th>Ação / evidência</th><th>Risco</th><th>Status</th><th></th></tr>
+          ${aps.map(a=>`<tr><td>${esc(a.action)}<div class="muted">${esc(a.reason||'Sem justificativa.')}</div>
+            ${a.payload&&a.payload.phase?`<div class="muted">fase ${esc(a.payload.phase)} · executor ${esc(a.payload.executor||'default')}</div>`:''}</td><td>${statusPill(a.risk)}</td><td>${statusPill(a.status)}</td>
             <td>${a.status==='pending'?`<button class="btn sm ok" onclick="decide('${id}','${a.id}',true)">Aprovar</button>
               <button class="btn sm err" onclick="decide('${id}','${a.id}',false)">Rejeitar</button>`:''}</td></tr>`).join('')}</table>`
           : '<div class="empty">nenhuma aprovação</div>'}`;
@@ -565,8 +654,7 @@
           return `<tr><td><code>${esc(p.branch)}</code></td><td>${statusPill(p.status)}</td>
             <td>${statusPill(p.ci_status)}</td><td>${statusPill(p.review_status)}</td>
             <td>${p.status==='open' ? `
-              <button class="btn sm ghost" onclick="prCi('${id}','${p.id}','passed')">CI ✓</button>
-              <button class="btn sm ghost" onclick="prCi('${id}','${p.id}','failed')">CI ✗</button>
+              <button class="btn sm ghost" onclick="prCiRun('${id}','${p.id}')">Rodar CI</button>
               <button class="btn sm ghost" onclick="prReview('${id}','${p.id}','approved')">Review ✓</button>
               <button class="btn sm ${canMerge?'ok':''}" ${canMerge?'':'disabled'} onclick="prMerge('${id}','${p.id}')">Merge</button>
             ` : ''}</td></tr>`;
@@ -575,7 +663,7 @@
         : '<div class="empty">nenhuma PR — abra uma pela aba Kanban</div>';
     }
     async function openPr(id, cardId) { await post(`/v1/orchestrations/${id}/cards/${cardId}/open-pr`, {}); currentTab='pulls'; openOrch(id); }
-    async function prCi(id, pid, s) { await post(`/v1/orchestrations/${id}/pulls/${pid}/ci`, {status:s}); renderTab(id); }
+    async function prCiRun(id, pid) { try { await post(`/v1/orchestrations/${id}/pulls/${pid}/ci/run`); } catch (s) { alert('CI falhou ou está sem comando configurado ('+s+').'); } renderTab(id); }
     async function prReview(id, pid, s) { await post(`/v1/orchestrations/${id}/pulls/${pid}/review`, {status:s}); renderTab(id); }
     async function prMerge(id, pid) {
       const r = await fetch(`/v1/orchestrations/${id}/pulls/${pid}/merge`, { method:'POST', headers: token()?{'Authorization':'Bearer '+token()}:{} });
@@ -702,6 +790,7 @@
     async function runPhase(id) { await post(`/v1/orchestrations/${id}/run-phase`, _sel()); currentTab='approvals'; await openOrch(id); }
 
     document.getElementById('tok').value = token();
+    document.getElementById('orchPath').addEventListener('input', invalidateWorkspaceAnalysis);
     loadOrchestrations();
     loadExecs();
   </script>
