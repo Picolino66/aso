@@ -59,6 +59,27 @@ from aso.shared.types import (
 )
 
 
+def _section_delta(before: Any, after: Any) -> dict[str, list[str]]:
+    """Delta semântico entre dois valores de uma seção: chaves add/removidas/alteradas.
+
+    Para seções dicionário compara as chaves; para valores atômicos (ou ausência de um
+    lado) reporta a própria seção como adicionada/removida/modificada. Puro (sem efeito).
+    """
+    if isinstance(before, dict) and isinstance(after, dict):
+        ka, kb = set(before), set(after)
+        return {
+            "added": sorted(kb - ka),
+            "removed": sorted(ka - kb),
+            "modified": sorted(k for k in ka & kb if before.get(k) != after.get(k)),
+        }
+    has_before, has_after = before is not None, after is not None
+    return {
+        "added": [] if has_before else ["*"],
+        "removed": [] if has_after else ["*"],
+        "modified": ["*"] if has_before and has_after and before != after else [],
+    }
+
+
 @dataclass
 class OrchestrationBundle:
     """Agrega o estado e os serviços de uma orquestração."""
@@ -91,6 +112,7 @@ class OrchestrationService:
         repository: OrchestrationRepository | None = None,
         *,
         max_races_per_card: int | None = None,
+        max_slo_samples: int | None = None,
     ) -> None:
         self._bundles: dict[str, OrchestrationBundle] = {}
         self._provider = provider
@@ -101,6 +123,12 @@ class OrchestrationService:
             max_races_per_card
             if max_races_per_card is not None
             else int(os.environ.get("ASO_MAX_RACES_PER_CARD", "20"))
+        )
+        # Retenção de amostras de SLO: evita slo_evaluations crescer sem limite.
+        self._max_slo_samples = (
+            max_slo_samples
+            if max_slo_samples is not None
+            else int(os.environ.get("ASO_MAX_SLO_SAMPLES", "200"))
         )
         # Locks por orquestração: serializam ler-bundle → mutar → persistir sob
         # requisições concorrentes (API/CLI multithread) — evita lost-update e
@@ -542,6 +570,9 @@ class OrchestrationService:
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
             b.slo_evaluations.append(evaluation)
+            # Retenção: mantém apenas as N amostras mais recentes (ordem de inserção).
+            if len(b.slo_evaluations) > self._max_slo_samples:
+                del b.slo_evaluations[: len(b.slo_evaluations) - self._max_slo_samples]
             b.event_log.append(
                 "SloEvaluated",
                 {
@@ -764,24 +795,10 @@ class OrchestrationService:
         keys = set(sa.payload) | set(sb.payload)
         changed = [k for k in keys if sa.payload.get(k) != sb.payload.get(k)]
         # Diff semântico por seção: quais chaves foram adicionadas/removidas/alteradas.
-        details: dict[str, dict[str, list[str]]] = {}
-        for section in changed:
-            va, vb = sa.payload.get(section), sb.payload.get(section)
-            if isinstance(va, dict) and isinstance(vb, dict):
-                ka, kb = set(va), set(vb)
-                details[section] = {
-                    "added": sorted(kb - ka),
-                    "removed": sorted(ka - kb),
-                    "modified": sorted(k for k in ka & kb if va.get(k) != vb.get(k)),
-                }
-            else:
-                # Seção não-dicionário (ou ausente de um lado): mudança atômica.
-                in_a, in_b = section in sa.payload, section in sb.payload
-                details[section] = {
-                    "added": [] if in_a else [section],
-                    "removed": [] if in_b else [section],
-                    "modified": [section] if in_a and in_b else [],
-                }
+        details = {
+            section: _section_delta(sa.payload.get(section), sb.payload.get(section))
+            for section in changed
+        }
         return {
             "from": from_v,
             "to": to_v,
@@ -789,6 +806,30 @@ class OrchestrationService:
             "frozen_removed": sorted(fa - fb),
             "changed_sections": sorted(changed),
             "section_details": details,
+        }
+
+    def preview_restore_section(
+        self, orchestration_id: str, snapshot_version: str, section: str
+    ) -> dict[str, object]:
+        """Dry-run da restauração seletiva: mostra o que mudaria, sem aplicar (§23).
+
+        Compara a seção atual do contexto com a do snapshot e devolve o delta semântico,
+        para revisão humana antes de confirmar a ação crítica. Somente leitura.
+        """
+        b = self._bundle(orchestration_id)
+        snap = b.snapshot_engine.get(snapshot_version)
+        if snap is None:
+            raise KeyError(f"Snapshot inexistente: {snapshot_version}")
+        if section not in snap.payload:
+            raise KeyError(f"Seção inexistente no snapshot: {section}")
+        current = b.store.get_path(section)
+        target = snap.payload[section]
+        delta = _section_delta(current, target)
+        return {
+            "section": section,
+            "from_snapshot": snapshot_version,
+            "changes": delta,
+            "no_op": not (delta["added"] or delta["removed"] or delta["modified"]),
         }
 
     def restore_section(

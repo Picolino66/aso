@@ -152,6 +152,7 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_CANDIDATE_COMMANDS` | JSON de agentes CLI candidatos para corrida por card (§26A.6); ver `scripts/e2e_candidates.sh` |
 | `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 | `ASO_SLO_FAILURE_BUDGET` | orçamento de erro da taxa de falhas de execução no `/slo` (default 0.10) |
+| `ASO_MAX_SLO_SAMPLES` | retenção de amostras de SLO por orquestração (default 200) |
 
 ---
 

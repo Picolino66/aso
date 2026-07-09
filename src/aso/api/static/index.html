@@ -435,7 +435,14 @@
       </div>`;
     }
     async function restoreSection(id, version, section) {
-      if (!confirm(`Restaurar a seção "${section}" a partir do snapshot ${version}?`)) return;
+      // Dry-run: mostra o impacto antes de confirmar a ação crítica.
+      const p = await api(`/v1/orchestrations/${id}/snapshots/${version}/restore-section/preview?section=${encodeURIComponent(section)}`);
+      const ch = p.changes || {};
+      const resumo = p.no_op ? 'Nenhuma mudança (seção idêntica ao snapshot).'
+        : `+${(ch.added||[]).length} -${(ch.removed||[]).length} ~${(ch.modified||[]).length}\n`
+          + `add: ${(ch.added||[]).join(', ')||'—'}\nrem: ${(ch.removed||[]).join(', ')||'—'}\nmod: ${(ch.modified||[]).join(', ')||'—'}`;
+      if (!confirm(`Restaurar a seção "${section}" a partir do snapshot ${version}?\n\nImpacto:\n${resumo}`)) return;
+      if (p.no_op) return;
       const r = await fetch(`/v1/orchestrations/${id}/snapshots/${version}/restore-section`, {
         method:'POST', headers: {'Content-Type':'application/json', ...(token()?{'Authorization':'Bearer '+token()}:{})},
         body: JSON.stringify({ section }) });

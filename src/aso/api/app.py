@@ -477,6 +477,15 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
+    @app.get("/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section/preview")
+    def preview_restore_section(orchestration_id: str, version: str, section: str) -> Any:
+        """Dry-run: mostra o impacto da restauração seletiva sem aplicar (§23)."""
+        _guard(orchestration_id)
+        try:
+            return svc.preview_restore_section(orchestration_id, version, section)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
     @app.post(
         "/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section",
         status_code=202,

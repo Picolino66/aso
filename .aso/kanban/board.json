@@ -2041,6 +2041,64 @@
         "TASK-29"
       ],
       "evidence": "132 testes verdes; test_snapshot_advanced (section_details, restauração seletiva service+endpoint, 404); Docker/Postgres: diff section_details + restore-section 202 + UI + SMOKE OK"
+    },
+    {
+      "id": "TASK-66",
+      "epic": "EPIC-6",
+      "type": "Chore",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "low",
+      "title": "Retenção de amostras de SLO",
+      "description": "ASO_MAX_SLO_SAMPLES (default 200; parametrizável no construtor) — record_slo_evaluation poda as amostras mais antigas, mantendo só as N mais recentes. Fecha a lacuna de crescimento ilimitado de slo_evaluations introduzida por /slo/evaluate.",
+      "assignee_type": "agent",
+      "assignee": "ObservabilityAgent",
+      "spec": "requerimentos.md §F7",
+      "acceptance_criteria": [
+        "mantém só as N amostras mais recentes",
+        "limite via env/construtor",
+        "sobrevive a reload"
+      ],
+      "linked_requirements": [
+        "§F7",
+        "§29"
+      ],
+      "linked_adrs": [
+        "ADR-0006"
+      ],
+      "dependencies": [
+        "TASK-64"
+      ],
+      "evidence": "135 testes verdes; test_slo_samples_are_retained_up_to_limit (6→3, podou antigas, sobrevive a reload)"
+    },
+    {
+      "id": "TASK-67",
+      "epic": "EPIC-6",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Dry-run da restauração seletiva de seção",
+      "description": "preview_restore_section compara a seção atual do contexto com a do snapshot e devolve o delta semântico (added/removed/modified + no_op) SEM aplicar. Helper _section_delta extraído e reusado por snapshot_diff. Endpoint GET .../snapshots/{version}/restore-section/preview (leitura). Console: pré-visualiza o impacto e exige confirmação antes da ação crítica (não aplica se no_op).",
+      "assignee_type": "agent",
+      "assignee": "GovernanceAgent",
+      "spec": "requerimentos.md §23",
+      "acceptance_criteria": [
+        "preview retorna delta sem mutar o contexto",
+        "no_op quando idêntico",
+        "404 para seção/snapshot inexistente",
+        "console pré-visualiza antes de confirmar"
+      ],
+      "linked_requirements": [
+        "§23"
+      ],
+      "linked_adrs": [
+        "ADR-0003"
+      ],
+      "dependencies": [
+        "TASK-65"
+      ],
+      "evidence": "135 testes verdes; test_restore_section_preview_is_readonly_and_reports_impact (no_op, não muta versão, 404); Docker: preview no_op=True + UI + SMOKE OK"
     }
   ]
 }
