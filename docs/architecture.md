@@ -47,6 +47,9 @@ Python 3.12+ · FastAPI + Uvicorn · Pydantic v2 · PostgreSQL 16 (JSONB) + SQLA
 ## 4. Persistência, segurança e infra (resumo)
 
 - **Dados:** `OrchestratorContext` e snapshots em **JSONB** (escrita atômica, histórico append-only, consistência **forte** por orquestração); entidades operacionais em tabelas relacionais. Detalhe em [F3 — Contracts](phases/F3-contracts.md) e [`domain-model.md`](domain-model.md).
+- **Catálogo multi-repo:** `Project` usa porta própria com adapters in-memory e SQLAlchemy;
+  tabelas `projects`/`project_events` e FKs restritivas separam metadados de catálogo do
+  agregado da orquestração. Arquivamento preserva rastreabilidade (ADR-0010).
 - **Segurança:** secrets env-only (chave nunca exibida por inteiro); `ToolPermissionEngine` com allowlist por papel; `HumanApprovalEngine` obrigatório para ações críticas; worktree isolado por agente que altera código; I/O validado por Pydantic; `AuditLog` append-only.
 - **Infra:** local-first, processo único (API + workers asyncio); Docker Compose para Postgres; escala vertical primeiro; sem execução remota distribuída no MVP.
 
@@ -54,4 +57,4 @@ Python 3.12+ · FastAPI + Uvicorn · Pydantic v2 · PostgreSQL 16 (JSONB) + SQLA
 
 - Arquitetura completa: [F2 — Architecture & Design](phases/F2-architecture.md)
 - Governança de contexto: [`context.md`](context.md)
-- ADRs: [ADR-0001](adrs/ADR-0001-runtime-architecture.md) · [ADR-0003](adrs/ADR-0003-contextbus-governance.md) · [ADR-0004](adrs/ADR-0004-tech-stack-python.md) · [ADR-0005](adrs/ADR-0005-data-consistency-and-api-versioning.md)
+- ADRs: [ADR-0001](adrs/ADR-0001-runtime-architecture.md) · [ADR-0003](adrs/ADR-0003-contextbus-governance.md) · [ADR-0004](adrs/ADR-0004-tech-stack-python.md) · [ADR-0005](adrs/ADR-0005-data-consistency-and-api-versioning.md) · [ADR-0010](adrs/ADR-0010-catalogo-multi-repo-governado.md)

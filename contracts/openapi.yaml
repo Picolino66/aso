@@ -13,8 +13,107 @@ tags:
   - name: agents
   - name: governance
   - name: workspace
+  - name: projects
 
 paths:
+  /projects:
+    get:
+      tags: [projects]
+      summary: Lista o catálogo de projetos ativos por padrão
+      parameters:
+        - { in: query, name: include_archived, schema: { type: boolean, default: false } }
+      responses:
+        "200":
+          description: Projetos visíveis
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Project" } }
+    post:
+      tags: [projects]
+      summary: Cadastra um projeto com path canônico e único
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProject" }
+      responses:
+        "201": { description: Criado, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /projects/{id}:
+    get:
+      tags: [projects]
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: Projeto, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [projects]
+      summary: Atualiza metadados; o novo path vale somente para futuras orquestrações
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProject" }
+      responses:
+        "200": { description: Atualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    put:
+      tags: [projects]
+      summary: Alias compatível de PATCH
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProject" }
+      responses:
+        "200": { description: Atualizado, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+    delete:
+      tags: [projects]
+      summary: Arquiva o projeto sem apagar suas orquestrações (admin)
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200": { description: Arquivado, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /projects/{id}/restore:
+    post:
+      tags: [projects]
+      summary: Restaura um projeto, opcionalmente com novo path (admin)
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { target_path: { type: string, nullable: true } }
+      responses:
+        "200": { description: Restaurado, content: { application/json: { schema: { $ref: "#/components/schemas/Project" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /projects/{id}/events:
+    get:
+      tags: [projects]
+      summary: Lista o histórico append-only do projeto
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      responses:
+        "200":
+          description: Eventos em ordem cronológica
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ProjectEvent" } }
+        "404": { $ref: "#/components/responses/Error" }
+
   /fs/analyze/stream:
     get:
       tags: [workspace]
@@ -35,8 +134,19 @@ paths:
     get:
       tags: [orchestrations]
       summary: Lista orquestrações
+      parameters:
+        - { in: query, name: project_id, schema: { type: string }, required: false }
+        - { in: query, name: page, schema: { type: integer, minimum: 1 }, required: false }
+        - { in: query, name: page_size, schema: { type: integer, minimum: 1, maximum: 500, default: 50 }, required: false }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/OrchestrationPage" } } } }
+        "200":
+          description: Lista simples sem page; página quando page é informado
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - { type: array, items: { $ref: "#/components/schemas/Orchestration" } }
+                  - { $ref: "#/components/schemas/OrchestrationPage" }
     post:
       tags: [orchestrations]
       summary: Cria orquestração e gera ExecutionPlan + contexto + board
@@ -47,6 +157,9 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/CreateOrchestration" } } }
       responses:
         "201": { description: Criada, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
 
   /orchestrations/{id}/pulls/{pr_id}/ci/run:
@@ -182,16 +295,63 @@ components:
       enum: [F1, F2, F3, F4, F5, F6, F7]
     CreateOrchestration:
       type: object
-      required: [project_id, user_request]
+      required: [user_request]
       properties:
-        project_id: { type: string }
+        project_id: { type: string, nullable: true }
+        target_path: { type: string, nullable: true, description: "Compatibilidade; se project_id existir deve coincidir com o path canônico." }
         user_request: { type: string }
         execution_mode: { $ref: "#/components/schemas/ExecutionMode" }
-    Orchestration:
+        executor: { type: string, nullable: true }
+        effort: { type: string, nullable: true, enum: [low, medium, high] }
+        validation_command: { type: string, nullable: true }
+    ProjectStatus:
+      type: string
+      enum: [active, archived]
+    Project:
+      type: object
+      required: [id, name, description, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        target_path: { type: string, nullable: true, description: "Nulo somente em legado arquivado com conflito de migração." }
+        status: { $ref: "#/components/schemas/ProjectStatus" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: string, format: date-time, nullable: true }
+    CreateProject:
+      type: object
+      required: [name, target_path]
+      properties:
+        name: { type: string }
+        description: { type: string, default: "" }
+        target_path: { type: string }
+    UpdateProject:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        target_path: { type: string }
+    ProjectEvent:
       type: object
       properties:
         id: { type: string }
         project_id: { type: string }
+        type: { type: string, enum: [ProjectCreated, ProjectUpdated, ProjectArchived, ProjectRestored, LegacyProjectBackfilled] }
+        actor: { type: string }
+        before: { type: object }
+        after: { type: object }
+        created_at: { type: string, format: date-time }
+    Orchestration:
+      type: object
+      properties:
+        id: { type: string }
+        project_id: { type: string, nullable: true }
+        target_path: { type: string, nullable: true }
+        selected_executor: { type: string, nullable: true }
+        selected_effort: { type: string, nullable: true }
+        validation_command: { type: string, nullable: true }
+        workspace_prepared: { type: boolean }
         execution_mode: { $ref: "#/components/schemas/ExecutionMode" }
         current_phase: { $ref: "#/components/schemas/Phase" }
         snapshot_version: { type: string, example: "O2" }

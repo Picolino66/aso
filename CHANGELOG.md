@@ -5,12 +5,28 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
 ### Adicionado
+- **Catálogo multi-repo governado (ADR-0010):** `Project` e `ProjectEvent` agora usam
+  persistência relacional por porta/adapters in-memory e SQLAlchemy. Paths são canônicos e
+  únicos; `DELETE /v1/projects/{id}` arquiva sem cascata, restauração e arquivamento exigem
+  `admin`, e o histórico expõe ator/estado anterior/posterior. A migração
+  `f84c2a1d9e30` preserva IDs legados antes de criar FKs restritivas.
 - **Pré-análise de workspace:** `GET /v1/fs/analyze/stream` enumera arquivos elegíveis
   em SSE, com progresso real e sem escrita. No console, a demanda de nova
   orquestração só é exibida após a pasta ser analisada com sucesso; trocar a pasta
   invalida essa liberação.
 
 ### Alterado
+- **Console multi-repo:** `/ui/` administra projetos ativos/arquivados e agrupa o Kanban
+  completo por projeto. `/ui/nova` executa projeto → pré-análise SSE → demanda/configuração
+  → criação → docs-first → detalhe; não cria orquestração temporária nem inicia Autopilot.
+  O Kanban removeu o seletor de executor por card que não tinha persistência.
+- **Workspace vinculado:** criar orquestração com `project_id` exige projeto ativo e copia
+  seu path; editar/arquivar o projeto não altera execuções existentes. A listagem aceita
+  `project_id`; orquestrações sem projeto permanecem compatíveis.
+- **Concorrência do catálogo:** updates relacionais validam o estado anterior e devolvem
+  conflito em escrita obsoleta, evitando lost update entre processos.
+- **Imagem Docker:** inclui Git, dependência operacional do scaffold docs-first e dos
+  worktrees; ausência do binário é traduzida em erro de workspace governado.
 - **Entrega de código governada:** falha CLI ou diff vazio agora bloqueia o card; para
   novas execuções com validação configurada, F5/F6 aguardam PR, CI real, revisão e
   merge no workspace da própria orquestração antes do gate.
@@ -121,29 +137,3 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 - Secrets apenas via variáveis de ambiente; deny-by-default no ContextBus.
 
 ### Alterado
-- **Console — Kanban Macro (tela inicial):** nova tela principal em `/ui/` exibe **todos os
-  projetos** com seus cards posicionados nas colunas do Kanban (Backlog, Ready, InProgress,
-  WaitingHuman, Review, Testing, Blocked, Failed, Done), com **filtro por projeto** e
-  cards clicáveis que levam ao detalhe da orquestração. Botão **"＋ Nova Orquestração"**
-  leva para `/ui/nova`.
-- **Console — formulário focado de nova orquestração:** `/ui/nova` contém **apenas** o
-  formulário de criação (pasta, projeto, executor, modo, validação, análise de workspace e
-  demanda), **sem listar outras orquestrações**. Após criação, exibe sucesso com link de
-  volta ao Kanban Macro. Campo `project_id` agora é preenchível na UI para agrupamento.
-- **Projetos (entidade + CRUD):** nova entidade `Project` (id, nome, descrição, path)
-  persistida em `.aso/projects.json` via `ProjectStore` (thread-safe). Endpoints
-  `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{id}`. **Deleção em cascata:**
-  remover um projeto deleta todas as suas orquestrações.
-- **Console — modal de Novo Projeto:** botão **"📁 Novo Projeto"** no Kanban Macro abre
-  modal com nome, descrição, seletor de pasta e executor para análise automática. Ao criar,
-  se o path for informado, a análise de workspace é executada automaticamente com o executor
-  escolhido. Projetos podem ser editados e removidos (com confirmação).
-- **Console — Nova Orquestração simplificada:** `/ui/nova` agora contém apenas: textarea
-  da demanda, seletor de projeto, seletor de agente/modelo e seletor de modo de pensamento
-  (esforço). Criação inicia pipeline F1→F7 automaticamente.
-- **Console — Kanban da orquestração:** `/ui/detalhe` exibe **todas as colunas** (não só
-  as não-vazias). Cards em **Backlog** ganharam botão **"▶ Ready"** que move para Ready,
-  liberando a IA para executar. Cada card tem um **seletor de executor** individual
-  (🤖) para configurar qual modelo/agente deve processá-lo.
-- **Deleção de orquestração individual:** `DELETE /v1/orchestrations/{id}` remove uma
-  orquestração e seu bundle.

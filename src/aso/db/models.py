@@ -23,6 +23,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -35,11 +36,45 @@ class Base(DeclarativeBase):
     """Base declarativa do ORM."""
 
 
+class ProjectRow(Base):
+    """Projeto do catálogo multi-repo; o path é único mesmo se arquivado."""
+
+    __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("target_path", name="uq_projects_target_path"),)
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(Text, default="")
+    target_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default="active", index=True)
+    created_at: Mapped[str] = mapped_column(String, index=True)
+    updated_at: Mapped[str] = mapped_column(String)
+    archived_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class ProjectEventRow(Base):
+    """Histórico append-only de mudanças no catálogo de projetos."""
+
+    __tablename__ = "project_events"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="RESTRICT"), index=True
+    )
+    type: Mapped[str] = mapped_column(String, index=True)
+    actor: Mapped[str] = mapped_column(String)
+    before: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    after: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    created_at: Mapped[str] = mapped_column(String, index=True)
+
+
 class OrchestrationRow(Base):
     __tablename__ = "orchestrations"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    project_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="RESTRICT"), nullable=True
+    )
     # Pasta de trabalho da orquestração (workspace); NULL = legado (repo global).
     target_path: Mapped[str | None] = mapped_column(String, nullable=True)
     selected_executor: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -114,7 +149,9 @@ class BoardRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"), index=True)
-    project_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="RESTRICT"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String)
     scope: Mapped[str] = mapped_column(String, default="orchestration")
     created_at: Mapped[str] = mapped_column(String)

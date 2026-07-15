@@ -8,12 +8,14 @@ board_columns, planned_agents). Escrita transacional (delete-and-reinsert dos fi
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import create_engine, delete, func, inspect, select
+from sqlalchemy import Engine, create_engine, delete, event, func, inspect, select, update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from aso.control.models import ExecutionPlan, Orchestration, PlannedAgent
+from aso.control.models import ExecutionPlan, Orchestration, PlannedAgent, Project, ProjectEvent
 from aso.db.models import (
     AdrLinkRow,
     AdrOptionRow,
@@ -35,6 +37,8 @@ from aso.db.models import (
     HumanApprovalRow,
     OrchestrationRow,
     PlannedAgentRow,
+    ProjectEventRow,
+    ProjectRow,
     PullRequestRow,
     QualityGateResultRow,
     SloEvaluationRow,
@@ -110,6 +114,20 @@ def _scalar(dump: dict[str, Any], row_cls: type) -> dict[str, Any]:
     return {k: v for k, v in dump.items() if k in cols}
 
 
+def _engine(url: str) -> Engine:
+    """Cria engine e aproxima o SQLite das restrições aplicadas pelo Postgres."""
+    engine = create_engine(url, future=True)
+    if engine.dialect.name == "sqlite":
+
+        @event.listens_for(engine, "connect")
+        def enable_foreign_keys(dbapi_connection: Any, _connection_record: Any) -> None:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+    return engine
+
+
 def _build_card(row: CardRow, links: dict[str, list[str]]) -> KanbanCard:
     data: dict[str, Any] = {**_cols(row), **links}
     return KanbanCard(**data)
@@ -124,7 +142,7 @@ class SqlAlchemyOrchestrationRepository:
     """Persiste o aggregate em tabelas relacionais normalizadas, com índices."""
 
     def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
-        self.engine = create_engine(url, future=True)
+        self.engine = _engine(url)
         if create_schema:
             # Conveniência dev/testes; em produção use Alembic (migrations/).
             Base.metadata.create_all(self.engine)
@@ -302,16 +320,6 @@ class SqlAlchemyOrchestrationRepository:
                 _values("gate", gate.id, "blocking_issues", list(gate.blocking_issues))
                 _values("gate", gate.id, "warnings", list(gate.warnings))
                 _values("gate", gate.id, "required_actions", list(gate.required_actions))
-            session.commit()
-
-    # -------------------------------------------------------------------- delete
-    def delete(self, orchestration_id: str) -> None:
-        """Remove o aggregate em ordem FK-safe (filhos → pai)."""
-        oid = orchestration_id
-        with self._session_factory() as session:
-            for table in reversed(_CHILD_TABLES):
-                session.execute(delete(table).where(table.orchestration_id == oid))  # type: ignore[attr-defined]
-            session.execute(delete(OrchestrationRow).where(OrchestrationRow.id == oid))
             session.commit()
 
     # --------------------------------------------------------------------- load
@@ -570,11 +578,16 @@ class SqlAlchemyOrchestrationRepository:
             return list(session.scalars(select(OrchestrationRow.id)))
 
     def list_orchestrations(
-        self, *, limit: int | None = None, offset: int = 0
+        self, *, limit: int | None = None, offset: int = 0, project_id: str | None = None
     ) -> tuple[list[Orchestration], int]:
         with self._session_factory() as session:
-            total = session.scalar(select(func.count()).select_from(OrchestrationRow)) or 0
-            stmt = select(OrchestrationRow).order_by(OrchestrationRow.created_at).offset(offset)
+            count_stmt = select(func.count()).select_from(OrchestrationRow)
+            stmt = select(OrchestrationRow)
+            if project_id is not None:
+                count_stmt = count_stmt.where(OrchestrationRow.project_id == project_id)
+                stmt = stmt.where(OrchestrationRow.project_id == project_id)
+            total = session.scalar(count_stmt) or 0
+            stmt = stmt.order_by(OrchestrationRow.created_at).offset(offset)
             if limit is not None:
                 stmt = stmt.limit(limit)
             rows = list(session.scalars(stmt))
@@ -674,3 +687,71 @@ class SqlAlchemyOrchestrationRepository:
                 CardLinkRow.value == adr_id,
             )
             return list(session.scalars(stmt))
+
+
+class SqlAlchemyProjectRepository:
+    """Adapter relacional do catálogo de projetos e de seus eventos."""
+
+    def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
+        self.engine = _engine(url)
+        if create_schema:
+            Base.metadata.create_all(self.engine)
+        self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+
+    def save_project(self, project: Project, event: ProjectEvent) -> None:
+        try:
+            with self._session_factory() as session:
+                values = project.model_dump(mode="json")
+                if event.before:
+                    result = cast(
+                        CursorResult[Any],
+                        session.execute(
+                            update(ProjectRow)
+                            .where(
+                                ProjectRow.id == project.id,
+                                ProjectRow.updated_at == event.before.get("updated_at"),
+                                ProjectRow.name == event.before.get("name"),
+                                ProjectRow.description == event.before.get("description"),
+                                ProjectRow.target_path == event.before.get("target_path"),
+                                ProjectRow.status == event.before.get("status"),
+                                ProjectRow.archived_at == event.before.get("archived_at"),
+                            )
+                            .values(**values)
+                        ),
+                    )
+                    if result.rowcount != 1:
+                        raise ValueError("Projeto foi alterado por outra operação; recarregue-o.")
+                else:
+                    session.add(ProjectRow(**values))
+                session.flush()
+                session.add(ProjectEventRow(**event.model_dump(mode="json")))
+                session.commit()
+        except IntegrityError as exc:
+            raise ValueError("A pasta já pertence a outro projeto.") from exc
+
+    def get_project(self, project_id: str) -> Project | None:
+        with self._session_factory() as session:
+            row = session.get(ProjectRow, project_id)
+            return Project(**_cols(row)) if row is not None else None
+
+    def get_project_by_path(self, target_path: str) -> Project | None:
+        with self._session_factory() as session:
+            row = session.scalar(select(ProjectRow).where(ProjectRow.target_path == target_path))
+            return Project(**_cols(row)) if row is not None else None
+
+    def list_projects(self, *, include_archived: bool = False) -> list[Project]:
+        with self._session_factory() as session:
+            stmt = select(ProjectRow)
+            if not include_archived:
+                stmt = stmt.where(ProjectRow.status == "active")
+            stmt = stmt.order_by(ProjectRow.name, ProjectRow.created_at)
+            return [Project(**_cols(row)) for row in session.scalars(stmt)]
+
+    def list_project_events(self, project_id: str) -> list[ProjectEvent]:
+        with self._session_factory() as session:
+            stmt = (
+                select(ProjectEventRow)
+                .where(ProjectEventRow.project_id == project_id)
+                .order_by(ProjectEventRow.created_at, ProjectEventRow.id)
+            )
+            return [ProjectEvent(**_cols(row)) for row in session.scalars(stmt)]

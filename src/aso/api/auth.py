@@ -58,6 +58,8 @@ class AuthService:
 
 def required_role(method: str, path: str) -> str:
     """Papel mínimo exigido para (método, caminho)."""
+    if (method == "DELETE" and path.startswith("/v1/projects/")) or path.endswith("/restore"):
+        return "admin"
     if path.endswith(
         (
             "/approve",

@@ -9,7 +9,7 @@ import pytest
 
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.cli_provider import CliAgentExecutionProvider
-from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceService
+from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceError, WorkspaceService
 
 
 def test_validate_rejects_missing_and_non_dir(tmp_path: Path) -> None:
@@ -32,6 +32,18 @@ def test_is_empty_ignora_caches(tmp_path: Path) -> None:
     assert svc.is_empty(tmp_path)  # só ignorados → ainda "vazia"
     (tmp_path / "main.py").write_text("print(1)", encoding="utf-8")
     assert not svc.is_empty(tmp_path)
+
+
+def test_ensure_git_traduz_binario_ausente_em_erro_de_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def missing(*args: object, **kwargs: object) -> None:
+        raise FileNotFoundError
+
+    monkeypatch.setattr("aso.execution.workspace.subprocess.run", missing)
+
+    with pytest.raises(WorkspaceError, match="Git indisponível"):
+        WorkspaceService().ensure_git(tmp_path)
 
 
 def test_list_dirs_lista_so_diretorios(tmp_path: Path) -> None:

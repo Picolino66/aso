@@ -25,7 +25,8 @@ mantendo a esteira F1–F7 existente.
    a pasta; os providers CLI e o gate passam a usá-la, com o env global como
    *fallback* (compatibilidade). Escolhida.
 3. **Serviço de projetos separado (multi-repo com CRUD próprio)** — poderoso, porém
-   grande demais para a necessidade atual; adia a entrega.
+   grande demais para a necessidade deste incremento; adiado naquele momento e adotado
+   depois pela [ADR-0010](ADR-0010-catalogo-multi-repo-governado.md).
 
 ## Decisão
 
@@ -61,5 +62,5 @@ pastas usa `GET /v1/fs/dirs` (lista só diretórios, nunca conteúdo de arquivo)
   etapa não cria Git, docs ou orquestração; a análise docs-first governada permanece
   em `POST /analyze-folder` depois da criação.
 - O `ASO_TARGET_REPO` continua válido como padrão global e para execuções sem pasta.
-- Próximos passos possíveis: multi-repo com CRUD de projetos; drift-check contínuo de
-  docs (self-healing) durante F5/F6.
+- O catálogo multi-repo relacional foi implementado posteriormente pela ADR-0010; o
+  drift-check contínuo de docs (self-healing) durante F5/F6 permanece como evolução.

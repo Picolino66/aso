@@ -7,7 +7,7 @@
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                       # 55 testes
+pytest -q
 python -m aso.cli.main run "Criar módulo X"   # ciclo completo (mock)
 uvicorn aso.api.app:app         # API v1 em :8000 (docs em /docs)
 ```
@@ -45,6 +45,11 @@ alembic check                   # schema == modelos ORM?
 alembic revision --autogenerate -m "descricao"   # nova migration
 ```
 
+A revisão `f84c2a1d9e30` cria o catálogo relacional. IDs legados são convertidos em
+projetos arquivados; conflitos de path ficam sem pasta e precisam de restauração
+administrativa. Não remova projetos por SQL: use `DELETE /v1/projects/{id}` para arquivar
+e preservar as FKs, ou `POST /restore` para reativar.
+
 ## Qualidade (gates locais = CI)
 
 ```bash
@@ -66,7 +71,8 @@ curl -H "Authorization: Bearer TOKEN_OP" http://localhost:8000/v1/orchestrations
 ```
 
 - Leitura (GET) exige `viewer`; escrita exige `operator`; ações críticas (aprovar/rejeitar
-  aprovação, rollback) exigem `admin`. O ator autenticado é registrado (ex.: `approved_by`).
+  aprovação, rollback, arquivar/restaurar projeto) exigem `admin`. O ator autenticado é
+  registrado (ex.: `approved_by` e `ProjectEvent.actor`).
 - Públicos (sem token): `/health`, `/metrics`, `/`, `/ui`, `/docs`, `/openapi.json`.
 
 ## Execução com agentes CLI reais (MVP-3)

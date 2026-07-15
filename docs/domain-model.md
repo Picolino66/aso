@@ -13,16 +13,25 @@
 | Agent | `Agent`, `AgentRun`, `AgentMessage`, `AgentToolCall`, `AgentOutput`, `ProviderConfig`, `CliAgentConfig`, `AgentRoleBinding` |
 | Execution | `Worktree`, `PullRequest`, `CIEvent`, `ReviewEvent` |
 | Observability | `AuditEvent`, `CostRecord` |
-| Raiz | `Project` |
+| Catálogo | `Project`, `ProjectEvent` |
 
 ## Entidades principais
 
 ### Project
-`id, name, description, repo_path, created_at, updated_at`
-Relaciona-se com N `Orchestration`.
+`id, name, description, target_path, status(active|archived), created_at, updated_at, archived_at`
+
+Agregado independente de catálogo. `target_path` é absoluto, canônico e único no
+catálogo, inclusive quando arquivado. Relaciona-se com N `Orchestration`, mas não é dono
+do ciclo de vida delas: arquivar um projeto preserva todos os agregados associados.
+
+### ProjectEvent
+`id, project_id, type(ProjectCreated|ProjectUpdated|ProjectArchived|ProjectRestored|LegacyProjectBackfilled), actor, before, after, created_at`
+
+Histórico append-only das mudanças do catálogo. Não substitui o EventLog interno de uma
+orquestração nem escreve no `OrchestratorContext`.
 
 ### Orchestration
-`id, project_id, execution_mode(full-pipeline|feature-evolution|architecture-review|code-execution|incident-response|phase-resume), current_phase(F1..F7), snapshot_version(O0..O7), status(created|running|blocked|waiting_human|completed|cancelled|rolled_back), user_request, created_at, updated_at`
+`id, project_id?, target_path?, selected_executor?, selected_effort?, validation_command?, workspace_prepared, execution_mode(full-pipeline|feature-evolution|architecture-review|code-execution|incident-response|phase-resume), current_phase(F1..F7), snapshot_version(O0..O7), status(created|running|blocked|waiting_human|completed|cancelled|rolled_back), user_request, created_at, updated_at`
 Possui 1 `OrchestratorContext`, 1 `ExecutionPlan`, N `Phase`, N `Board`, N `Snapshot`, N `ADR`, N `HumanApproval`.
 
 ### OrchestratorContext
@@ -87,6 +96,8 @@ Estado canônico versionado (§17). Persistido como **JSONB** com `version` incr
 ## Relacionamentos-chave
 
 - `Orchestration 1—1 OrchestratorContext` (versionado) · `1—N Snapshot` · `1—N ADR`
+- `Project 1—N Orchestration`; o vínculo usa FK restritiva e o workspace é copiado para
+  `Orchestration.target_path` no momento da criação.
 - `Board 1—N BoardColumn` · `Board 1—N KanbanCard`
 - `KanbanCard N—N ADR/Contract/Requirement` (rastreabilidade) · `1—N AgentRun`
 - `AgentRun N—1 Agent` · `1—N ContextPatch`

@@ -11,7 +11,7 @@ import os
 import time
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -23,7 +23,11 @@ from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
-from aso.control.project_store import Project, ProjectStore
+from aso.control.project_service import (
+    ProjectConflictError,
+    ProjectNotFoundError,
+    ProjectValidationError,
+)
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.execution.workspace import WorkspaceError, WorkspaceService
 from aso.governance.models import ContextPatch, SloEvaluation
@@ -57,12 +61,16 @@ class AnalyzeFolderBody(BaseModel):
 class CreateProjectBody(BaseModel):
     name: str
     description: str = ""
-    target_path: str | None = None
+    target_path: str
 
 
 class UpdateProjectBody(BaseModel):
     name: str | None = None
     description: str | None = None
+    target_path: str | None = None
+
+
+class RestoreProjectBody(BaseModel):
     target_path: str | None = None
 
 
@@ -154,12 +162,10 @@ def create_app(
     auth: AuthService | None = None,
     *,
     llm_client: LlmClient | None = None,
-    project_store: ProjectStore | None = None,
 ) -> FastAPI:
-    """Cria a aplicação FastAPI, opcionalmente com service/auth/llm/projects injetados (testes)."""
+    """Cria a aplicação FastAPI, opcionalmente com service/auth/llm injetados."""
     svc = service or OrchestrationService()
     auth = auth or AuthService.from_env()
-    projects = project_store or ProjectStore()
     # Cérebro do autopilot: cliente LLM injetado (testes) ou montado do ambiente.
     planning_client = llm_client or build_llm_client_from_env()
     metrics = MetricsService(svc)
@@ -275,6 +281,16 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
+    def _actor(request: Request) -> str:
+        return str(request.state.principal.actor)
+
+    def _raise_project_error(exc: Exception) -> NoReturn:
+        if isinstance(exc, ProjectNotFoundError):
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        if isinstance(exc, ProjectValidationError):
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
     @app.get("/v1/fs/analyze/stream")
     def stream_workspace_analysis(path: str = Query(...)) -> StreamingResponse:
         """Emite o progresso da pré-análise somente leitura de uma pasta.
@@ -335,16 +351,19 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail="Informe o comando de validação do workspace."
             )
-        orch = svc.create_orchestration(
-            body.user_request,
-            project_id=body.project_id,
-            target_path=target_path,
-            execution_mode=mode,
-            executor=body.executor,
-            effort=body.effort,
-            validation_command=body.validation_command,
-            seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
-        )
+        try:
+            orch = svc.create_orchestration(
+                body.user_request,
+                project_id=body.project_id,
+                target_path=target_path,
+                execution_mode=mode,
+                executor=body.executor,
+                effort=body.effort,
+                validation_command=body.validation_command,
+                seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
+            )
+        except (ProjectNotFoundError, ProjectValidationError, ProjectConflictError) as exc:
+            _raise_project_error(exc)
         if body.execution_mode == ExecutionMode.FULL_PIPELINE and planning_client is not None:
             plan = PlanningService(planning_client).plan(body.user_request)
             svc.populate_from_plan(orch.id, plan)
@@ -369,12 +388,13 @@ def create_app(
         response: Response,
         page: int | None = Query(default=None, ge=1),
         page_size: int = Query(default=50, ge=1, le=500),
+        project_id: str | None = Query(default=None),
     ) -> Any:
         if page is None:
-            items = svc.list_all()
+            items = svc.list_all(project_id=project_id)
             response.headers["X-Total-Count"] = str(len(items))
             return items
-        result = svc.list_orchestrations_page(page=page, page_size=page_size)
+        result = svc.list_orchestrations_page(page=page, page_size=page_size, project_id=project_id)
         response.headers["X-Total-Count"] = str(result["total"])
         return result["items"]
 
@@ -457,58 +477,65 @@ def create_app(
     # ---- Projetos (agrupadores do Kanban Macro) ------------------------------
 
     @app.get("/v1/projects")
-    def list_projects() -> Any:
-        return [p.model_dump() for p in projects.load()]
+    def list_projects(include_archived: bool = Query(default=False)) -> Any:
+        return svc.list_projects(include_archived=include_archived)
 
     @app.post("/v1/projects", status_code=201)
-    def create_project(body: CreateProjectBody) -> Any:
-        if not body.name.strip():
-            raise HTTPException(status_code=400, detail="Nome do projeto é obrigatório.")
-        proj = Project(
-            name=body.name.strip(),
-            description=body.description,
-            target_path=body.target_path,
-        )
-        projects.add(proj)
-        return proj.model_dump()
+    def create_project(body: CreateProjectBody, request: Request) -> Any:
+        try:
+            return svc.create_project(
+                name=body.name,
+                description=body.description,
+                target_path=body.target_path,
+                actor=_actor(request),
+            )
+        except (ProjectValidationError, ProjectConflictError) as exc:
+            _raise_project_error(exc)
 
     @app.get("/v1/projects/{project_id}")
     def get_project(project_id: str) -> Any:
-        proj = projects.get(project_id)
-        if proj is None:
-            raise HTTPException(status_code=404, detail="Projeto inexistente.")
-        return proj.model_dump()
+        try:
+            return svc.get_project(project_id)
+        except ProjectNotFoundError as exc:
+            _raise_project_error(exc)
 
+    @app.patch("/v1/projects/{project_id}")
     @app.put("/v1/projects/{project_id}")
-    def update_project(project_id: str, body: UpdateProjectBody) -> Any:
-        proj = projects.get(project_id)
-        if proj is None:
-            raise HTTPException(status_code=404, detail="Projeto inexistente.")
-        if body.name is not None:
-            proj.name = body.name.strip()
-        if body.description is not None:
-            proj.description = body.description
-        if body.target_path is not None:
-            proj.target_path = body.target_path
-        updated = projects.update(proj)
-        return updated.model_dump() if updated else {}
+    def update_project(project_id: str, body: UpdateProjectBody, request: Request) -> Any:
+        try:
+            return svc.update_project(
+                project_id,
+                name=body.name,
+                description=body.description,
+                target_path=body.target_path,
+                actor=_actor(request),
+            )
+        except (ProjectNotFoundError, ProjectValidationError, ProjectConflictError) as exc:
+            _raise_project_error(exc)
 
     @app.delete("/v1/projects/{project_id}", status_code=200)
-    def delete_project(project_id: str) -> Any:
-        """Remove o projeto e todas as suas orquestrações em cascata."""
-        proj = projects.get(project_id)
-        if proj is None:
-            raise HTTPException(status_code=404, detail="Projeto inexistente.")
-        deleted_orchs = svc.delete_project_orchestrations(project_id)
-        projects.delete(project_id)
-        return {"project_id": project_id, "orchestrations_deleted": deleted_orchs}
+    def archive_project(project_id: str, request: Request) -> Any:
+        """Arquiva metadados sem apagar orquestrações nem rastreabilidade."""
+        try:
+            return svc.archive_project(project_id, actor=_actor(request))
+        except ProjectNotFoundError as exc:
+            _raise_project_error(exc)
 
-    # ---- Deleção de orquestração individual ----------------------------------
-    @app.delete("/v1/orchestrations/{orchestration_id}", status_code=200)
-    def delete_orchestration(orchestration_id: str) -> Any:
-        _guard(orchestration_id)
-        svc.delete_orchestration(orchestration_id)
-        return {"deleted": orchestration_id}
+    @app.post("/v1/projects/{project_id}/restore")
+    def restore_project(project_id: str, body: RestoreProjectBody, request: Request) -> Any:
+        try:
+            return svc.restore_project(
+                project_id, actor=_actor(request), target_path=body.target_path
+            )
+        except (ProjectNotFoundError, ProjectValidationError, ProjectConflictError) as exc:
+            _raise_project_error(exc)
+
+    @app.get("/v1/projects/{project_id}/events")
+    def project_events(project_id: str) -> Any:
+        try:
+            return svc.project_events(project_id)
+        except ProjectNotFoundError as exc:
+            _raise_project_error(exc)
 
     @app.post("/v1/orchestrations/{orchestration_id}/run-phase")
     def run_phase(orchestration_id: str, body: RunPhaseBody) -> Any:

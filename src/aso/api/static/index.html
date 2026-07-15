@@ -483,29 +483,42 @@
 
     async function renderKanban(id, c) {
       const cards = await api(`/v1/orchestrations/${id}/cards`);
-      const execs = await api('/v1/executors').catch(() => []);
-      const cols = ['Backlog','Ready','InProgress','WaitingHuman','Review','Testing','Blocked','Failed','Done'];
+      const cols = ['Backlog','Ready','Planning','InProgress','WaitingAgent','WaitingHuman','Review','Testing','Blocked','Failed','Done','Archived'];
       const by = {}; cards.forEach(k => (by[k.status]=by[k.status]||[]).push(k));
-      c.innerHTML = `<div style="margin-bottom:8px" class="row">
-        <span class="muted">Mover um card de <b>Backlog → Ready</b> libera a IA para executá-lo.</span>
-      </div>
-      <div class="board">${cols.map(k=>`
-        <div class="col"><h3>${k} <span style="color:var(--fg);font-weight:700">${(by[k]||[]).length}</span></h3>
-          ${(by[k]||[]).map(x=>`<div class="kcard">
-            <div class="t">${statusPill(x.type||'Task')} ${esc(x.assignee||'—')} · <span class="muted">${esc(x.phase||'')}</span></div>
-            <div class="title" style="margin:4px 0">${esc(x.title)}</div>
-            ${x.block_reason?`<div class="reason">⚠ ${esc(x.block_reason)}</div>`:''}
-            <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-              ${k==='Backlog' ? `<button class="btn sm ok" onclick="moverParaReady('${id}','${x.id}')" title="Libera a IA para executar este card">▶ Ready</button>` : ''}
-              <button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">PR</button>
-              <button class="btn sm ghost" onclick="raceCard('${id}','${x.id}')">Candidatos</button>
-              <select class="cardExec" style="width:auto;padding:2px 4px;font-size:10px;margin:0" onchange="configCardExec('${id}','${x.id}',this.value)" title="Executor do card">
-                <option value="">🤖</option>
-                ${execs.map(e=>`<option value="${esc(e.name)}">${esc(e.name)}</option>`).join('')}
-              </select>
-            </div></div>`).join('') || '<div class="muted" style="font-size:11px;padding:4px">—</div>'}
-        </div>`).join('')}</div>
-        <div id="racePanel"></div>`;
+      c.replaceChildren();
+      const hint = document.createElement('div'); hint.className = 'row'; hint.style.marginBottom = '8px';
+      const hintText = document.createElement('span'); hintText.className = 'muted';
+      hintText.textContent = 'Mover um card de Backlog → Ready libera a IA para executá-lo.';
+      hint.appendChild(hintText); c.appendChild(hint);
+      const board = document.createElement('div'); board.className = 'board';
+      cols.forEach(columnName => {
+        const column = document.createElement('section'); column.className = 'col';
+        const heading = document.createElement('h3');
+        heading.textContent = columnName + ' ' + String((by[columnName] || []).length);
+        column.appendChild(heading);
+        (by[columnName] || []).forEach(card => {
+          const node = document.createElement('article'); node.className = 'kcard';
+          const meta = document.createElement('div'); meta.className = 't';
+          meta.textContent = (card.type || 'Task') + ' · ' + (card.assignee || '—') + ' · ' + (card.phase || '');
+          node.appendChild(meta);
+          const title = document.createElement('div'); title.className = 'title'; title.style.margin = '4px 0'; title.textContent = card.title;
+          node.appendChild(title);
+          if (card.block_reason) { const reason = document.createElement('div'); reason.className = 'reason'; reason.textContent = '⚠ ' + card.block_reason; node.appendChild(reason); }
+          const actions = document.createElement('div'); actions.style.cssText = 'margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center';
+          function cardButton(label, className, handler, titleText) {
+            const button = document.createElement('button'); button.type = 'button'; button.className = className; button.textContent = label;
+            if (titleText) button.title = titleText; button.addEventListener('click', handler); return button;
+          }
+          if (columnName === 'Backlog') actions.appendChild(cardButton('▶ Ready', 'btn sm ok', () => moverParaReady(id, card.id), 'Libera a IA para executar este card'));
+          actions.appendChild(cardButton('PR', 'btn sm ghost', () => openPr(id, card.id)));
+          actions.appendChild(cardButton('Candidatos', 'btn sm ghost', () => raceCard(id, card.id)));
+          node.appendChild(actions); column.appendChild(node);
+        });
+        if (!(by[columnName] || []).length) { const empty = document.createElement('div'); empty.className = 'muted'; empty.textContent = '—'; column.appendChild(empty); }
+        board.appendChild(column);
+      });
+      c.appendChild(board);
+      const racePanel = document.createElement('div'); racePanel.id = 'racePanel'; c.appendChild(racePanel);
     }
 
     async function moverParaReady(orchId, cardId) {
@@ -514,12 +527,6 @@
         renderTab(orchId);
       } catch (e) { alert('Erro ao mover card (' + e + ').'); }
     }
-    function configCardExec(orchId, cardId, executor) {
-      // Placeholder: guarda localmente a escolha de executor por card
-      if (!window._cardExecs) window._cardExecs = {};
-      window._cardExecs[cardId] = executor;
-    }
-
     async function raceCard(id, cardId) {
       const panel = document.getElementById('racePanel');
       panel.innerHTML = '<div class="muted" style="margin-top:14px">Rodando candidatos CLI em paralelo…</div>';

@@ -2552,13 +2552,12 @@
       "status": "Done",
       "priority": "high",
       "title": "Console: Kanban Macro + formulário isolado de nova orquestração",
-      "description": "Nova tela inicial em /ui/ exibe todos os projetos com cards no Kanban, filtro por projeto e botão Nova Orquestração. /ui/nova contém apenas o formulário de criação, sem listar outras orquestrações. Cards no macro são clicáveis e levam ao detalhe (/ui/detalhe).",
+      "description": "Base do console separada em catálogo /ui/, criação focada /ui/nova e detalhe /ui/detalhe. A consolidação multi-repo e os estados arquivados são concluídos pela TASK-84.",
       "assignee_type": "agent",
       "assignee": "FrontendDevelopmentAgent",
       "spec": "docs/api.md",
       "acceptance_criteria": [
-        "/ui/ mostra Kanban Macro com todos os projetos e cards",
-        "Filtro por projeto funcional",
+        "/ui/ mostra os projetos e cards agrupados no Kanban",
         "Botão + Nova Orquestração leva para /ui/nova",
         "/ui/nova só tem o formulário de criação",
         "Cards clicáveis levam ao detalhe da orquestração"
@@ -2566,7 +2565,7 @@
       "linked_requirements": ["§28", "§33"],
       "linked_adrs": ["ADR-0001"],
       "dependencies": ["TASK-81"],
-      "evidence": "193 testes verdes, cobertura 91.48%; ruff, mypy e alembic check OK."
+      "evidence": "Fluxos /ui/, /ui/nova e /ui/detalhe preservados; regressão final com 208 testes verdes, cobertura 91.63% e smoke Docker/Postgres OK."
     },
     {
       "id": "TASK-83",
@@ -2575,22 +2574,47 @@
       "phase": "F7",
       "status": "Done",
       "priority": "high",
-      "title": "Projetos (CRUD + cascade delete) + UI completa do Kanban",
-      "description": "Entidade Project com ProjectStore JSON. Endpoints CRUD + cascade delete de orquestrações. UI: Kanban Macro com modal Novo Projeto (análise automática), Remover Projeto (cascata), Nova Orquestração simplificada (textarea + agente/pensamento), Detalhe com Kanban completo e mover Backlog→Ready + seletor de executor por card.",
+      "title": "Protótipo de projetos + UI completa do Kanban",
+      "description": "Incremento intermediário do commit 8bac160: introduziu a UI útil de projetos e o Kanban completo. A persistência JSON, a cascata destrutiva, a análise automática e o seletor sem persistência foram removidos/supersedidos pela TASK-84.",
       "assignee_type": "agent",
       "assignee": "FrontendDevelopmentAgent",
       "spec": "docs/api.md",
       "acceptance_criteria": [
-        "CRUD de projetos com cascade delete",
-        "Kanban Macro: modal de novo projeto com auto-análise",
-        "Remover projeto apaga orquestrações em cascata",
-        "Nova Orquestração: textarea + seletores de projeto/agente/esforço",
-        "Detalhe: todas colunas, mover Backlog→Ready, executor por card"
+        "Base visual do catálogo de projetos reutilizável",
+        "Detalhe mantém todas as colunas do Kanban",
+        "Movimento real Backlog → Ready permanece funcional",
+        "Comportamentos destrutivos e placeholders são substituídos por contrato governado"
       ],
       "linked_requirements": ["§28", "§33"],
-      "linked_adrs": ["ADR-0001"],
+      "linked_adrs": ["ADR-0001", "ADR-0010"],
       "dependencies": ["TASK-82"],
-      "evidence": "193 testes verdes, cobertura 89.65%; ruff, mypy e alembic check OK."
+      "evidence": "Implementação intermediária identificada no commit 8bac160; partes úteis preservadas e regressão da consolidação validada por 208 testes + smoke Docker/Postgres."
+    },
+    {
+      "id": "TASK-84",
+      "epic": "EPIC-2",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "CRUD multi-repo relacional, auditável e sem deleção destrutiva",
+      "description": "Project vira agregado relacional de catálogo com path canônico único, eventos append-only, arquivamento/restauração por RBAC, FKs RESTRICT e snapshot de workspace por orquestração. Console administra ativos/arquivados e segue pré-análise → demanda → docs-first → detalhe sem iniciar Autopilot implicitamente.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "specs/catalogo-multi-repo.md",
+      "acceptance_criteria": [
+        "Porta de projetos com adapters in-memory e SQLAlchemy; nenhum ProjectStore JSON",
+        "Migração cria projects/project_events, backfill legado e FKs RESTRICT",
+        "DELETE arquiva e preserva orquestrações, cards, ADRs, snapshots e eventos",
+        "API cobre PATCH/PUT, restore, events, filtro e RBAC viewer/operator/admin",
+        "Workspace é copiado na criação e não muda com edição/arquivamento do projeto",
+        "Console não cria orquestração temporária, não inicia Autopilot e não mantém placeholders",
+        "OpenAPI, docs-first, ADR, changelog e smoke estão sincronizados"
+      ],
+      "linked_requirements": ["§10", "§24", "§28", "§29", "§33"],
+      "linked_adrs": ["ADR-0006", "ADR-0008", "ADR-0010"],
+      "dependencies": ["TASK-79", "TASK-82", "TASK-83"],
+      "evidence": "208 testes verdes, cobertura 91.63%; ruff check/format e mypy strict OK; Alembic head f84c2a1d9e30 + check sem drift; Docker/Postgres smoke multi-repo/docs-first OK; FKs de projects confirmadas como RESTRICT."
     }
   ]
 }

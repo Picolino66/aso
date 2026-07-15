@@ -78,7 +78,10 @@ venv (servindo o console em `/ui`). Um único painel cuida de tudo:
 ./scripts/manager.sh logs       # segue os logs da API local
 ./scripts/manager.sh parar      # para a API e o Postgres (dados preservados)
 ```
-Console em **http://localhost:8000/ui**. Na 1ª execução, o script cria a venv e instala
+Console em **http://localhost:8000/ui**. Cadastre um projeto (uma pasta canônica por
+projeto) e use **Nova orquestração**: projeto → pré-análise somente leitura → demanda e
+configuração → docs-first → detalhe. O Autopilot só começa quando for acionado no detalhe.
+Na 1ª execução, o script cria a venv e instala
 as dependências (incluindo o driver `psycopg`) se faltarem. Comandos extras: `reiniciar`,
 `db-logs`, `migrate`, `test`, `check`, `psql`, `shell`, `seed`.
 
@@ -146,6 +149,11 @@ aso feedback <orchestration_id> "texto"          # feedback → backlog
 
 ```
 POST /v1/orchestrations                         # cria orquestração
+GET/POST /v1/projects                           # catálogo multi-repo
+PATCH/DELETE /v1/projects/{id}                  # editar / arquivar sem cascata
+POST /v1/projects/{id}/restore                  # restaurar projeto (admin)
+GET  /v1/projects/{id}/events                   # histórico auditável
+GET  /v1/orchestrations?project_id={id}          # filtra por projeto
 POST /v1/orchestrations/{id}/run-plan           # executa o plano (ondas topológicas)
 POST /v1/orchestrations/{id}/cards/{cid}/run    # executa um card
 GET  /v1/orchestrations/{id}/context            # contexto canônico atual
@@ -158,13 +166,14 @@ GET  .../events/stream                           # SSE ao vivo (console)
 GET  /metrics                                    # exposição Prometheus
 ```
 
-Console SPA em `/ui`: dashboard, Kanban, timeline, ADRs, aprovações, snapshots
-(diff), patches, conflitos, métricas e **PRs**.
+Console em `/ui/`: catálogo de projetos ativos/arquivados e Kanban agrupado. O detalhe
+mantém timeline, ADRs, aprovações, snapshots (diff), patches, conflitos, métricas e PRs.
 
 ### Autenticação / RBAC
 
 Chaves via `ASO_API_KEYS` (JSON, papéis `viewer` < `operator` < `admin`).
-Endpoints críticos (`/merge`, `/approve`, `/reject`, `/rollback`) exigem `admin`.
+Endpoints críticos (`/merge`, `/approve`, `/reject`, `/rollback`, arquivar/restaurar
+projeto) exigem `admin`.
 Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 
 | Variável | Descrição |

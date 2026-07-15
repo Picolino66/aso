@@ -61,13 +61,30 @@ def test_preanalise_rejeita_caminho_invalido(tmp_path: Path) -> None:
 
 
 def test_console_exige_preanalise_antes_da_demanda() -> None:
+    console = (Path(__file__).parents[2] / "src/aso/api/static/nova.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="analyze"' in console
+    assert 'id="demandCard" class="card" hidden' in console
+    assert "function resetAnalysis()" in console
+    assert "function analyzeWorkspace()" in console
+    assert "new EventSource('/v1/fs/analyze/stream?'" in console
+    assert "/analyze-folder" in console
+    assert "echo ok" not in console
+    assert "começará" not in console
+    assert "Autopilot só começa quando você acioná-lo" in console
+    assert "onclick=" not in console
+
+
+def test_kanban_remove_executor_placeholder_e_mantem_colunas() -> None:
     console = (Path(__file__).parents[2] / "src/aso/api/static/index.html").read_text(
         encoding="utf-8"
     )
 
-    assert 'id="analyzeWorkspaceBtn"' in console
-    assert 'id="demandStep" hidden' in console
-    assert "function invalidateWorkspaceAnalysis()" in console
-    assert "function openAnalysisModal()" in console
-    assert "/v1/fs/analyze/stream?path=" in console
-    assert 'onclick="analyzeFolder(' not in console
+    assert "configCardExec" not in console
+    assert "_cardExecs" not in console
+    assert "'Planning'" in console
+    assert "'WaitingAgent'" in console
+    assert "'Archived'" in console
+    assert "moverParaReady(id, card.id)" in console

@@ -2,10 +2,37 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from aso.shared.ids import gen_id, now_iso
-from aso.shared.types import ExecutionMode, ExecutionStrategy, Phase, RiskLevel
+from aso.shared.types import ExecutionMode, ExecutionStrategy, Phase, ProjectStatus, RiskLevel
+
+
+class Project(BaseModel):
+    """Projeto do catálogo multi-repo; agrupa orquestrações sem possuí-las."""
+
+    id: str = Field(default_factory=lambda: gen_id("proj"))
+    name: str
+    description: str = ""
+    target_path: str | None = None
+    status: ProjectStatus = ProjectStatus.ACTIVE
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+    archived_at: str | None = None
+
+
+class ProjectEvent(BaseModel):
+    """Evento append-only para auditar o ciclo de vida de um projeto."""
+
+    id: str = Field(default_factory=lambda: gen_id("projevt"))
+    project_id: str
+    type: str
+    actor: str
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class Orchestration(BaseModel):

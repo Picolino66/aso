@@ -80,12 +80,15 @@ class WorkspaceService:
         return True
 
     def _git(self, path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=str(path),
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                ["git", *args],
+                cwd=str(path),
+                capture_output=True,
+                text=True,
+            )
+        except OSError as exc:
+            raise WorkspaceError("Git indisponível no ambiente de execução.") from exc
         if result.returncode != 0:
             raise WorkspaceError(f"git {' '.join(args)} falhou: {result.stderr.strip()}")
         return result

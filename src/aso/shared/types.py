@@ -82,6 +82,13 @@ class ExecutionMode(StrEnum):
     PHASE_RESUME = "phase-resume"
 
 
+class ProjectStatus(StrEnum):
+    """Situação de um projeto no catálogo multi-repo."""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
 class ExecutionStrategy(StrEnum):
     """Padrões multiagente (§13)."""
 

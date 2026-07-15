@@ -22,7 +22,8 @@ from aso.agents.registry import AgentRegistry
 from aso.agents.supervisor import AgentSupervisor
 from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.execution_planner import ExecutionPlanner
-from aso.control.models import DecisionInput, ExecutionPlan, Orchestration
+from aso.control.models import DecisionInput, ExecutionPlan, Orchestration, Project, ProjectEvent
+from aso.control.project_service import ProjectService
 from aso.execution.candidates import CandidateRunner
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.docs_scaffold import write_scaffold
@@ -54,8 +55,8 @@ from aso.governance.snapshot_engine import SnapshotEngine
 from aso.kanban.board_service import BoardService
 from aso.kanban.models import Board, KanbanCard
 from aso.observability.logging import get_logger
-from aso.persistence.memory import InMemoryOrchestrationRepository
-from aso.persistence.ports import OrchestrationRepository
+from aso.persistence.memory import InMemoryOrchestrationRepository, InMemoryProjectRepository
+from aso.persistence.ports import OrchestrationRepository, ProjectRepository
 from aso.persistence.state import OrchestrationState
 from aso.shared.cache import TTLCache
 from aso.shared.events import DomainEvent, EventLog
@@ -146,6 +147,7 @@ class OrchestrationService:
         self,
         provider: ExecutionProvider | None = None,
         repository: OrchestrationRepository | None = None,
+        project_repository: ProjectRepository | None = None,
         *,
         max_races_per_card: int | None = None,
         max_slo_samples: int | None = None,
@@ -158,6 +160,7 @@ class OrchestrationService:
         self._catalog = catalog
         self._executor_store = executor_store  # persiste perfis (sem secrets)
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
+        self._projects = ProjectService(project_repository or InMemoryProjectRepository())
         self._read_cache = TTLCache(ttl_seconds=1.0)  # cache de leitura para agregações
         # Retenção de corridas por card: evita o candidate_runs crescer sem limite.
         self._max_races_per_card = (
@@ -200,6 +203,8 @@ class OrchestrationService:
         seed_cards: bool = True,
         decision_input: DecisionInput | None = None,
     ) -> Orchestration:
+        if project_id is not None:
+            target_path = self._projects.resolve_workspace(project_id, target_path)
         orchestration = Orchestration(
             project_id=project_id,
             target_path=target_path,
@@ -470,16 +475,60 @@ class OrchestrationService:
     def get(self, orchestration_id: str) -> Orchestration:
         return self._bundle(orchestration_id).orchestration
 
-    def list_all(self) -> list[Orchestration]:
+    def list_all(self, *, project_id: str | None = None) -> list[Orchestration]:
         # Leitura leve: consulta a tabela de orquestrações, sem hidratar aggregates.
-        return self._repo.list_orchestrations()[0]
+        return self._repo.list_orchestrations(project_id=project_id)[0]
 
-    def list_orchestrations_page(self, *, page: int = 1, page_size: int = 50) -> dict[str, object]:
+    def list_orchestrations_page(
+        self, *, page: int = 1, page_size: int = 50, project_id: str | None = None
+    ) -> dict[str, object]:
         page = max(page, 1)
         items, total = self._repo.list_orchestrations(
-            limit=page_size, offset=(page - 1) * page_size
+            limit=page_size, offset=(page - 1) * page_size, project_id=project_id
         )
         return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+    # --------------------------------------------------------- catálogo de projetos
+    def create_project(
+        self, *, name: str, description: str, target_path: str, actor: str
+    ) -> Project:
+        return self._projects.create(
+            name=name, description=description, target_path=target_path, actor=actor
+        )
+
+    def list_projects(self, *, include_archived: bool = False) -> list[Project]:
+        return self._projects.list_projects(include_archived=include_archived)
+
+    def get_project(self, project_id: str) -> Project:
+        return self._projects.get(project_id)
+
+    def update_project(
+        self,
+        project_id: str,
+        *,
+        name: str | None,
+        description: str | None,
+        target_path: str | None,
+        actor: str,
+    ) -> Project:
+        return self._projects.update(
+            project_id,
+            name=name,
+            description=description,
+            target_path=target_path,
+            actor=actor,
+        )
+
+    def archive_project(self, project_id: str, *, actor: str) -> Project:
+        return self._projects.archive(project_id, actor=actor)
+
+    def restore_project(
+        self, project_id: str, *, actor: str, target_path: str | None = None
+    ) -> Project:
+        return self._projects.restore(project_id, actor=actor, target_path=target_path)
+
+    def project_events(self, project_id: str) -> list[ProjectEvent]:
+        return self._projects.events(project_id)
 
     def aggregate_metrics(self) -> dict[str, object]:
         cached = self._read_cache.get("aggregate")
@@ -989,35 +1038,6 @@ class OrchestrationService:
         b.event_log.append("OrchestrationCancelled", {"orchestration_id": orchestration_id})
         self._persist(b)
         return b.orchestration
-
-    def delete_orchestration(self, orchestration_id: str) -> None:
-        """Remove uma orquestração e seu bundle (cascata manual)."""
-        with self._lock_for(orchestration_id):
-            if orchestration_id in self._bundles:
-                del self._bundles[orchestration_id]
-            # Remove do repositório (in-memory).
-            try:
-                self._repo.delete(orchestration_id)
-            except (AttributeError, NotImplementedError):
-                pass  # repositório não suporta delete
-            self._log.info("orchestration_deleted", orchestration_id=orchestration_id)
-
-    def delete_project_orchestrations(self, project_id: str) -> int:
-        """Remove todas as orquestrações de um projeto (cascata). Retorna quantas removeu."""
-        if not project_id:
-            return 0
-        # Coleta ids antes de iterar (evita modificar dict durante iteração).
-        to_delete = [
-            oid for oid, b in self._bundles.items() if b.orchestration.project_id == project_id
-        ]
-        for oid in to_delete:
-            self.delete_orchestration(oid)
-        self._log.info(
-            "project_orchestrations_deleted",
-            project_id=project_id,
-            count=len(to_delete),
-        )
-        return len(to_delete)
 
     def recover_invalid_execution(self, orchestration_id: str) -> Orchestration:
         """Invalida execuções históricas sem diff/exit válido e retorna à F5.

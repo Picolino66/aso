@@ -3,6 +3,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# Docs-first e agentes de código dependem de worktrees/commits também no runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Dependências primeiro (cache de camada).
 COPY pyproject.toml ./
 COPY src ./src

@@ -15,7 +15,7 @@ import shlex
 
 from aso.agents.executor import ExecutionProvider
 from aso.control.orchestration_service import OrchestrationService
-from aso.db.repository import SqlAlchemyOrchestrationRepository
+from aso.db.repository import SqlAlchemyOrchestrationRepository, SqlAlchemyProjectRepository
 from aso.execution.catalog import ExecutorCatalog, build_catalog_from_env
 from aso.execution.cli_provider import CliAgentExecutionProvider
 from aso.execution.llm_client import build_llm_client_from_env
@@ -27,6 +27,7 @@ from aso.execution.settings_store import ExecutorSettingsStore
 def build_service() -> OrchestrationService:
     url = os.environ.get("ASO_DATABASE_URL")
     repository = SqlAlchemyOrchestrationRepository(url) if url else None
+    project_repository = SqlAlchemyProjectRepository(url) if url else None
 
     cli_command = os.environ.get("ASO_CLI_COMMAND")
     target_repo = os.environ.get("ASO_TARGET_REPO")
@@ -49,7 +50,11 @@ def build_service() -> OrchestrationService:
     stored = store.load()
     catalog = ExecutorCatalog(stored) if stored else build_catalog_from_env()
     return OrchestrationService(
-        provider=provider, repository=repository, catalog=catalog, executor_store=store
+        provider=provider,
+        repository=repository,
+        project_repository=project_repository,
+        catalog=catalog,
+        executor_store=store,
     )
 
 

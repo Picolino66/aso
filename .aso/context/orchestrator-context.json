@@ -2,7 +2,7 @@
   "orchestration_id": "orch-aso-runtime-0001",
   "project_id": "proj-aso-runtime",
   "created_at": "2026-07-02T00:00:00Z",
-  "updated_at": "2026-07-03T01:00:00Z",
+  "updated_at": "2026-07-15T02:05:00Z",
   "current_phase": "F7",
   "phase_status": "F7 concluída — observabilidade/métricas, SLOs, alertas (regras) e feedback→backlog; pipeline F1–F7 fechado (O7). 2 avisos dependem de produção real (§7)",
   "snapshot_version": "O7",
@@ -758,12 +758,12 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 193,
-      "coverage": "89.65%",
+      "tests": 208,
+      "coverage": "91.63%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
-      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + pré-análise SSE + entrega de código verificável + Kanban Macro + Projetos (CRUD + cascade delete) + Nova Orquestração simplificada + Detalhe com mover Backlog→Ready; 193 testes / 89.65%."
+      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + catálogo multi-repo relacional (arquivamento/restauração, eventos, FKs RESTRICT, backfill legado, filtro e snapshot de workspace) + consoles /ui, /ui/nova e /ui/detalhe; 208 testes / 91.63%; Docker/Postgres smoke OK."
     },
     "cards_done": [
       "TASK-01",
@@ -791,9 +791,11 @@
       "TASK-80",
       "TASK-81",
       "TASK-82",
-      "TASK-83"
+      "TASK-83",
+      "TASK-84"
     ],
     "increments_post_o5": [
+      "TASK-84 — Catálogo multi-repo governado (ADR-0010): Project/ProjectEvent relacionais via porta e adapters; paths canônicos únicos; archive/restore auditáveis por RBAC; FKs RESTRICT e backfill legado; workspace copiado por orquestração; filtro project_id; console ativo/arquivado e fluxo pré-análise → docs-first → detalhe. 208 testes / 91.63%; ruff+format+mypy OK; Alembic head/check sem drift; Docker/Postgres smoke OK. Supersede os comportamentos destrutivos do protótipo TASK-83.",
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
       "TASK-17 — Normalização §29 (tabelas por entidade) + migrations Alembic (alembic check limpo)",
       "TASK-18 — Normalização estrita (tabelas de junção card_links/adr_links/board_columns/planned_agents) + índices + consultas + migration 0002",
@@ -854,17 +856,19 @@
       "TASK-79 — Workspace por orquestração + docs-first: Orchestration.target_path (migração manual b3d1f0a24c7e, fallback ASO_TARGET_REPO) atrela providers CLI/gate/corrida à pasta via _provider_for; novos módulos execution/workspace.py e execution/docs_scaffold.py; Service.analyze_folder gera/atualiza docs (scaffold determinístico p/ pasta vazia; agente selecionado em worktree p/ projeto existente, diff mesclado; evento WorkspaceAnalyzed + ContextPatch engineering.docs_first); API GET /v1/fs/dirs + POST /orchestrations(target_path) + POST /analyze-folder; console: modal navegador de pastas, seletor de agente na criação, botão 'Analisar pasta' e status docs; ADR-0008. 184 testes / 93.02% / ruff+mypy OK / alembic check sem diff.",
       "TASK-80 — Pré-análise de workspace antes da demanda: WorkspaceService.iter_files enumera arquivos regulares em ordem determinística e ignora diretórios técnicos; GET /v1/fs/analyze/stream transmite SSE com arquivo, contador e percentual sem escrita; console bloqueia a demanda até concluir o modal de progresso e invalida a análise ao trocar a pasta. Docs/OpenAPI/ADR-0008 sincronizados. 191 testes / 93.01% / ruff+mypy OK / alembic check sem diff.",
       "TASK-81 — Entrega de código verificável: executor CLI rejeita exit não-zero e diff vazio; configuração persistida por orquestração (executor, esforço, comando de validação); execução estrita aguarda PR, CI real na branch, revisão e merge no workspace antes do gate. 193 testes / 91.51% / ruff+mypy OK / alembic check sem diff.",
-      "TASK-82 — Kanban Macro + formulário isolado: nova tela inicial /ui/ (macro.html) exibe todos os projetos com cards no Kanban (Backlog→Done), filtro por projeto e botão + Nova Orquestração; /ui/nova (nova.html) contém apenas formulário de criação (pasta, projeto, executor, modo, validação, análise, demanda) sem listar outras orquestrações; /ui/detalhe mantém console original. Rotas explícitas FileResponse em app.py. 193 testes / 91.48% / ruff+mypy OK / alembic check sem diff.",
+      "TASK-82 — Base dos consoles separada em catálogo /ui/, criação /ui/nova e detalhe /ui/detalhe; fluxos preservados e consolidados pela TASK-84. Regressão final: 208 testes / 91.63% + smoke Docker/Postgres.",
       "TASK-83 — Projetos (CRUD + cascade delete) + UI completa: entidade Project com ProjectStore JSON (.aso/projects.json); endpoints CRUD + cascade delete de orquestrações (DELETE /v1/orchestrations/{id}, DELETE /v1/projects/{id}); Kanban Macro com modal Novo Projeto (nome, descrição, path, executor → auto-análise), Remover Projeto com confirmação; Nova Orquestração simplificada (textarea + seletor projeto/agente/esforço); Detalhe com Kanban completo (todas colunas), botão ▶ Ready (Backlog→Ready libera IA), seletor de executor por card (🤖). 193 testes / 89.65% / ruff+mypy OK / alembic check sem diff."
     ],
-    "maintenance_log": []
+    "maintenance_log": [
+      "Correção de governança TASK-83 — o ProjectStore JSON, a cascata destrutiva, a autoanálise na criação de projeto e o seletor local de executor por card foram removidos; a evidência vigente é a TASK-84/ADR-0010."
+    ]
   },
   "agentic": {
     "project_structure": {
       "docs/": "documentação canônica (fonte de verdade)",
-      "docs/adrs/": "ADR-0001..0005",
+      "docs/adrs/": "ADR-0001..0010",
       "docs/phases/": "F1-discovery, F2-architecture, F3-contracts, F4-planning",
-      "specs/": "15 specs (MVP-1) + README",
+      "specs/": "16 specs (MVP-1 + catálogo multi-repo) + README",
       "tasks/": "backlog executável (README)",
       "agents/": "mapa de agentes/ownership (README)",
       "skills/": "mapa de skills (README)",
