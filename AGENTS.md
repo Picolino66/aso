@@ -26,9 +26,12 @@ Estas regras são a razão de existir do projeto — não as contorne:
    ([src/aso/execution/worktree.py](src/aso/execution/worktree.py)); nunca opere
    na branch principal. Colete o diff antes de qualquer merge.
 6. **Merge é governado**: só ocorre com CI `passed` + review `approved`.
-7. **Rastreabilidade**: requisito → ADR → spec → card → implementação → teste →
+7. **Nunca faça commit ou push.** Agentes podem preparar mudanças e apresentar
+   diffs, mas a criação de commits e qualquer envio para repositórios remotos
+   ficam reservados ao operador humano.
+8. **Rastreabilidade**: requisito → ADR → spec → card → implementação → teste →
    gate → snapshot. Toda decisão arquitetural relevante vira ADR.
-8. **Secrets só por variável de ambiente** (`ASO_API_KEYS` etc.), nunca no repo.
+9. **Secrets só por variável de ambiente** (`ASO_API_KEYS` etc.), nunca no repo.
 
 ## Fluxo de trabalho obrigatório ao terminar um incremento
 
