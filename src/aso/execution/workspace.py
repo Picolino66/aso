@@ -72,9 +72,18 @@ class WorkspaceService:
         return p
 
     def is_empty(self, path: Path) -> bool:
-        """A pasta está vazia para fins de projeto (ignora `.git`, caches etc.)?"""
-        for entry in path.iterdir():
-            if entry.name in _IGNORED_DIRS:
+        """A pasta está vazia para fins de projeto (ignora metadados gerados pelo ASO)?
+
+        Um retry de docs-first pode encontrar apenas `.gitignore` e scaffolds ASO de
+        tentativas anteriores. Esses arquivos não transformam uma pasta sem código em
+        "projeto existente"; classificá-la assim acionaria um agente sem fatos para
+        documentar e produziria, corretamente, um diff vazio.
+        """
+        for file_path in self.iter_files(path):
+            relative = file_path.relative_to(path).as_posix()
+            if relative in {".gitignore", "docs/modules/.gitkeep"}:
+                continue
+            if _is_aso_scaffold_file(file_path, relative):
                 continue
             return False
         return True
@@ -222,6 +231,33 @@ class WorkspaceService:
                     raise ValueError(f"Sem permissão para ler: {entry}") from exc
 
         yield from walk(root)
+
+
+def _is_aso_scaffold_file(file_path: Path, relative: str) -> bool:
+    """Reconhece apenas docs placeholders gerados pelo scaffold determinístico."""
+    if not relative.startswith("docs/"):
+        return False
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+    if relative == "docs/index.md":
+        return "Fonte de verdade para IA" in content and "Documentação (docs-first)" in content
+    if relative.endswith("/index.md"):
+        return "Índice do módulo" in content and "## Features" in content
+    if relative.endswith(".md"):
+        required = (
+            "## Descrição",
+            "## Localização no código",
+            "## Entrada",
+            "## Saída",
+            "## Dependências",
+            "## Regras de negócio",
+            "## Fluxo resumido",
+            "## Possíveis erros",
+        )
+        return all(section in content for section in required) and "_A preencher._" in content
+    return False
 
 
 class WorkspaceAnalyzer:

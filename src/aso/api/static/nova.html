@@ -88,6 +88,7 @@
           </select>
         </div>
       </div>
+      <div id="executorStatus" class="status" style="margin-top:8px"></div>
       <label for="validation">Comando de validação (obrigatório na execução direta)</label>
       <input id="validation" placeholder="Ex.: pytest -q ou npm test">
       <div style="margin-top:17px"><button id="create" class="ok" type="button">Criar e gerar docs-first</button></div>
@@ -101,6 +102,7 @@
     let analyzedProjectId = null;
     let stream = null;
     let createdOrchestrationId = null;
+    let executors = [];
 
     function token() { return localStorage.getItem('aso_token') || ''; }
     async function api(path, options) {
@@ -125,6 +127,36 @@
     function mark(step, state) { document.getElementById(step).className = 'step' + (state ? ' ' + state : ''); }
     function setError(id, message) {
       const node = document.getElementById(id); node.hidden = !message; node.textContent = message || '';
+    }
+    function effortLabel(value) {
+      return ({low:'Baixo',medium:'Médio',high:'Alto',xhigh:'Extra alto',max:'Máximo',ultra:'Ultra'})[value] || value;
+    }
+    function selectedExecutor() {
+      const name = document.getElementById('executor').value;
+      return executors.find(function(executor) { return executor.name === name; }) || null;
+    }
+    function refreshExecutor() {
+      const executor = selectedExecutor();
+      const effort = document.getElementById('effort');
+      const previous = effort.value;
+      const values = executor && executor.supported_efforts && executor.supported_efforts.length
+        ? executor.supported_efforts : ['low','medium','high'];
+      effort.replaceChildren();
+      values.forEach(function(value) { effort.appendChild(option(value, effortLabel(value))); });
+      effort.value = values.includes(previous) ? previous : (executor && executor.effort || values[0]);
+      const status = document.getElementById('executorStatus');
+      if (!executor) { status.textContent = 'O executor padrão do catálogo será usado.'; return; }
+      const version = executor.runtime_version ? ' · ' + executor.runtime_version : '';
+      status.textContent = executor.available
+        ? 'Disponível' + version
+        : 'Indisponível: ' + (executor.availability_reason || 'sincronize o catálogo Codex');
+      status.classList.toggle('success', Boolean(executor.available));
+    }
+    function continuousValidation(value) {
+      const normalized = value.trim().toLowerCase();
+      return /^(npm|pnpm|yarn|bun) run (dev|serve|start|watch)(\s|$)/.test(normalized)
+        || /^(npm|yarn) start(\s|$)/.test(normalized)
+        || /(^|\s)--watch(=|\s|$)/.test(normalized);
     }
     function resetAnalysis() {
       if (stream) { stream.close(); stream = null; }
@@ -157,12 +189,16 @@
         setError('analysisError', error.message);
       }
       try {
-        const executors = await api('/v1/executors');
+        executors = await api('/v1/executors');
         const executorSelect = document.getElementById('executor');
         executors.forEach(function(executor) {
           const label = executor.name + (executor.model ? ' · ' + executor.model : '') + (executor.provider ? ' (' + executor.provider + ')' : '');
-          const item = option(executor.name, label); item.selected = Boolean(executor.is_default); executorSelect.appendChild(item);
+          const item = option(executor.name, label + (executor.available ? '' : ' · indisponível'));
+          item.disabled = !executor.available;
+          item.selected = Boolean(executor.is_default && executor.available);
+          executorSelect.appendChild(item);
         });
+        refreshExecutor();
       } catch (_) {}
     }
 
@@ -208,6 +244,8 @@
       if (!project || analyzedProjectId !== project.id) { setError('createError', 'Pré-analise o projeto selecionado antes de continuar.'); return; }
       if (!request) { setError('createError', 'Informe a demanda.'); return; }
       if (mode === 'code-execution' && !validation) { setError('createError', 'Informe o comando de validação para execução direta.'); return; }
+      if (continuousValidation(validation)) { setError('createError', 'Use um comando finito, como npm test ou npm run build; servidores dev não são quality gates.'); return; }
+      if (selectedExecutor() && !selectedExecutor().available) { setError('createError', 'Selecione um executor disponível.'); return; }
       setError('createError', ''); button.disabled = true; button.textContent = 'Criando orquestração…';
       document.getElementById('createStatus').textContent = 'Persistindo a orquestração com uma cópia do workspace…';
       try {
@@ -236,6 +274,7 @@
     }
 
     document.getElementById('project').addEventListener('change', projectChanged);
+    document.getElementById('executor').addEventListener('change', refreshExecutor);
     document.getElementById('analyze').addEventListener('click', analyzeWorkspace);
     document.getElementById('create').addEventListener('click', createOrchestration);
     initialize();

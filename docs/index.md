@@ -32,7 +32,7 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 ### Documentação técnica
 - [Requisitos (resumo)](requirements.md) · [Requisitos completos](../requerimentos.md)
 - [Arquitetura](architecture.md) · [Modelo de domínio](domain-model.md) · [API](api.md) · [`contracts/openapi.yaml`](../contracts/openapi.yaml)
-- [Módulo de projetos](modules/projetos/index.md) · [Fluxo do console](modules/console/index.md)
+- [Módulo de projetos](modules/projetos/index.md) · [Executores](modules/executores/index.md) · [Fluxo do console](modules/console/index.md)
 - [Kanban](kanban.md) · [Agentes](agents.md) · [Contexto](context.md) · [Quality Gates](quality-gates.md) · [Snapshots](snapshots.md)
 - [Operações (runbook)](operations.md) · [Deploy & Rollback](deploy.md) · [CHANGELOG](../CHANGELOG.md)
 - [MVP-1](mvp/mvp-1.md)
@@ -50,3 +50,4 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0008 — Workspace por orquestração e docs-first](adrs/ADR-0008-workspace-por-orquestracao.md)
 - [ADR-0009 — Entrega de código com evidência verificável](adrs/ADR-0009-entrega-de-codigo-governada.md)
 - [ADR-0010 — Catálogo multi-repo relacional e arquivamento](adrs/ADR-0010-catalogo-multi-repo-governado.md)
+- [ADR-0011 — Descoberta de capacidades de executores CLI](adrs/ADR-0011-descoberta-de-capacidades-cli.md)

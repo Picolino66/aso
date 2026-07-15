@@ -11,9 +11,9 @@ navegação docs-first:
           index.md                 ← índice do módulo
           <módulo>.md              ← feature inicial no template de 8 seções
 
-Quando não há módulos detectados (pasta vazia), cria só `docs/index.md` e
-`docs/modules/.gitkeep`. Retorna a lista de arquivos criados (não sobrescreve os
-que já existem — a atualização de conteúdo real é tarefa do agente).
+Quando não há módulos detectados (pasta vazia), cria o módulo neutro `projeto`
+com o template das oito seções. Retorna a lista de arquivos criados e só atualiza
+um índice existente quando ele é o placeholder reconhecível gerado pelo próprio ASO.
 
 Tudo em pt-BR (regra de governança).
 """
@@ -90,7 +90,7 @@ def write_scaffold(path: str | Path, modules: list[str] | None = None) -> list[s
     """
     root = Path(path)
     project_name = root.name or "Projeto"
-    mods = [m for m in (modules or [])]
+    mods = [m for m in (modules or [])] or ["projeto"]
     created: list[str] = []
 
     docs = root / "docs"
@@ -102,13 +102,14 @@ def write_scaffold(path: str | Path, modules: list[str] | None = None) -> list[s
     if not index.exists():
         index.write_text(_index_md(project_name, mods), encoding="utf-8")
         created.append("docs/index.md")
+    else:
+        current_index = index.read_text(encoding="utf-8")
+        if "Fonte de verdade para IA" in current_index and "_Nenhum módulo ainda." in current_index:
+            index.write_text(_index_md(project_name, mods), encoding="utf-8")
 
-    if not mods:
-        gitkeep = modules_dir / ".gitkeep"
-        if not gitkeep.exists():
-            gitkeep.write_text("", encoding="utf-8")
-            created.append("docs/modules/.gitkeep")
-        return created
+    gitkeep = modules_dir / ".gitkeep"
+    if gitkeep.exists():
+        gitkeep.unlink()
 
     for m in mods:
         mdir = modules_dir / m

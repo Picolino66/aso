@@ -10,6 +10,7 @@ from pathlib import Path
 
 from aso.control.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
+from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.persistence.memory import InMemoryOrchestrationRepository
 from aso.shared.types import Phase
 
@@ -46,6 +47,28 @@ def test_sql_repository_roundtrip(tmp_path: Path) -> None:
     svc = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url))
     orch = svc.create_orchestration("demo")
     assert svc.list_all()[0].id == orch.id
+
+
+def test_execution_settings_survive_restart(tmp_path: Path) -> None:
+    url = f"sqlite:///{tmp_path / 'settings.db'}"
+    catalog = ExecutorCatalog([ExecutorProfile(name="mock", kind="mock", is_default=True)])
+    first = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url), catalog=catalog)
+    orchestration = first.create_orchestration("demo")
+    first.update_execution_settings(
+        orchestration.id,
+        executor="mock",
+        effort="medium",
+        validation_command="npm test",
+        actor="operador",
+    )
+    second = OrchestrationService(
+        repository=SqlAlchemyOrchestrationRepository(url), catalog=catalog
+    )
+    loaded = second.get(orchestration.id)
+    assert loaded.selected_executor == "mock"
+    assert loaded.selected_effort == "medium"
+    assert loaded.validation_command == "npm test"
+    assert any(event.type == "ExecutionSettingsUpdated" for event in second.timeline(loaded.id))
 
 
 def test_two_orchestrations_share_adr_id_no_collision(tmp_path: Path) -> None:

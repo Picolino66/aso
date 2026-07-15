@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
+from aso.execution.codex_discovery import CodexCapabilities, CodexModel
 from aso.execution.settings_store import ExecutorSettingsStore
 
 
@@ -75,3 +77,47 @@ def test_executor_crud_endpoints(tmp_path: Path) -> None:
 
     # 'mock' protegido → 409
     assert client.delete("/v1/executors/mock").status_code == 409
+
+
+def test_sync_codex_idempotente_preserva_customizado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _svc(tmp_path)
+    svc.save_executor(ExecutorProfile(name="custom", kind="cli", command="custom"))
+    svc.save_executor(ExecutorProfile(name="codex-gpt-5-medium", kind="cli", command="legado"))
+    capabilities = CodexCapabilities(
+        binary="/usr/bin/codex",
+        version="codex-cli 1",
+        models=(CodexModel("gpt-atual", "GPT atual", True, "medium", ("low", "medium")),),
+    )
+    monkeypatch.setattr("aso.control.orchestration_service.discover_codex", lambda: capabilities)
+    first = svc.sync_codex_executors()
+    second = svc.sync_codex_executors()
+    assert first == second
+    names = {item["name"] for item in second}
+    assert {"custom", "codex-default", "codex-gpt-atual"} <= names
+    assert "codex-gpt-5-medium" not in names
+    reloaded = ExecutorSettingsStore(str(tmp_path / "executors.json")).load()
+    assert {profile.name for profile in reloaded} == {
+        "custom",
+        "codex-default",
+        "codex-gpt-atual",
+    }
+
+
+def test_sync_codex_concorrente_nao_duplica(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    svc = _svc(tmp_path)
+    capabilities = CodexCapabilities(
+        binary="/usr/bin/codex",
+        version="codex-cli 1",
+        models=(CodexModel("gpt-atual", "GPT atual", True, "medium", ("medium",)),),
+    )
+    monkeypatch.setattr("aso.control.orchestration_service.discover_codex", lambda: capabilities)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: svc.sync_codex_executors(), range(8)))
+    assert all(result == results[0] for result in results)
+    assert [profile.name for profile in svc._catalog.profiles()].count(  # type: ignore[union-attr]  # noqa: SLF001
+        "codex-default"
+    ) == 1

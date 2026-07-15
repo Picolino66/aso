@@ -53,7 +53,7 @@ class CliAgentExecutionProvider:
                 text=True,
             )
             if proc.returncode != 0:
-                detail = (proc.stderr or proc.stdout).strip()[-1000:]
+                detail = _failure_detail(proc.stderr or proc.stdout)
                 raise AgentExecutionError(
                     f"Executor CLI terminou com exit={proc.returncode}: {detail or 'sem saída'}"
                 )
@@ -85,3 +85,25 @@ class CliAgentExecutionProvider:
             patches=[patch],
             artifacts={"branch": branch, "diff": diff, "stdout": proc.stdout[:2000]},
         )
+
+
+def _failure_detail(output: str) -> str:
+    """Extrai a mensagem estruturada sem devolver prompt/JSON bruto ao console."""
+    messages: list[str] = []
+    for line in output.splitlines():
+        candidate = line.strip()
+        if candidate.startswith("ERROR:"):
+            candidate = candidate.removeprefix("ERROR:").strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        error = payload.get("error") if isinstance(payload, dict) else None
+        message = error.get("message") if isinstance(error, dict) else None
+        if isinstance(message, str) and message not in messages:
+            messages.append(message)
+    if messages:
+        return " ".join(messages)[:600]
+    return output.strip()[-600:]

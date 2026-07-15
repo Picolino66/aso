@@ -44,6 +44,10 @@ shared  ◄─ governance ◄─ kanban ◄─ observability
 
 Python 3.12+ · FastAPI + Uvicorn · Pydantic v2 · PostgreSQL 16 (JSONB) + SQLAlchemy 2.x + Alembic · asyncio · `httpx`/SDK Anthropic (abstração `LLMProvider`) · `subprocess`/PTY (`AgentAdapter`) · git via subprocess (`WorktreeManager`) · Typer (CLI) · pytest + coverage · ruff + mypy · `pyproject.toml` (src layout) · Docker Compose (Postgres). UI web **diferida**: MVP 1 entrega API + CLI. Ver [ADR-0004](adrs/ADR-0004-tech-stack-python.md) (supera a stack TS sugerida no §37 do requisito).
 
+Executores Codex gerenciados são adapters descobertos pelo App Server (`model/list`),
+conforme ADR-0011. O domínio não depende do protocolo do fornecedor: o catálogo recebe
+capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
+
 ## 4. Persistência, segurança e infra (resumo)
 
 - **Dados:** `OrchestratorContext` e snapshots em **JSONB** (escrita atômica, histórico append-only, consistência **forte** por orquestração); entidades operacionais em tabelas relacionais. Detalhe em [F3 — Contracts](phases/F3-contracts.md) e [`domain-model.md`](domain-model.md).

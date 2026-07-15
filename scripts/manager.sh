@@ -132,6 +132,14 @@ cmd_status() {
     curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1 && ok "  /health OK" || warn "  /health sem resposta"
   else echo "  parada"; fi
   echo "  ASO_DATABASE_URL=$DB_URL"
+  echo "── Codex CLI efetivo ──"
+  local codex_bin="${ASO_CODEX_BIN:-codex}"
+  if command -v "$codex_bin" >/dev/null 2>&1; then
+    echo "  binário: $(command -v "$codex_bin")"
+    "$codex_bin" --version 2>/dev/null | sed 's/^/  versão: /'
+  else
+    warn "  não encontrado; configure ASO_CODEX_BIN"
+  fi
 }
 cmd_logs()    { [ -f "$LOG" ] || { warn "Sem log ainda (inicie a API)."; return 0; }; info "Logs da API (Ctrl+C p/ sair):"; tail -n 80 -f "$LOG"; }
 cmd_dblogs()  { require_docker || return 1; info "Logs do Postgres (Ctrl+C p/ sair):"; $COMPOSE logs -f "$PG_SERVICE"; }
@@ -141,9 +149,9 @@ cmd_seed()    {
   if ! curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then
     warn "API não está no ar — iniciando primeiro…"; cmd_iniciar || return 1
   fi
-  info "Cadastrando executores Codex/Claude (todos os modelos × níveis)…"
+  info "Sincronizando modelos do Codex disponíveis nesta autenticação…"
   bash "$ROOT/scripts/seed-executors.sh" "http://localhost:$PORT"
-  ok "Executores no catálogo. Abra ⚙ Config no console para ver/editar."
+  ok "Executores Codex sincronizados. Perfis personalizados e Claude foram preservados."
 }
 cmd_psql()    { require_docker || return 1; local cid; cid="$(db_cid)"; [ -n "$cid" ] || { err "Postgres não está rodando."; return 1; }; info "Console psql (\\q p/ sair):"; docker exec -it "$cid" psql -U aso -d aso; }
 cmd_shell()   { require_docker || return 1; local cid; cid="$(db_cid)"; [ -n "$cid" ] || { err "Postgres não está rodando."; return 1; }; docker exec -it "$cid" bash; }
@@ -164,7 +172,7 @@ menu() {
     echo "  9) Lint + tipagem (ruff/mypy)"
     echo " 10) Console psql"
     echo " 11) Shell do Postgres"
-    echo " 12) Seed de executores (Codex + Claude, todos os modelos/níveis)"
+    echo " 12) Sincronizar executores Codex disponíveis"
     echo "  0) Sair"
     read -r -p "Opção: " opt
     case "$opt" in

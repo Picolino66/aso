@@ -28,6 +28,19 @@ orquestração. O console usa esse passo antes de liberar a demanda. A geração
 documentação docs-first continua em `POST .../analyze-folder`, já vinculada a uma
 orquestração e sujeita à governança definida na ADR-0008.
 
+### Executores e recuperação
+
+```
+GET    /v1/executors
+POST   /v1/executors/sync                         # admin; Codex model/list
+PATCH  /v1/orchestrations/{id}/execution-settings # operator; created/blocked
+```
+
+Perfis Codex gerenciados expõem `managed_by`, `supported_efforts`, `available`,
+`availability_reason` e `runtime_version`. Modelo ou esforço indisponível retorna `409`
+antes do worktree. A sincronização preserva perfis personalizados. O PATCH registra
+`ExecutionSettingsUpdated`; comandos contínuos retornam `400`.
+
 Para execução de código, a criação aceita `execution_mode`, `executor`, `effort` e
 `validation_command`. O modo `code-execution` inicia em F5 e exige validação. A PR só
 avança após `POST /v1/orchestrations/{id}/pulls/{pr}/ci/run`, revisão humana e merge.
@@ -61,6 +74,7 @@ POST   /v1/orchestrations/{id}/resume
 POST   /v1/orchestrations/{id}/cancel
 POST   /v1/orchestrations/{id}/rollback     # body: { to_snapshot: "O3" }
 POST   /v1/orchestrations/{id}/retry
+PATCH  /v1/orchestrations/{id}/execution-settings
 ```
 
 Ao receber `project_id`, `POST /v1/orchestrations` exige projeto ativo e copia seu

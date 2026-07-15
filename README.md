@@ -192,6 +192,7 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_GATE_TEST_COMMAND` | comando de testes/lint rodado no gate das fases de código (F5/F6) no `ASO_TARGET_REPO`; só aprova com exit 0 |
 | `ASO_EXECUTORS` | catálogo JSON de executores (seed inicial); ex.: `[{"name":"claude","kind":"cli","command":"claude -p","model":"sonnet"}]`. Também editável pela tela **⚙ Config** do console |
 | `ASO_EXECUTORS_FILE` | arquivo onde a tela de config persiste os perfis (default `.aso/executors.json`; monte um volume para persistir no Docker) |
+| `ASO_CODEX_BIN` | binário Codex consultado por `model/list` e usado nos perfis gerenciados (default `codex` do `PATH`) |
 | `ASO_<NOME>_API_KEY` | chave do executor LLM chamado `<nome>` (a tela de config só referencia a env var; o segredo nunca é gravado) |
 
 ### Configurar o Codex (ou Claude CLI) para todas as fases
@@ -203,11 +204,13 @@ aprovações. Passos:
 1. **Repo alvo** (obrigatório p/ agentes CLI): `export ASO_TARGET_REPO=/caminho/do/repo`.
 2. Garanta que o binário (`codex`/`claude`) está **acessível ao processo da API** (rodando
    local via `uvicorn`, é o seu ambiente; no Docker, precisa estar na imagem).
-3. Na tela **⚙ Config**, adicione o executor:
+3. Rode `./scripts/manager.sh seed`: o ASO cria `codex-default` e um perfil por modelo
+   anunciado pela conta, sem copiar uma lista estática que pode divergir do rollout.
+4. Para um executor personalizado, use a tela **⚙ Config**:
    - **nome**: `codex` · **tipo**: `cli` · **default**: marcado
    - **comando CLI** (caminho absoluto do wrapper + o agente):
      `/app/scripts/aso-agent-wrapper.sh codex exec` (ou, local, o caminho do repo)
-4. O **wrapper** [`scripts/aso-agent-wrapper.sh`](scripts/aso-agent-wrapper.sh) traduz a
+5. O **wrapper** [`scripts/aso-agent-wrapper.sh`](scripts/aso-agent-wrapper.sh) traduz a
    tarefa (JSON no stdin) em um prompt em pt-BR e chama `codex exec "<prompt>"` no worktree
    do card. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
 

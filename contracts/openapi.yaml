@@ -14,6 +14,7 @@ tags:
   - name: governance
   - name: workspace
   - name: projects
+  - name: executors
 
 paths:
   /projects:
@@ -130,6 +131,30 @@ paths:
               schema: { type: string }
         "400": { $ref: "#/components/responses/Error" }
 
+  /executors:
+    get:
+      tags: [executors]
+      summary: Lista perfis e a compatibilidade conhecida com o runtime efetivo
+      responses:
+        "200":
+          description: Catálogo sem valores de secrets
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ExecutorProfile" } }
+
+  /executors/sync:
+    post:
+      tags: [executors]
+      summary: Sincroniza os modelos anunciados pelo Codex App Server (admin)
+      responses:
+        "200":
+          description: Perfis gerenciados sincronizados; personalizados preservados
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/ExecutorProfile" } }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /orchestrations:
     get:
       tags: [orchestrations]
@@ -180,6 +205,22 @@ paths:
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
         "404": { $ref: "#/components/responses/Error" }
+
+  /orchestrations/{id}/execution-settings:
+    patch:
+      tags: [orchestrations]
+      summary: Corrige executor, esforço e gate de uma execução criada ou bloqueada
+      parameters: [ { $ref: "#/components/parameters/Id" } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecutionSettings" }
+      responses:
+        "200": { description: Configuração persistida e auditada, content: { application/json: { schema: { $ref: "#/components/schemas/Orchestration" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /orchestrations/{id}/context:
     get:
@@ -302,8 +343,28 @@ components:
         user_request: { type: string }
         execution_mode: { $ref: "#/components/schemas/ExecutionMode" }
         executor: { type: string, nullable: true }
-        effort: { type: string, nullable: true, enum: [low, medium, high] }
+        effort: { type: string, nullable: true, enum: [low, medium, high, xhigh, max, ultra] }
         validation_command: { type: string, nullable: true }
+    ExecutionSettings:
+      type: object
+      properties:
+        executor: { type: string, nullable: true }
+        effort: { type: string, nullable: true, enum: [low, medium, high, xhigh, max, ultra] }
+        validation_command: { type: string, nullable: true, description: "Teste, lint ou build finito; servidores e watch são rejeitados." }
+    ExecutorProfile:
+      type: object
+      properties:
+        name: { type: string }
+        kind: { type: string, enum: [mock, cli, llm] }
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        supported_efforts: { type: array, items: { type: string } }
+        is_default: { type: boolean }
+        managed_by: { type: string, description: "codex quando sincronizado pelo runtime" }
+        available: { type: boolean }
+        availability_reason: { type: string }
+        runtime_version: { type: string }
     ProjectStatus:
       type: string
       enum: [active, archived]

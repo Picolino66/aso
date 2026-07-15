@@ -2615,6 +2615,31 @@
       "linked_adrs": ["ADR-0006", "ADR-0008", "ADR-0010"],
       "dependencies": ["TASK-79", "TASK-82", "TASK-83"],
       "evidence": "208 testes verdes, cobertura 91.63%; ruff check/format e mypy strict OK; Alembic head f84c2a1d9e30 + check sem drift; Docker/Postgres smoke multi-repo/docs-first OK; FKs de projects confirmadas como RESTRICT."
+    },
+    {
+      "id": "TASK-85",
+      "epic": "EPIC-5",
+      "type": "BugFix",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Executores Codex compatíveis e recuperação docs-first",
+      "description": "Descobre modelos/esforços pelo Codex App Server, migra seeds estáticos, bloqueia incompatibilidades antes do worktree e permite corrigir/repetir docs-first sem descartar a orquestração.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "specs/executores-codex-compativeis.md",
+      "acceptance_criteria": [
+        "model/list paginado gera codex-default e perfis dos modelos efetivos",
+        "Perfis legados ficam indisponíveis e personalizados são preservados",
+        "Modelo/esforço persistidos valem em docs, cards, fases, plano e Autopilot",
+        "PATCH de configurações é auditável e respeita RBAC/status",
+        "Gate contínuo é rejeitado e docs-first falho permanece repetível",
+        "Console, OpenAPI, ADR e operação refletem disponibilidade real"
+      ],
+      "linked_requirements": ["§24", "§26", "§28", "§33"],
+      "linked_adrs": ["ADR-0007", "ADR-0008", "ADR-0010", "ADR-0011"],
+      "dependencies": ["TASK-78", "TASK-79", "TASK-84"],
+      "evidence": "240 testes verdes, cobertura 91.16%; ruff check/format e mypy strict OK; Alembic upgrade/check sem drift; descoberta real /usr/bin/codex 0.133.0 => gpt-5.5/5.4/5.4-mini; Docker isolado + Postgres 16 + smoke.sh OK; orch_274fb313b8f248b58c0ec80f97d680b3 preservada, atualizada para codex-default/medium/npm test e recuperada com oito seções + workspace_prepared=true."
     }
   ]
 }

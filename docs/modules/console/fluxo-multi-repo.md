@@ -29,11 +29,14 @@ Endpoints `/v1/projects`, `/v1/orchestrations`, `/v1/fs/analyze/stream`, `/analy
 
 Criar projeto não toca a pasta. Trocar projeto invalida a pré-análise. O console não inicia
 Autopilot implicitamente e não oferece configuração de executor por card sem persistência.
+Executores incompatíveis ficam desabilitados; o esforço vem das capacidades do modelo.
+Comandos contínuos não são aceitos como quality gate.
 
 ## Fluxo resumido
 
 Selecionar projeto → SSE somente leitura → informar demanda/configuração → criar
 orquestração → executar docs-first governado → abrir detalhe → usuário aciona Autopilot.
+Se a documentação falhar, o detalhe permite corrigir executor/gate e repetir apenas essa etapa.
 
 ## Possíveis erros
 

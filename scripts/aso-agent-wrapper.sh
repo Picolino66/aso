@@ -23,6 +23,7 @@ except Exception:
     d = {}
 c = d.get("content") or {}
 req = c.get("request") or c.get("by") or "(sem demanda)"
+gate = c.get("validation_command")
 print(
     f"Você é um agente de engenharia autônoma no ASO Runtime (fase {d.get('phase', '?')}).\n"
     f"Demanda do produto: {req}\n"
@@ -30,6 +31,7 @@ print(
     "Implemente/produza o necessário NESTE diretório (worktree isolado do card), em "
     "pt-BR, com commits pequenos e foco na fase atual. Se for fase de código, deixe os "
     "testes verdes."
+    + (f"\nComando de aceite obrigatório e finito: {gate}" if gate else "")
 )
 PY
 )"

@@ -32,6 +32,11 @@ orquestração nem escreve no `OrchestratorContext`.
 
 ### Orchestration
 `id, project_id?, target_path?, selected_executor?, selected_effort?, validation_command?, workspace_prepared, execution_mode(full-pipeline|feature-evolution|architecture-review|code-execution|incident-response|phase-resume), current_phase(F1..F7), snapshot_version(O0..O7), status(created|running|blocked|waiting_human|completed|cancelled|rolled_back), user_request, created_at, updated_at`
+
+`ExecutorProfile` é configuração operacional fora do agregado relacional: além de nome,
+tipo, comando, modelo e esforço, perfis gerenciados carregam `managed_by`,
+`supported_efforts`, disponibilidade, motivo e versão do runtime. Secrets permanecem no
+ambiente. `ExecutionSettingsUpdated` audita correções feitas antes da execução.
 Possui 1 `OrchestratorContext`, 1 `ExecutionPlan`, N `Phase`, N `Board`, N `Snapshot`, N `ADR`, N `HumanApproval`.
 
 ### OrchestratorContext

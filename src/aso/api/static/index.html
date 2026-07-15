@@ -166,13 +166,15 @@
         <div class="card">
           <h2>⚙ Configurações · Executores (agentes)</h2>
           <div class="muted" style="margin-bottom:8px">Defina os agentes selecionáveis por etapa. As <b>chaves de API ficam só em variáveis de ambiente</b> — aqui você informa o <b>nome da env var</b> que guarda a chave (o valor nunca é gravado).</div>
-          ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Chave (env)</th><th></th></tr>
+          <div class="row" style="margin-bottom:8px"><button class="btn sm" onclick="syncExecutors()">Sincronizar Codex disponível</button></div>
+          ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Runtime</th><th>Chave (env)</th><th></th></tr>
             ${execs.map(e=>`<tr>
               <td><code>${esc(e.name)}</code>${e.is_default?' <span class="pill">default</span>':''}</td>
               <td>${esc(e.kind)}</td><td>${esc(e.provider||'—')}</td><td>${esc(e.model||'—')}</td><td>${esc(e.effort||'—')}</td>
+              <td><span class="pill ${e.available?'ok':'err'}">${e.available?'disponível':'indisponível'}</span> ${esc(e.runtime_version||e.availability_reason||'—')}</td>
               <td>${e.kind==='llm'?`<code>${esc(e.api_key_env||'—')}</code> ${keyPill(e)}`:'—'}</td>
-              <td>${e.name!=='mock'?`<button class="btn sm ghost" onclick="editExecutor('${esc(e.name)}')">Editar</button>
-                   <button class="btn sm err" onclick="delExecutor('${esc(e.name)}')">Remover</button>`:''}</td>
+              <td>${e.name!=='mock'?`<button class="btn sm ghost" onclick="editExecutor(decodeURIComponent('${encodeURIComponent(e.name)}'))">Editar</button>
+                   <button class="btn sm err" onclick="delExecutor(decodeURIComponent('${encodeURIComponent(e.name)}'))">Remover</button>`:''}</td>
             </tr>`).join('')}</table>` : '<div class="empty">nenhum executor</div>'}
           <h3 style="margin:16px 0 6px">Adicionar / atualizar executor</h3>
           <div class="row" style="flex-wrap:wrap;gap:8px">
@@ -232,6 +234,10 @@
       try { await del(`/v1/executors/${encodeURIComponent(name)}`); await renderSettings(); }
       catch (s) { alert('Falha ao remover ('+s+'): requer papel admin.'); }
     }
+    async function syncExecutors() {
+      try { await post('/v1/executors/sync'); await renderSettings(); }
+      catch (s) { alert('Falha ao sincronizar Codex ('+s+'). Confira ASO_CODEX_BIN e o papel admin.'); }
+    }
 
     async function loadOrchestrations() {
       const list = await api('/v1/orchestrations');
@@ -256,8 +262,14 @@
       if (!sel) return;
       try {
         const execs = await api('/v1/executors');
-        sel.innerHTML = '<option value="">default</option>' + execs.map(e =>
-          `<option value="${esc(e.name)}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('');
+        sel.replaceChildren();
+        const base = document.createElement('option'); base.value = ''; base.textContent = 'default'; sel.appendChild(base);
+        execs.forEach(function(executor) {
+          const item = document.createElement('option'); item.value = executor.name;
+          item.textContent = executor.name + (executor.model ? ' · ' + executor.model : '') + (executor.available ? '' : ' · indisponível');
+          item.disabled = !executor.available; item.selected = Boolean(executor.is_default && executor.available);
+          sel.appendChild(item);
+        });
       } catch (_) { /* sem token ainda; recarrega ao entrar */ }
     }
 
@@ -427,16 +439,21 @@
           </div>
           <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:8px;align-items:center">
             <label class="muted">agente
-              <select id="execSel" style="margin:0 0 0 4px;width:auto">
-                ${execs.length ? execs.map(e=>`<option value="${e.name}" ${(orch.selected_executor ? e.name===orch.selected_executor : e.is_default)?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('') : '<option value="">default</option>'}
-              </select>
+              <select id="execSel" style="margin:0 0 0 4px;width:auto"></select>
             </label>
             <label class="muted">esforço
-              <select id="effortSel" style="margin:0 0 0 4px;width:auto">
-                <option value="">default</option><option>low</option><option>medium</option><option>high</option>
-              </select>
+              <select id="effortSel" style="margin:0 0 0 4px;width:auto"></select>
             </label>
           </div>
+          <div id="execAvailability" class="muted" style="margin-top:6px"></div>
+          <label class="muted" style="margin-top:8px">comando de validação finito
+            <input id="validationSetting" placeholder="npm test ou npm run build" style="margin:4px 0 0" />
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button id="saveExecutionSettings" class="btn ghost">Salvar configuração</button>
+            ${orch.workspace_prepared ? '' : '<button id="retryDocsFirst" class="btn ghost">📄 Gerar novamente docs-first</button>'}
+          </div>
+          <div id="executionSettingsStatus" class="muted" style="margin-top:6px"></div>
           <div class="row" style="margin-top:8px">
             <button class="btn" onclick="startAutopilot('${id}')">▶ Autopilot</button>
             <button class="btn ghost" onclick="runPhase('${id}')">Rodar fase</button>
@@ -453,12 +470,75 @@
           <div id="tabc"><div class="empty">carregando...</div></div>
         </div>`;
       // Pré-seleciona o agente escolhido na criação (se ainda existir na lista).
+      populateExecutionSettings(execs, orch, id);
       if (_pendingExec) {
         const es = document.getElementById('execSel');
-        if (es && [...es.options].some(o => o.value === _pendingExec)) es.value = _pendingExec;
+        if (es && [...es.options].some(o => o.value === _pendingExec)) {
+          es.value = _pendingExec; es.dispatchEvent(new Event('change'));
+        }
         _pendingExec = null;
       }
       renderTab(id);
+    }
+
+    function populateExecutionSettings(execs, orch, id) {
+      const select = document.getElementById('execSel');
+      const validation = document.getElementById('validationSetting');
+      validation.value = orch.validation_command || '';
+      if (!execs.length) {
+        const item = document.createElement('option'); item.value = ''; item.textContent = 'default'; select.appendChild(item);
+      }
+      execs.forEach(function(executor) {
+        const item = document.createElement('option'); item.value = executor.name;
+        item.textContent = executor.name + (executor.model ? ' · ' + executor.model : '') + (executor.available ? '' : ' · indisponível');
+        item.disabled = !executor.available;
+        item.selected = orch.selected_executor ? executor.name === orch.selected_executor : Boolean(executor.is_default && executor.available);
+        select.appendChild(item);
+      });
+      function refreshEfforts() {
+        const profile = execs.find(function(executor) { return executor.name === select.value; });
+        const efforts = profile && profile.supported_efforts && profile.supported_efforts.length ? profile.supported_efforts : ['low','medium','high'];
+        const effort = document.getElementById('effortSel'); const previous = effort.value || orch.selected_effort;
+        effort.replaceChildren();
+        efforts.forEach(function(value) { const item = document.createElement('option'); item.value = value; item.textContent = value; effort.appendChild(item); });
+        effort.value = efforts.includes(previous) ? previous : (profile && profile.effort || efforts[0]);
+        const availability = document.getElementById('execAvailability');
+        availability.textContent = profile && profile.available
+          ? 'Disponível' + (profile.runtime_version ? ' · ' + profile.runtime_version : '')
+          : profile ? 'Indisponível: ' + (profile.availability_reason || 'sincronize o catálogo') : 'Executor padrão do catálogo.';
+      }
+      select.addEventListener('change', refreshEfforts); refreshEfforts();
+      document.getElementById('saveExecutionSettings').addEventListener('click', function() { saveExecutionSettings(id); });
+      const retry = document.getElementById('retryDocsFirst');
+      if (retry) retry.addEventListener('click', function() { retryDocsFirst(id); });
+    }
+
+    async function settingsRequest(path, options) {
+      const headers = Object.assign({'content-type':'application/json'}, options.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const response = await fetch(path, Object.assign({}, options, {headers:headers}));
+      if (!response.ok) {
+        const body = await response.json().catch(function() { return {}; });
+        throw new Error(body.detail || 'HTTP ' + response.status);
+      }
+      return response.json();
+    }
+    async function saveExecutionSettings(id) {
+      const status = document.getElementById('executionSettingsStatus'); status.textContent = 'Salvando…';
+      try {
+        await settingsRequest('/v1/orchestrations/' + encodeURIComponent(id) + '/execution-settings', {
+          method:'PATCH', body:JSON.stringify({executor:document.getElementById('execSel').value || null, effort:document.getElementById('effortSel').value || null, validation_command:document.getElementById('validationSetting').value.trim() || null})
+        });
+        status.textContent = 'Configuração salva.'; return true;
+      } catch (error) { status.textContent = error.message; return false; }
+    }
+    async function retryDocsFirst(id) {
+      if (!await saveExecutionSettings(id)) return;
+      const status = document.getElementById('executionSettingsStatus'); status.textContent = 'Gerando docs-first no worktree isolado…';
+      try {
+        await settingsRequest('/v1/orchestrations/' + encodeURIComponent(id) + '/analyze-folder', {method:'POST', body:JSON.stringify(_sel())});
+        status.textContent = 'Docs-first concluído.'; await openOrch(id);
+      } catch (error) { status.textContent = error.message; }
     }
 
     function setTab(id, t) { currentTab = t; document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.textContent===t)); renderTab(id); }

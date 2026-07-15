@@ -88,6 +88,22 @@ Cada card roda numa branch/worktree `aso/<agente>-<id>`; o diff é coletado ante
 merge e a branch principal permanece intacta (§26A.6). Sem essas variáveis, usa-se o provider
 mock (determinístico).
 
+### Catálogo Codex compatível com a conta
+
+`./scripts/manager.sh seed` consulta `codex app-server`/`model/list` pelo processo da API e
+sincroniza somente os modelos disponíveis na autenticação atual. O perfil `codex-default`
+não fixa `-m` e ignora apenas o `config.toml` pessoal, evitando que ele force um modelo
+incompatível; a autenticação ChatGPT é preservada. Perfis personalizados e Claude não são
+alterados. Use `ASO_CODEX_BIN` quando o binário correto não for o primeiro `codex` do `PATH`.
+
+O ASO recusa perfis indisponíveis antes de criar worktree. Também recusa servidores e
+watchers (`npm run dev`, `--watch`) como quality gate: configure um comando finito, como
+`npm test` ou `npm run build`. Em uma orquestração `created`/`blocked`, corrija pelo detalhe
+ou por `PATCH /v1/orchestrations/{id}/execution-settings` e repita somente o docs-first.
+Se uma tentativa anterior deixou apenas o scaffold de segurança, o retry reconhece que o
+workspace ainda não tem código e completa o template determinístico, sem pedir ao agente que
+invente fatos nem tratar o diff vazio como perda da orquestração.
+
 ## Observabilidade
 
 - Eventos de domínio no `EventLog`: `OrchestrationCreated`, `ContextPatchApplied`,

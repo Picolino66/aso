@@ -2,7 +2,7 @@
   "orchestration_id": "orch-aso-runtime-0001",
   "project_id": "proj-aso-runtime",
   "created_at": "2026-07-02T00:00:00Z",
-  "updated_at": "2026-07-15T02:05:00Z",
+  "updated_at": "2026-07-15T02:52:51Z",
   "current_phase": "F7",
   "phase_status": "F7 concluída — observabilidade/métricas, SLOs, alertas (regras) e feedback→backlog; pipeline F1–F7 fechado (O7). 2 avisos dependem de produção real (§7)",
   "snapshot_version": "O7",
@@ -758,12 +758,12 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 208,
-      "coverage": "91.63%",
+      "tests": 240,
+      "coverage": "91.16%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
-      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + catálogo multi-repo relacional (arquivamento/restauração, eventos, FKs RESTRICT, backfill legado, filtro e snapshot de workspace) + consoles /ui, /ui/nova e /ui/detalhe; 208 testes / 91.63%; Docker/Postgres smoke OK."
+      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + catálogo multi-repo + executores Codex descobertos por model/list (modelo/esforço efetivos, migração de seeds, preflight, recuperação auditável e gates finitos) + consoles /ui, /ui/nova e /ui/detalhe; 240 testes / 91.16%; Docker/Postgres smoke OK; recuperação real da orquestração preservada comprovada."
     },
     "cards_done": [
       "TASK-01",
@@ -792,9 +792,11 @@
       "TASK-81",
       "TASK-82",
       "TASK-83",
-      "TASK-84"
+      "TASK-84",
+      "TASK-85"
     ],
     "increments_post_o5": [
+      "TASK-85 — Executores Codex compatíveis (ADR-0011): descoberta model/list pelo binário/autenticação efetivos; codex-default sem -m e isolado do modelo pessoal; perfis por modelo e esforços suportados; seeds legados bloqueados; preflight sem fallback silencioso; PATCH auditável e retry docs-first; gates contínuos rejeitados. Orquestração preservada recuperada com codex-default/medium/npm test, oito seções e workspace_prepared=true. 240 testes / 91.16%; ruff+format+mypy OK; Alembic sem drift; Docker/Postgres smoke OK.",
       "TASK-84 — Catálogo multi-repo governado (ADR-0010): Project/ProjectEvent relacionais via porta e adapters; paths canônicos únicos; archive/restore auditáveis por RBAC; FKs RESTRICT e backfill legado; workspace copiado por orquestração; filtro project_id; console ativo/arquivado e fluxo pré-análise → docs-first → detalhe. 208 testes / 91.63%; ruff+format+mypy OK; Alembic head/check sem drift; Docker/Postgres smoke OK. Supersede os comportamentos destrutivos do protótipo TASK-83.",
       "TASK-16 — Persistência (repository ports + SQLAlchemy adapter), sob ADR-0006 (override de engineering)",
       "TASK-17 — Normalização §29 (tabelas por entidade) + migrations Alembic (alembic check limpo)",

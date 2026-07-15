@@ -18,8 +18,9 @@ from __future__ import annotations
 import json
 import os
 import shlex
+from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from aso.agents.executor import ExecutionProvider, LocalMockExecutionProvider
 from aso.execution.cli_provider import CliAgentExecutionProvider
@@ -27,6 +28,11 @@ from aso.execution.llm_client import AnthropicClient, LlmClient, OpenAICompatibl
 from aso.execution.llm_provider import LlmExecutionProvider
 
 _EFFORTS = ("low", "medium", "high")
+_LEGACY_CODEX_NAMES = {
+    f"codex-{model}-{effort}"
+    for model in ("gpt-5-codex", "gpt-5", "o4-mini")
+    for effort in _EFFORTS
+}
 
 
 class ExecutorProfile(BaseModel):
@@ -41,6 +47,11 @@ class ExecutorProfile(BaseModel):
     base_url: str = ""
     api_key_env: str = ""  # nome da env var que guarda a chave (secret fica no ambiente)
     is_default: bool = False
+    managed_by: str = ""  # vazio = perfil administrativo; "codex" = sincronizado
+    supported_efforts: list[str] = Field(default_factory=list)
+    available: bool = True
+    availability_reason: str = ""
+    runtime_version: str = ""
 
     def _key_env_name(self) -> str:
         return self.api_key_env or f"ASO_{self.name.upper()}_API_KEY"
@@ -61,6 +72,11 @@ class ExecutorProfile(BaseModel):
             "api_key_env": key_env,
             "has_key": has_key if self.kind == "llm" else True,
             "is_default": self.is_default,
+            "managed_by": self.managed_by,
+            "supported_efforts": self.supported_efforts or list(_EFFORTS),
+            "available": self.available,
+            "availability_reason": self.availability_reason,
+            "runtime_version": self.runtime_version,
         }
 
 
@@ -70,6 +86,12 @@ class ExecutorCatalog:
     def __init__(self, profiles: list[ExecutorProfile] | None = None) -> None:
         self._profiles: dict[str, ExecutorProfile] = {}
         for p in profiles or []:
+            if p.name in _LEGACY_CODEX_NAMES and not p.managed_by:
+                p.managed_by = "codex"
+                p.available = False
+                p.availability_reason = (
+                    "perfil legado com modelo estático; sincronize o catálogo Codex"
+                )
             self._profiles[p.name] = p
         if "mock" not in self._profiles:
             self._profiles["mock"] = ExecutorProfile(name="mock", kind="mock")
@@ -97,6 +119,30 @@ class ExecutorCatalog:
             raise ValueError("O executor 'mock' não pode ser removido.")
         self._profiles.pop(name, None)
 
+    def replace_managed_codex(self, profiles: list[ExecutorProfile]) -> None:
+        """Substitui somente perfis Codex gerenciados e os seeds legados conhecidos."""
+        for name, profile in list(self._profiles.items()):
+            if profile.managed_by == "codex" or name in _LEGACY_CODEX_NAMES:
+                self._profiles.pop(name, None)
+        for profile in profiles:
+            self.upsert(profile)
+
+    def validate(self, name: str, effort: str | None = None) -> ExecutorProfile:
+        """Falha antes do worktree quando perfil/modelo/esforço não é utilizável."""
+        profile = self._profiles.get(name)
+        if profile is None:
+            raise ValueError(f"Executor desconhecido: {name}")
+        if not profile.available:
+            reason = profile.availability_reason or "indisponível no runtime atual"
+            raise ValueError(f"Executor '{name}' indisponível: {reason}")
+        selected_effort = effort or profile.effort
+        supported = profile.supported_efforts or list(_EFFORTS)
+        if profile.managed_by == "codex" and selected_effort not in supported:
+            raise ValueError(
+                f"Esforço '{selected_effort}' não é aceito por {name}; use: {', '.join(supported)}."
+            )
+        return profile
+
     def default_name(self) -> str:
         for p in self._profiles.values():
             if p.is_default:
@@ -104,15 +150,24 @@ class ExecutorCatalog:
         return next(iter(self._profiles))
 
     # -------------------------------------------------------------- construção
-    def build(self, name: str, *, repo_override: str | None = None) -> ExecutionProvider:
+    def build(
+        self,
+        name: str,
+        *,
+        repo_override: str | None = None,
+        effort_override: str | None = None,
+    ) -> ExecutionProvider:
         """Constrói o provider do perfil (lê secrets do ambiente). Levanta se faltar.
 
         `repo_override` é a pasta da orquestração (workspace); quando informado,
         substitui o `ASO_TARGET_REPO` global para os executores CLI.
         """
-        profile = self._profiles.get(name)
-        if profile is None:
-            raise KeyError(f"Executor desconhecido: {name}")
+        try:
+            profile = self.validate(name, effort_override)
+        except ValueError as exc:
+            if name not in self._profiles:
+                raise KeyError(str(exc)) from exc
+            raise
         if profile.kind == "mock":
             return LocalMockExecutionProvider()
         if profile.kind == "cli":
@@ -122,9 +177,14 @@ class ExecutorCatalog:
                     f"Executor CLI '{name}' exige command + pasta da orquestração "
                     "(ou ASO_TARGET_REPO)."
                 )
-            return CliAgentExecutionProvider(
-                shlex.split(profile.command), repo, executor_id=profile.name
-            )
+            command = shlex.split(profile.command)
+            if profile.managed_by == "codex":
+                if profile.model:
+                    command.extend(["-m", profile.model])
+                command.extend(
+                    ["-c", f"model_reasoning_effort={effort_override or profile.effort}"]
+                )
+            return CliAgentExecutionProvider(command, repo, executor_id=profile.name)
         if profile.kind == "llm":
             key = os.environ.get(profile._key_env_name()) or os.environ.get("ASO_LLM_API_KEY")
             if not (key and profile.model):
@@ -180,3 +240,46 @@ def build_catalog_from_env() -> ExecutorCatalog:
     if profiles and not any(p.is_default for p in profiles):
         profiles[0].is_default = True
     return ExecutorCatalog(profiles)
+
+
+def managed_codex_profiles(
+    capabilities: object, *, wrapper: str | None = None
+) -> list[ExecutorProfile]:
+    """Converte a descoberta numa coleção persistível de perfis seguros."""
+    from aso.execution.codex_discovery import CodexCapabilities
+
+    if not isinstance(capabilities, CodexCapabilities):
+        raise TypeError("Capacidades Codex inválidas.")
+    if wrapper is None:
+        root = Path(__file__).resolve().parents[3]
+        wrapper = os.environ.get("ASO_AGENT_WRAPPER", str(root / "scripts/aso-agent-wrapper.sh"))
+    # A configuração pessoal pode fixar um modelo novo demais para o binário no PATH.
+    # A autenticação continua no CODEX_HOME, mas modelo/esforço vêm do catálogo descoberto.
+    base_command = shlex.join([wrapper, capabilities.binary, "exec", "--ignore-user-config"])
+    default_model = next((m for m in capabilities.models if m.is_default), capabilities.models[0])
+    profiles = [
+        ExecutorProfile(
+            name="codex-default",
+            kind="cli",
+            command=base_command,
+            effort=default_model.default_effort,
+            supported_efforts=list(default_model.supported_efforts),
+            is_default=True,
+            managed_by="codex",
+            runtime_version=capabilities.version,
+        )
+    ]
+    profiles.extend(
+        ExecutorProfile(
+            name=f"codex-{model.model}",
+            kind="cli",
+            model=model.model,
+            command=base_command,
+            effort=model.default_effort,
+            supported_efforts=list(model.supported_efforts),
+            managed_by="codex",
+            runtime_version=capabilities.version,
+        )
+        for model in capabilities.models
+    )
+    return profiles

@@ -5,6 +5,12 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
 ### Adicionado
+- **Executores Codex compatíveis (ADR-0011):** o catálogo gerenciado consulta
+  `codex app-server`/`model/list`, cria `codex-default` sem modelo fixo e um perfil por
+  modelo realmente disponível, com esforços suportados e versão do runtime. Nova
+  sincronização administrativa e recuperação auditável de configurações/docs-first;
+  retries que encontram apenas scaffold ASO parcial ou completo sem código completam ou
+  reaproveitam deterministicamente o módulo `projeto` com as oito seções obrigatórias.
 - **Catálogo multi-repo governado (ADR-0010):** `Project` e `ProjectEvent` agora usam
   persistência relacional por porta/adapters in-memory e SQLAlchemy. Paths são canônicos e
   únicos; `DELETE /v1/projects/{id}` arquiva sem cascata, restauração e arquivamento exigem
@@ -117,11 +123,9 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   de pastas: só diretórios, nunca conteúdo). Console: **navegador de pastas (modal)**, **seletor
   de agente na criação** e botão **"Analisar pasta"** com status docs. Módulos novos
   `execution/workspace.py` e `execution/docs_scaffold.py`.
-- **Seed de executores (`manager.sh seed`):** `scripts/seed-executors.sh` cadastra **Codex CLI
-  e Claude CLI** com **todos os modelos × todos os níveis** (`low`/`medium`/`high`) — 18
-  perfis prontos para escolher no console. Os comandos usam o wrapper com o caminho **entre
-  aspas** e, para o Codex, `-m <model>` + `-c model_reasoning_effort=<nível>`; ao selecionar
-  um perfil sem tocar no dropdown, o `run_phase` herda o esforço do perfil.
+- **Seed de executores (`manager.sh seed`):** deixou de fixar modelos obsoletos e agora
+  sincroniza somente as capacidades anunciadas pelo Codex efetivo. Perfis personalizados e
+  Claude são preservados; modelo/esforço persistidos valem em docs, cards, fases e Autopilot.
 - **`manager.sh` (operação local):** painel Bash em pt-BR para o modo híbrido — **Postgres
   no Docker** e **API local** na venv (serve `/ui`). `iniciar` sobe o banco, espera ficar
   saudável, aplica migrations e sobe o uvicorn em background; `parar`, `reiniciar`,

@@ -25,9 +25,11 @@ from aso.control.execution_planner import ExecutionPlanner
 from aso.control.models import DecisionInput, ExecutionPlan, Orchestration, Project, ProjectEvent
 from aso.control.project_service import ProjectService
 from aso.execution.candidates import CandidateRunner
-from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
+from aso.execution.catalog import ExecutorCatalog, ExecutorProfile, managed_codex_profiles
+from aso.execution.codex_discovery import CodexDiscoveryError, discover_codex
 from aso.execution.docs_scaffold import write_scaffold
 from aso.execution.gate_command import run_gate_command
+from aso.execution.gate_validation import validate_gate_command
 from aso.execution.settings_store import ExecutorSettingsStore
 from aso.execution.workspace import (
     WorkspaceAnalyzer,
@@ -162,6 +164,8 @@ class OrchestrationService:
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._projects = ProjectService(project_repository or InMemoryProjectRepository())
         self._read_cache = TTLCache(ttl_seconds=1.0)  # cache de leitura para agregações
+        self._codex_cache = TTLCache(ttl_seconds=60.0)
+        self._codex_lock = threading.Lock()
         # Retenção de corridas por card: evita o candidate_runs crescer sem limite.
         self._max_races_per_card = (
             max_races_per_card
@@ -203,6 +207,10 @@ class OrchestrationService:
         seed_cards: bool = True,
         decision_input: DecisionInput | None = None,
     ) -> Orchestration:
+        if executor is not None and self._catalog is not None:
+            self._validate_executor(executor, effort)
+        if validation_command is not None:
+            validation_command = validate_gate_command(validation_command)
         if project_id is not None:
             target_path = self._projects.resolve_workspace(project_id, target_path)
         orchestration = Orchestration(
@@ -1256,7 +1264,11 @@ class OrchestrationService:
 
     # ------------------------------------------------------------------ execução
     def resolve_provider(
-        self, executor: str | None, *, target_path: str | None = None
+        self,
+        executor: str | None,
+        *,
+        target_path: str | None = None,
+        effort: str | None = None,
     ) -> ExecutionProvider | None:
         """Resolve o provider de um executor escolhido (catálogo); None → default.
 
@@ -1265,10 +1277,27 @@ class OrchestrationService:
         """
         if not executor or self._catalog is None:
             return None
-        return self._catalog.build(executor, repo_override=target_path)
+        return self._catalog.build(executor, repo_override=target_path, effort_override=effort)
+
+    def _effective_executor(self, b: OrchestrationBundle, executor: str | None) -> str | None:
+        if executor or b.orchestration.selected_executor:
+            return executor or b.orchestration.selected_executor
+        if b.orchestration.target_path and self._catalog is not None:
+            return self._catalog.default_name()
+        return None
+
+    def _effective_effort(
+        self, b: OrchestrationBundle, executor: str | None, effort: str | None
+    ) -> str | None:
+        if effort or b.orchestration.selected_effort:
+            return effort or b.orchestration.selected_effort
+        if executor and self._catalog is not None:
+            profile = self._catalog.get(executor)
+            return profile.effort if profile is not None else None
+        return None
 
     def _provider_for(
-        self, b: OrchestrationBundle, executor: str | None
+        self, b: OrchestrationBundle, executor: str | None, effort: str | None = None
     ) -> ExecutionProvider | None:
         """Provider a usar nesta orquestração, atrelado à pasta dela (se houver).
 
@@ -1279,10 +1308,25 @@ class OrchestrationService:
         - senão → provider global do bootstrap (comportamento legado).
         """
         tp = b.orchestration.target_path
-        if executor and self._catalog is not None:
-            return self.resolve_provider(executor, target_path=tp)
-        if tp and self._catalog is not None:
-            return self.resolve_provider(self._catalog.default_name(), target_path=tp)
+        effective_executor = self._effective_executor(b, executor)
+        effective_effort = self._effective_effort(b, effective_executor, effort)
+        if effective_executor and self._catalog is not None:
+            try:
+                self._validate_executor(effective_executor, effective_effort)
+            except ValueError as exc:
+                b.event_log.append(
+                    "ExecutorRejected",
+                    {
+                        "orchestration_id": b.orchestration.id,
+                        "executor": effective_executor,
+                        "reason": str(exc),
+                    },
+                )
+                self._persist(b)
+                raise
+            return self.resolve_provider(
+                effective_executor, target_path=tp, effort=effective_effort
+            )
         return self._provider
 
     def _workspace_for(self, b: OrchestrationBundle) -> WorktreeManager:
@@ -1297,6 +1341,104 @@ class OrchestrationService:
     def list_executors(self) -> list[dict[str, object]]:
         """Executores disponíveis (para escolha por etapa na UI/API)."""
         return self._catalog.entries() if self._catalog is not None else []
+
+    def _validate_executor(self, name: str, effort: str | None = None) -> ExecutorProfile:
+        if self._catalog is None:
+            raise ValueError("Catálogo de executores não configurado.")
+        profile = self._catalog.validate(name, effort)
+        if profile.managed_by != "codex":
+            return profile
+        with self._codex_lock:
+            capabilities = self._codex_cache.get("capabilities")
+            if capabilities is None:
+                try:
+                    capabilities = discover_codex()
+                except CodexDiscoveryError as exc:
+                    raise ValueError(f"Não foi possível validar o executor Codex: {exc}") from exc
+                self._codex_cache.set("capabilities", capabilities)
+        models = {model.model: model for model in capabilities.models}
+        model = (
+            models.get(profile.model)
+            if profile.model
+            else next(
+                (candidate for candidate in capabilities.models if candidate.is_default),
+                capabilities.models[0],
+            )
+        )
+        if profile.model and model is None:
+            raise ValueError(
+                f"Executor '{name}' indisponível: modelo não anunciado pelo Codex atual."
+            )
+        if model is not None and (effort or profile.effort) not in model.supported_efforts:
+            raise ValueError(
+                f"Esforço '{effort or profile.effort}' não é aceito por {model.model}; "
+                f"use: {', '.join(model.supported_efforts)}."
+            )
+        return profile
+
+    def sync_codex_executors(self) -> list[dict[str, object]]:
+        """Descobre o Codex efetivo e substitui somente os perfis gerenciados."""
+        if self._catalog is None:
+            self._catalog = ExecutorCatalog()
+        with self._codex_lock:
+            try:
+                capabilities = discover_codex()
+            except CodexDiscoveryError:
+                raise
+            self._catalog.replace_managed_codex(managed_codex_profiles(capabilities))
+            self._codex_cache.set("capabilities", capabilities)
+            if self._executor_store is not None:
+                self._executor_store.save(self._catalog.profiles())
+        return self._catalog.entries()
+
+    def update_execution_settings(
+        self,
+        orchestration_id: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+        validation_command: str | None = None,
+        actor: str = "system",
+    ) -> Orchestration:
+        """Atualiza uma execução ainda não iniciada, com evento auditável."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if b.orchestration.status not in {"created", "blocked"}:
+                raise ValueError(
+                    "Configurações só podem mudar em orquestrações criadas ou bloqueadas."
+                )
+            next_executor = executor or b.orchestration.selected_executor
+            next_effort = effort or b.orchestration.selected_effort
+            if next_executor is not None and self._catalog is not None:
+                self._validate_executor(next_executor, next_effort)
+            before = {
+                "executor": b.orchestration.selected_executor,
+                "effort": b.orchestration.selected_effort,
+                "validation_command": b.orchestration.validation_command,
+            }
+            if executor is not None:
+                b.orchestration.selected_executor = executor
+            if effort is not None:
+                b.orchestration.selected_effort = effort
+            if validation_command is not None:
+                b.orchestration.validation_command = validate_gate_command(validation_command)
+            b.orchestration.updated_at = now_iso()
+            after = {
+                "executor": b.orchestration.selected_executor,
+                "effort": b.orchestration.selected_effort,
+                "validation_command": b.orchestration.validation_command,
+            }
+            b.event_log.append(
+                "ExecutionSettingsUpdated",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "before": before,
+                    "after": after,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
 
     def save_executor(self, profile: ExecutorProfile) -> list[dict[str, object]]:
         """Cria/atualiza um perfil de executor (tela de configurações) e persiste."""
@@ -1330,7 +1472,11 @@ class OrchestrationService:
             "card_id": card.id,
             "phase": b.orchestration.current_phase.value,
             "target_path": f"{section}.mock_{agent.role}",
-            "content": {"by": agent.role, "request": b.orchestration.user_request},
+            "content": {
+                "by": agent.role,
+                "request": b.orchestration.user_request,
+                "validation_command": b.orchestration.validation_command,
+            },
         }
         if effort:
             task["effort"] = effort  # repassado ao agente (CLI/LLM) para calibrar o esforço
@@ -1433,7 +1579,8 @@ class OrchestrationService:
         # Chamada direta (ex.: /cards/{id}/run) sem provider → usa o provider
         # atrelado à pasta desta orquestração (não o global do bootstrap).
         if provider is None:
-            provider = self._provider_for(b, None)
+            effort = effort or b.orchestration.selected_effort
+            provider = self._provider_for(b, None, effort)
         task = self._build_task(b, card, agent, effort=effort)
         output, events, error = self._execute_isolated(agent, task, provider)
         results = self._apply_execution(b, card_id, output, events, error)
@@ -1468,7 +1615,7 @@ class OrchestrationService:
         b = self._bundle(orchestration_id)
         plan = b.plan
         # Provider atrelado à pasta (workspace) desta orquestração.
-        wave_provider = self._provider_for(b, None)
+        wave_provider = self._provider_for(b, None, b.orchestration.selected_effort)
         cards_by_agent = {c.assignee: c for c in b.board_service.cards_of(b.board.id)}
         agents = {a.agent: a for a in plan.agents}
         done: set[str] = set()
@@ -1652,7 +1799,7 @@ class OrchestrationService:
             created = write_scaffold(root, report.detected_modules)
             ws.commit_all(root, "aso: docs-first (scaffold)")
         else:
-            provider = self._provider_for(b, executor)
+            provider = self._provider_for(b, executor, effort)
             spec = b.agent_registry.get("DocumentationAgent")
             if (
                 provider is not None
@@ -1664,6 +1811,18 @@ class OrchestrationService:
                 try:
                     output = provider.execute(spec, task)
                 except AgentExecutionError as exc:
+                    with self._lock_for(orchestration_id):
+                        failed = self._bundle(orchestration_id)
+                        failed.orchestration.workspace_prepared = False
+                        failed.event_log.append(
+                            "WorkspaceDocumentationFailed",
+                            {
+                                "orchestration_id": orchestration_id,
+                                "executor": executor or failed.orchestration.selected_executor,
+                                "reason": str(exc)[:500],
+                            },
+                        )
+                        self._persist(failed)
                     raise WorkspaceError(f"Falha ao documentar com o agente: {exc}") from exc
                 branch = output.artifacts.get("branch")
                 if branch:
@@ -1688,6 +1847,8 @@ class OrchestrationService:
 
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
+            b.orchestration.workspace_prepared = True
+            b.orchestration.updated_at = now_iso()
             b.event_log.append(
                 "WorkspaceAnalyzed",
                 {
@@ -1746,11 +1907,13 @@ class OrchestrationService:
         """
         # Resolve o provider já atrelado à pasta (workspace) desta orquestração.
         b0 = self._bundle(orchestration_id)
-        provider = self._provider_for(b0, executor)
+        effective_executor = self._effective_executor(b0, executor)
+        effort = self._effective_effort(b0, effective_executor, effort)
+        provider = self._provider_for(b0, effective_executor, effort)
         # Sem esforço explícito, herda o esforço do perfil do executor efetivo
         # (o escolhido ou, quando há pasta, o default do catálogo).
         if effort is None and self._catalog is not None:
-            name_for_effort = executor or (
+            name_for_effort = effective_executor or (
                 self._catalog.default_name() if b0.orchestration.target_path else None
             )
             if name_for_effort:

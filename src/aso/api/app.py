@@ -28,6 +28,8 @@ from aso.control.project_service import (
     ProjectNotFoundError,
     ProjectValidationError,
 )
+from aso.execution.codex_discovery import CodexDiscoveryError
+from aso.execution.gate_validation import GateCommandError
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.execution.workspace import WorkspaceError, WorkspaceService
 from aso.governance.models import ContextPatch, SloEvaluation
@@ -56,6 +58,12 @@ class CreateOrchestrationBody(BaseModel):
 class AnalyzeFolderBody(BaseModel):
     executor: str | None = None
     effort: str | None = None
+
+
+class ExecutionSettingsBody(BaseModel):
+    executor: str | None = None
+    effort: str | None = None
+    validation_command: str | None = None
 
 
 class CreateProjectBody(BaseModel):
@@ -364,6 +372,10 @@ def create_app(
             )
         except (ProjectNotFoundError, ProjectValidationError, ProjectConflictError) as exc:
             _raise_project_error(exc)
+        except GateCommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
         if body.execution_mode == ExecutionMode.FULL_PIPELINE and planning_client is not None:
             plan = PlanningService(planning_client).plan(body.user_request)
             svc.populate_from_plan(orch.id, plan)
@@ -443,6 +455,8 @@ def create_app(
             return svc.run_card(orchestration_id, card_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.post("/v1/orchestrations/{orchestration_id}/quality-gates/run")
     def run_gate(orchestration_id: str, body: RunGateBody) -> Any:
@@ -452,7 +466,10 @@ def create_app(
     @app.post("/v1/orchestrations/{orchestration_id}/run-plan")
     def run_plan(orchestration_id: str) -> Any:
         _guard(orchestration_id)
-        return svc.run_plan(orchestration_id)
+        try:
+            return svc.run_plan(orchestration_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.get("/v1/executors")
     def list_executors() -> Any:
@@ -465,6 +482,14 @@ def create_app(
         from aso.execution.catalog import ExecutorProfile
 
         return svc.save_executor(ExecutorProfile(**body.model_dump()))
+
+    @app.post("/v1/executors/sync")
+    def sync_executors() -> Any:
+        """Sincroniza os modelos anunciados pelo Codex efetivo do processo da API."""
+        try:
+            return svc.sync_codex_executors()
+        except CodexDiscoveryError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.delete("/v1/executors/{name}")
     def delete_executor(name: str) -> Any:
@@ -560,6 +585,24 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         except (ValueError, WorkspaceError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.patch("/v1/orchestrations/{orchestration_id}/execution-settings")
+    def update_execution_settings(
+        orchestration_id: str, body: ExecutionSettingsBody, request: Request
+    ) -> Any:
+        _guard(orchestration_id)
+        try:
+            return svc.update_execution_settings(
+                orchestration_id,
+                executor=body.executor,
+                effort=body.effort,
+                validation_command=body.validation_command,
+                actor=_actor(request),
+            )
+        except GateCommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.post("/v1/orchestrations/{orchestration_id}/advance-phase")

@@ -9,6 +9,7 @@ import pytest
 
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.cli_provider import CliAgentExecutionProvider
+from aso.execution.docs_scaffold import write_scaffold
 from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceError, WorkspaceService
 
 
@@ -31,6 +32,16 @@ def test_is_empty_ignora_caches(tmp_path: Path) -> None:
     (tmp_path / "__pycache__").mkdir()
     assert svc.is_empty(tmp_path)  # só ignorados → ainda "vazia"
     (tmp_path / "main.py").write_text("print(1)", encoding="utf-8")
+    assert not svc.is_empty(tmp_path)
+
+
+def test_is_empty_ignora_scaffold_aso_completo_sem_codigo(tmp_path: Path) -> None:
+    svc = WorkspaceService()
+    write_scaffold(tmp_path, [])
+
+    assert svc.is_empty(tmp_path)
+
+    (tmp_path / "app.py").write_text("print(1)", encoding="utf-8")
     assert not svc.is_empty(tmp_path)
 
 

@@ -7,15 +7,18 @@ from pathlib import Path
 from aso.execution.docs_scaffold import write_scaffold
 
 
-def test_scaffold_empty_creates_index_and_modules_placeholder(tmp_path: Path) -> None:
+def test_scaffold_empty_creates_default_feature_with_eight_sections(tmp_path: Path) -> None:
     created = write_scaffold(tmp_path, modules=[])
     assert "docs/index.md" in created
-    assert "docs/modules/.gitkeep" in created
+    assert "docs/modules/projeto/index.md" in created
+    assert "docs/modules/projeto/projeto.md" in created
     index = (tmp_path / "docs" / "index.md").read_text(encoding="utf-8")
     # Ponto de entrada docs-first, em pt-BR.
     assert "docs-first" in index.lower()
     assert "Leia este" in index
-    assert (tmp_path / "docs" / "modules").is_dir()
+    assert "modules/projeto/index.md" in index
+    feature = (tmp_path / "docs" / "modules" / "projeto" / "projeto.md").read_text(encoding="utf-8")
+    assert feature.count("## ") == 8
 
 
 def test_scaffold_with_modules_writes_feature_template_8_sections(tmp_path: Path) -> None:
@@ -46,3 +49,22 @@ def test_scaffold_does_not_overwrite_existing(tmp_path: Path) -> None:
     created = write_scaffold(tmp_path, modules=[])
     assert "docs/index.md" not in created  # não sobrescreve
     assert (tmp_path / "docs" / "index.md").read_text(encoding="utf-8") == "MEU CONTEÚDO"
+
+
+def test_scaffold_enriquece_placeholder_aso_de_retry(tmp_path: Path) -> None:
+    modules = tmp_path / "docs" / "modules"
+    modules.mkdir(parents=True)
+    (modules / ".gitkeep").write_text("", encoding="utf-8")
+    (tmp_path / "docs" / "index.md").write_text(
+        "# Projeto\n\n> Fonte de verdade para IA\n\n"
+        "_Nenhum módulo ainda. Adicione um em `modules/<módulo>/index.md`._\n",
+        encoding="utf-8",
+    )
+
+    created = write_scaffold(tmp_path, modules=[])
+
+    assert "docs/modules/projeto/projeto.md" in created
+    assert not (modules / ".gitkeep").exists()
+    assert "modules/projeto/index.md" in (tmp_path / "docs" / "index.md").read_text(
+        encoding="utf-8"
+    )
