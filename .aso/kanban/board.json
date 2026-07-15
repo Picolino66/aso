@@ -2543,6 +2543,54 @@
       "linked_adrs": ["ADR-0009"],
       "dependencies": ["TASK-80"],
       "evidence": "193 testes verdes, cobertura 91.51%; ruff, mypy e alembic check OK."
+    },
+    {
+      "id": "TASK-82",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Console: Kanban Macro + formulário isolado de nova orquestração",
+      "description": "Nova tela inicial em /ui/ exibe todos os projetos com cards no Kanban, filtro por projeto e botão Nova Orquestração. /ui/nova contém apenas o formulário de criação, sem listar outras orquestrações. Cards no macro são clicáveis e levam ao detalhe (/ui/detalhe).",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "/ui/ mostra Kanban Macro com todos os projetos e cards",
+        "Filtro por projeto funcional",
+        "Botão + Nova Orquestração leva para /ui/nova",
+        "/ui/nova só tem o formulário de criação",
+        "Cards clicáveis levam ao detalhe da orquestração"
+      ],
+      "linked_requirements": ["§28", "§33"],
+      "linked_adrs": ["ADR-0001"],
+      "dependencies": ["TASK-81"],
+      "evidence": "193 testes verdes, cobertura 91.48%; ruff, mypy e alembic check OK."
+    },
+    {
+      "id": "TASK-83",
+      "epic": "EPIC-7",
+      "type": "Feature",
+      "phase": "F7",
+      "status": "Done",
+      "priority": "high",
+      "title": "Projetos (CRUD + cascade delete) + UI completa do Kanban",
+      "description": "Entidade Project com ProjectStore JSON. Endpoints CRUD + cascade delete de orquestrações. UI: Kanban Macro com modal Novo Projeto (análise automática), Remover Projeto (cascata), Nova Orquestração simplificada (textarea + agente/pensamento), Detalhe com Kanban completo e mover Backlog→Ready + seletor de executor por card.",
+      "assignee_type": "agent",
+      "assignee": "FrontendDevelopmentAgent",
+      "spec": "docs/api.md",
+      "acceptance_criteria": [
+        "CRUD de projetos com cascade delete",
+        "Kanban Macro: modal de novo projeto com auto-análise",
+        "Remover projeto apaga orquestrações em cascata",
+        "Nova Orquestração: textarea + seletores de projeto/agente/esforço",
+        "Detalhe: todas colunas, mover Backlog→Ready, executor por card"
+      ],
+      "linked_requirements": ["§28", "§33"],
+      "linked_adrs": ["ADR-0001"],
+      "dependencies": ["TASK-82"],
+      "evidence": "193 testes verdes, cobertura 89.65%; ruff, mypy e alembic check OK."
     }
   ]
 }

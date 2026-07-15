@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ASO Runtime — Nova Orquestração</title>
+  <style>
+    :root {
+      --bg:#0f172a; --panel:#1e293b; --panel-2:#0b1220; --border:#334155;
+      --muted:#94a3b8; --fg:#e2e8f0; --accent:#38bdf8;
+      --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --info:#818cf8;
+      --radius:10px; --font: ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:var(--font); background:var(--bg); color:var(--fg); min-height:100vh; display:flex; flex-direction:column; align-items:center; }
+    header { width:100%; padding:14px 24px; background:var(--panel); display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--border); }
+    header h1 { font-size:18px; }
+    .btn { background:var(--accent); color:#08131f; border:0; border-radius:8px; padding:10px 16px; font-weight:600; cursor:pointer; font-size:14px; }
+    .btn.ghost { background:var(--border); color:var(--fg); }
+    .btn.ok { background:var(--ok); }
+    .btn:hover { opacity:.85; }
+    .btn[disabled] { opacity:.4; cursor:not-allowed; }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:24px; width:100%; max-width:620px; }
+    h2 { font-size:14px; color:var(--muted); margin:0 0 14px; text-transform:uppercase; letter-spacing:.05em; }
+    label { display:block; color:var(--muted); font-size:12px; margin-bottom:4px; margin-top:12px; }
+    textarea, select, input { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--fg); border-radius:8px; padding:9px 10px; font-family:inherit; font-size:13px; }
+    textarea { resize:vertical; min-height:100px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .muted { color:var(--muted); font-size:12px; }
+    a { color:var(--accent); }
+    .container { width:100%; max-width:660px; padding:40px 20px; display:flex; flex-direction:column; gap:20px; }
+    .success { background:rgba(34,197,94,.12); border:1px solid var(--ok); border-radius:var(--radius); padding:20px; text-align:center; }
+    .success h3 { color:var(--ok); margin-bottom:10px; }
+    .error { background:rgba(239,68,68,.1); border:1px solid var(--err); border-radius:8px; padding:10px; color:var(--err); font-size:13px; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚙️ ASO Runtime</h1>
+    <span style="color:var(--muted);font-size:13px;">Nova Orquestração</span>
+    <span style="flex:1"></span>
+    <a href="/ui/" style="color:var(--muted);font-size:13px;text-decoration:none;">← Kanban Macro</a>
+  </header>
+
+  <div class="container">
+    <div class="card" id="formCard">
+      <h2>O que você precisa construir?</h2>
+      <div class="muted" style="margin-bottom:14px">Descreva a demanda em linguagem natural. A IA seguirá as fases F1→F7 automaticamente.</div>
+
+      <label>Demanda</label>
+      <textarea id="req" rows="4" placeholder="Descreva o que precisa ser feito...&#10;&#10;Ex.: Criar uma API REST de usuários com autenticação JWT e CRUD completo."></textarea>
+
+      <label>Projeto</label>
+      <select id="orchProject"><option value="">Nenhum (solto)</option></select>
+
+      <label>Agente / Modelo</label>
+      <select id="orchExec"><option value="">default</option></select>
+
+      <label>Modo de pensamento (esforço)</label>
+      <select id="orchEffort">
+        <option value="">default</option>
+        <option value="low">Baixo (rápido, menos raciocínio)</option>
+        <option value="medium" selected>Médio (balanceado)</option>
+        <option value="high">Alto (mais raciocínio, mais lento)</option>
+      </select>
+
+      <div style="margin-top:20px">
+        <button class="btn ok" id="createBtn" onclick="criarOrquestracao()" style="width:100%">🚀 Criar e iniciar F1→F7</button>
+      </div>
+      <div id="createError" class="error" hidden></div>
+    </div>
+
+    <div id="successCard" hidden>
+      <div class="success">
+        <h3>✅ Orquestração criada!</h3>
+        <p class="muted" id="successMsg"></p>
+        <div class="row" style="justify-content:center;margin-top:14px;gap:10px">
+          <button class="btn ghost" onclick="window.location.href='/ui/'">Kanban Macro</button>
+          <button class="btn" onclick="irParaDetalhe()">Acompanhar orquestração</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = () => localStorage.getItem('aso_token') || '';
+    const api = (p, opts={}) => {
+      const h = Object.assign({}, opts.headers || {});
+      const t = token(); if (t) h['Authorization'] = 'Bearer ' + t;
+      return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok ? r.json() : Promise.reject(r.status));
+    };
+    const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    let _orchIdCriada = null;
+
+    async function init() {
+      try {
+        const projs = await api('/v1/projects');
+        const sel = document.getElementById('orchProject');
+        sel.innerHTML = '<option value="">Nenhum (solto)</option>' +
+          projs.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.target_path?' · '+esc(p.target_path):''}</option>`).join('');
+      } catch (_) {}
+      try {
+        const execs = await api('/v1/executors');
+        const sel = document.getElementById('orchExec');
+        sel.innerHTML = '<option value="">default</option>' + execs.map(e =>
+          `<option value="${esc(e.name)}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('');
+      } catch (_) {}
+    }
+
+    async function criarOrquestracao() {
+      const text = document.getElementById('req').value.trim();
+      const projectId = document.getElementById('orchProject').value || null;
+      const executor = document.getElementById('orchExec').value || null;
+      const effort = document.getElementById('orchEffort').value || null;
+      const errEl = document.getElementById('createError');
+      const btn = document.getElementById('createBtn');
+      if (!text) { errEl.hidden = false; errEl.textContent = 'Descreva a demanda.'; return; }
+      errEl.hidden = true;
+      btn.disabled = true; btn.textContent = 'Criando…';
+      try {
+        let targetPath = null;
+        if (projectId) {
+          try { const proj = await api('/v1/projects/' + projectId); targetPath = proj.target_path || null; } catch (_) {}
+        }
+        const o = await post('/v1/orchestrations', {
+          user_request: text, project_id: projectId, target_path: targetPath,
+          execution_mode: 'full-pipeline', executor: executor, effort: effort,
+          validation_command: 'echo ok'
+        });
+        _orchIdCriada = o.id;
+        document.getElementById('formCard').hidden = true;
+        document.getElementById('successCard').hidden = false;
+        document.getElementById('successMsg').textContent =
+          'Orquestração criada em modo pipeline completo (F1→F7). A IA começará pelo discovery e avançará automaticamente.';
+      } catch (e) {
+        errEl.hidden = false; errEl.textContent = 'Erro ao criar (' + e + ').';
+        btn.disabled = false; btn.textContent = '🚀 Criar e iniciar F1→F7';
+      }
+    }
+
+    function irParaDetalhe() {
+      if (_orchIdCriada) window.location.href = '/ui/detalhe?id=' + encodeURIComponent(_orchIdCriada);
+    }
+    init();
+  </script>
+</body>
+</html>

@@ -483,18 +483,41 @@
 
     async function renderKanban(id, c) {
       const cards = await api(`/v1/orchestrations/${id}/cards`);
+      const execs = await api('/v1/executors').catch(() => []);
       const cols = ['Backlog','Ready','InProgress','WaitingHuman','Review','Testing','Blocked','Failed','Done'];
       const by = {}; cards.forEach(k => (by[k.status]=by[k.status]||[]).push(k));
-      c.innerHTML = `<div class="board">${cols.filter(k=>by[k]).map(k=>`
-        <div class="col"><h3>${k} (${by[k].length})</h3>
-          ${by[k].map(x=>`<div class="kcard"><div class="t">${x.type} · ${esc(x.assignee||'—')} · <span class="muted">${esc(x.phase||'')}</span></div>${esc(x.title)}
+      c.innerHTML = `<div style="margin-bottom:8px" class="row">
+        <span class="muted">Mover um card de <b>Backlog → Ready</b> libera a IA para executá-lo.</span>
+      </div>
+      <div class="board">${cols.map(k=>`
+        <div class="col"><h3>${k} <span style="color:var(--fg);font-weight:700">${(by[k]||[]).length}</span></h3>
+          ${(by[k]||[]).map(x=>`<div class="kcard">
+            <div class="t">${statusPill(x.type||'Task')} ${esc(x.assignee||'—')} · <span class="muted">${esc(x.phase||'')}</span></div>
+            <div class="title" style="margin:4px 0">${esc(x.title)}</div>
             ${x.block_reason?`<div class="reason">⚠ ${esc(x.block_reason)}</div>`:''}
-            <div style="margin-top:6px">
-              <button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">Abrir PR</button>
+            <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+              ${k==='Backlog' ? `<button class="btn sm ok" onclick="moverParaReady('${id}','${x.id}')" title="Libera a IA para executar este card">▶ Ready</button>` : ''}
+              <button class="btn sm ghost" onclick="openPr('${id}','${x.id}')">PR</button>
               <button class="btn sm ghost" onclick="raceCard('${id}','${x.id}')">Candidatos</button>
-            </div></div>`).join('')}
-        </div>`).join('') || '<div class="empty">sem cards</div>'}</div>
+              <select class="cardExec" style="width:auto;padding:2px 4px;font-size:10px;margin:0" onchange="configCardExec('${id}','${x.id}',this.value)" title="Executor do card">
+                <option value="">🤖</option>
+                ${execs.map(e=>`<option value="${esc(e.name)}">${esc(e.name)}</option>`).join('')}
+              </select>
+            </div></div>`).join('') || '<div class="muted" style="font-size:11px;padding:4px">—</div>'}
+        </div>`).join('')}</div>
         <div id="racePanel"></div>`;
+    }
+
+    async function moverParaReady(orchId, cardId) {
+      try {
+        await post(`/v1/orchestrations/${orchId}/cards/${cardId}/move`, { to_column:'Ready' });
+        renderTab(orchId);
+      } catch (e) { alert('Erro ao mover card (' + e + ').'); }
+    }
+    function configCardExec(orchId, cardId, executor) {
+      // Placeholder: guarda localmente a escolha de executor por card
+      if (!window._cardExecs) window._cardExecs = {};
+      window._cardExecs[cardId] = executor;
     }
 
     async function raceCard(id, cardId) {

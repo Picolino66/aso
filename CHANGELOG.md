@@ -119,3 +119,31 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ### Segurança
 - SAST (bandit) e SCA (pip-audit) sem apontamentos.
 - Secrets apenas via variáveis de ambiente; deny-by-default no ContextBus.
+
+### Alterado
+- **Console — Kanban Macro (tela inicial):** nova tela principal em `/ui/` exibe **todos os
+  projetos** com seus cards posicionados nas colunas do Kanban (Backlog, Ready, InProgress,
+  WaitingHuman, Review, Testing, Blocked, Failed, Done), com **filtro por projeto** e
+  cards clicáveis que levam ao detalhe da orquestração. Botão **"＋ Nova Orquestração"**
+  leva para `/ui/nova`.
+- **Console — formulário focado de nova orquestração:** `/ui/nova` contém **apenas** o
+  formulário de criação (pasta, projeto, executor, modo, validação, análise de workspace e
+  demanda), **sem listar outras orquestrações**. Após criação, exibe sucesso com link de
+  volta ao Kanban Macro. Campo `project_id` agora é preenchível na UI para agrupamento.
+- **Projetos (entidade + CRUD):** nova entidade `Project` (id, nome, descrição, path)
+  persistida em `.aso/projects.json` via `ProjectStore` (thread-safe). Endpoints
+  `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{id}`. **Deleção em cascata:**
+  remover um projeto deleta todas as suas orquestrações.
+- **Console — modal de Novo Projeto:** botão **"📁 Novo Projeto"** no Kanban Macro abre
+  modal com nome, descrição, seletor de pasta e executor para análise automática. Ao criar,
+  se o path for informado, a análise de workspace é executada automaticamente com o executor
+  escolhido. Projetos podem ser editados e removidos (com confirmação).
+- **Console — Nova Orquestração simplificada:** `/ui/nova` agora contém apenas: textarea
+  da demanda, seletor de projeto, seletor de agente/modelo e seletor de modo de pensamento
+  (esforço). Criação inicia pipeline F1→F7 automaticamente.
+- **Console — Kanban da orquestração:** `/ui/detalhe` exibe **todas as colunas** (não só
+  as não-vazias). Cards em **Backlog** ganharam botão **"▶ Ready"** que move para Ready,
+  liberando a IA para executar. Cada card tem um **seletor de executor** individual
+  (🤖) para configurar qual modelo/agente deve processá-lo.
+- **Deleção de orquestração individual:** `DELETE /v1/orchestrations/{id}` remove uma
+  orquestração e seu bundle.

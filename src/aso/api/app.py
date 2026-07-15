@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -23,6 +23,7 @@ from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
+from aso.control.project_store import Project, ProjectStore
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.execution.workspace import WorkspaceError, WorkspaceService
 from aso.governance.models import ContextPatch, SloEvaluation
@@ -51,6 +52,18 @@ class CreateOrchestrationBody(BaseModel):
 class AnalyzeFolderBody(BaseModel):
     executor: str | None = None
     effort: str | None = None
+
+
+class CreateProjectBody(BaseModel):
+    name: str
+    description: str = ""
+    target_path: str | None = None
+
+
+class UpdateProjectBody(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    target_path: str | None = None
 
 
 class PlanBody(BaseModel):
@@ -141,10 +154,12 @@ def create_app(
     auth: AuthService | None = None,
     *,
     llm_client: LlmClient | None = None,
+    project_store: ProjectStore | None = None,
 ) -> FastAPI:
-    """Cria a aplicação FastAPI, opcionalmente com service/auth/llm injetados (testes)."""
+    """Cria a aplicação FastAPI, opcionalmente com service/auth/llm/projects injetados (testes)."""
     svc = service or OrchestrationService()
     auth = auth or AuthService.from_env()
+    projects = project_store or ProjectStore()
     # Cérebro do autopilot: cliente LLM injetado (testes) ou montado do ambiente.
     planning_client = llm_client or build_llm_client_from_env()
     metrics = MetricsService(svc)
@@ -438,6 +453,62 @@ def create_app(
             return svc.delete_executor(name)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    # ---- Projetos (agrupadores do Kanban Macro) ------------------------------
+
+    @app.get("/v1/projects")
+    def list_projects() -> Any:
+        return [p.model_dump() for p in projects.load()]
+
+    @app.post("/v1/projects", status_code=201)
+    def create_project(body: CreateProjectBody) -> Any:
+        if not body.name.strip():
+            raise HTTPException(status_code=400, detail="Nome do projeto é obrigatório.")
+        proj = Project(
+            name=body.name.strip(),
+            description=body.description,
+            target_path=body.target_path,
+        )
+        projects.add(proj)
+        return proj.model_dump()
+
+    @app.get("/v1/projects/{project_id}")
+    def get_project(project_id: str) -> Any:
+        proj = projects.get(project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Projeto inexistente.")
+        return proj.model_dump()
+
+    @app.put("/v1/projects/{project_id}")
+    def update_project(project_id: str, body: UpdateProjectBody) -> Any:
+        proj = projects.get(project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Projeto inexistente.")
+        if body.name is not None:
+            proj.name = body.name.strip()
+        if body.description is not None:
+            proj.description = body.description
+        if body.target_path is not None:
+            proj.target_path = body.target_path
+        updated = projects.update(proj)
+        return updated.model_dump() if updated else {}
+
+    @app.delete("/v1/projects/{project_id}", status_code=200)
+    def delete_project(project_id: str) -> Any:
+        """Remove o projeto e todas as suas orquestrações em cascata."""
+        proj = projects.get(project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Projeto inexistente.")
+        deleted_orchs = svc.delete_project_orchestrations(project_id)
+        projects.delete(project_id)
+        return {"project_id": project_id, "orchestrations_deleted": deleted_orchs}
+
+    # ---- Deleção de orquestração individual ----------------------------------
+    @app.delete("/v1/orchestrations/{orchestration_id}", status_code=200)
+    def delete_orchestration(orchestration_id: str) -> Any:
+        _guard(orchestration_id)
+        svc.delete_orchestration(orchestration_id)
+        return {"deleted": orchestration_id}
 
     @app.post("/v1/orchestrations/{orchestration_id}/run-phase")
     def run_phase(orchestration_id: str, body: RunPhaseBody) -> Any:
@@ -850,7 +921,23 @@ def create_app(
         _guard(orchestration_id)
         return svc.audit(orchestration_id)
 
-    # SPA (console web) servida pela própria API — sem build Node.
+    # -- UI: rotas explícitas (precedem o mount de arquivos estáticos) ----------
+    @app.get("/ui/", include_in_schema=False)
+    def ui_macro() -> FileResponse:
+        """Kanban Macro: visão global de todos os projetos e cards (tela inicial)."""
+        return FileResponse(_STATIC_DIR / "macro.html")
+
+    @app.get("/ui/nova", include_in_schema=False)
+    def ui_nova() -> FileResponse:
+        """Formulário focado de nova orquestração (sem outras orquestrações)."""
+        return FileResponse(_STATIC_DIR / "nova.html")
+
+    @app.get("/ui/detalhe", include_in_schema=False)
+    def ui_detalhe() -> FileResponse:
+        """Console/detalhe de uma orquestração individual (index.html original)."""
+        return FileResponse(_STATIC_DIR / "index.html")
+
+    # Montagem de arquivos estáticos (CSS/JS/etc.), se houver.
     if _STATIC_DIR.is_dir():
         app.mount("/ui", StaticFiles(directory=_STATIC_DIR, html=True), name="ui")
 

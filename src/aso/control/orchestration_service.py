@@ -990,6 +990,35 @@ class OrchestrationService:
         self._persist(b)
         return b.orchestration
 
+    def delete_orchestration(self, orchestration_id: str) -> None:
+        """Remove uma orquestração e seu bundle (cascata manual)."""
+        with self._lock_for(orchestration_id):
+            if orchestration_id in self._bundles:
+                del self._bundles[orchestration_id]
+            # Remove do repositório (in-memory).
+            try:
+                self._repo.delete(orchestration_id)
+            except (AttributeError, NotImplementedError):
+                pass  # repositório não suporta delete
+            self._log.info("orchestration_deleted", orchestration_id=orchestration_id)
+
+    def delete_project_orchestrations(self, project_id: str) -> int:
+        """Remove todas as orquestrações de um projeto (cascata). Retorna quantas removeu."""
+        if not project_id:
+            return 0
+        # Coleta ids antes de iterar (evita modificar dict durante iteração).
+        to_delete = [
+            oid for oid, b in self._bundles.items() if b.orchestration.project_id == project_id
+        ]
+        for oid in to_delete:
+            self.delete_orchestration(oid)
+        self._log.info(
+            "project_orchestrations_deleted",
+            project_id=project_id,
+            count=len(to_delete),
+        )
+        return len(to_delete)
+
     def recover_invalid_execution(self, orchestration_id: str) -> Orchestration:
         """Invalida execuções históricas sem diff/exit válido e retorna à F5.
 

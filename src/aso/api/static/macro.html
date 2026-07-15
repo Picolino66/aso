@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ASO Runtime — Kanban Macro</title>
+  <style>
+    :root {
+      --bg:#0f172a; --panel:#1e293b; --panel-2:#0b1220; --border:#334155;
+      --muted:#94a3b8; --fg:#e2e8f0; --accent:#38bdf8;
+      --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --info:#818cf8;
+      --radius:10px; --gap:14px; --font: ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:var(--font); background:var(--bg); color:var(--fg); min-height:100vh; }
+    header { padding:14px 24px; background:var(--panel); display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+    header h1 { font-size:18px; }
+    header .sub { color:var(--muted); font-size:13px; }
+    .btn { background:var(--accent); color:#08131f; border:0; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer; font-size:13px; white-space:nowrap; }
+    .btn.ghost { background:var(--border); color:var(--fg); }
+    .btn.sm { padding:4px 8px; font-size:12px; }
+    .btn.ok { background:var(--ok); }
+    .btn.err { background:var(--err); color:#fff; }
+    .btn:hover { opacity:.85; }
+    .btn[disabled] { opacity:.4; cursor:not-allowed; }
+    select, input, textarea { background:var(--panel-2); border:1px solid var(--border); color:var(--fg); border-radius:8px; padding:8px; font-family:inherit; font-size:13px; }
+    textarea { resize:vertical; min-height:70px; width:100%; }
+    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:var(--border); color:var(--fg); }
+    .pill.ok { background:rgba(34,197,94,.2); color:var(--ok); }
+    .pill.err { background:rgba(239,68,68,.2); color:var(--err); }
+    .pill.warn { background:rgba(245,158,11,.2); color:var(--warn); }
+    .pill.info { background:rgba(129,140,248,.2); color:var(--info); }
+    .muted { color:var(--muted); font-size:12px; }
+    a { color:var(--accent); text-decoration:none; }
+    code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:12px; }
+
+    .filters { padding:14px 24px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .filters select { min-width:200px; }
+
+    .project-section { margin:0 24px 24px; }
+    .project-header { display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px 14px; background:var(--panel); border-radius:var(--radius); border:1px solid var(--border); }
+    .project-header h2 { font-size:15px; margin:0; }
+    .project-header .info { font-size:12px; color:var(--muted); }
+    .project-header .actions { display:flex; gap:6px; margin-left:auto; }
+
+    .board { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
+    .col { min-width:185px; max-width:220px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; flex-shrink:0; }
+    .col h3 { font-size:12px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; display:flex; justify-content:space-between; }
+    .col h3 .count { color:var(--fg); font-weight:700; }
+
+    .kcard { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px; font-size:12px; cursor:pointer; transition: border-color .15s; }
+    .kcard:hover { border-color:var(--accent); }
+    .kcard .t { font-size:10px; color:var(--muted); margin-bottom:3px; display:flex; gap:6px; flex-wrap:wrap; }
+    .kcard .title { font-size:13px; line-height:1.35; }
+    .kcard .orch-ref { font-size:10px; color:var(--muted); margin-top:4px; }
+    .reason { margin-top:4px; font-size:11px; color:var(--err); background:rgba(239,68,68,.1); padding:3px 5px; border-radius:5px; }
+
+    .empty { color:var(--muted); padding:32px; text-align:center; font-size:14px; }
+    .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation: spin .6s linear infinite; vertical-align:middle; margin-right:6px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* Modal */
+    .overlay { position:fixed; inset:0; background:rgba(2,6,23,.7); display:flex; align-items:center; justify-content:center; z-index:20; }
+    .modal { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); width:min(560px,92vw); max-height:85vh; display:flex; flex-direction:column; padding:20px; overflow-y:auto; }
+    .modal h2 { margin:0 0 14px; font-size:15px; }
+    .modal label { display:block; color:var(--muted); font-size:12px; margin:8px 0 4px; }
+    .modal .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .modal .actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
+
+    .progressbar { height:10px; border-radius:999px; overflow:hidden; background:var(--panel-2); border:1px solid var(--border); margin:10px 0 6px; }
+    .progressbar > div { height:100%; width:0; background:var(--accent); transition:width .12s ease; }
+    .analysisfile { min-height:32px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; overflow-wrap:anywhere; color:var(--fg); }
+    .fslist { flex:1; overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); max-height:280px; }
+    .fsrow { padding:8px 10px; cursor:pointer; border-bottom:1px solid #1f2b3e; font-size:13px; }
+    .fsrow:hover { background:var(--panel); }
+    .fscur { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; margin:6px 0; }
+
+    @media (max-width:768px) {
+      header { padding:10px 14px; }
+      .filters { padding:10px 14px; }
+      .project-section { margin:0 10px 16px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚙️ ASO Runtime</h1>
+    <span class="sub">Kanban Macro · <a href="/docs" target="_blank">/docs</a></span>
+    <span style="flex:1"></span>
+    <input id="tok" placeholder="token (Bearer)" style="width:180px;background:var(--panel-2);border:1px solid var(--border);color:var(--fg);border-radius:8px;padding:6px 8px;font-size:12px;" />
+    <button class="btn ghost sm" onclick="saveTok()">Entrar</button>
+    <button class="btn" onclick="abrirModalNovoProjeto()" style="background:var(--info)">📁 Novo Projeto</button>
+    <button class="btn ok" onclick="novaOrquestracao()">＋ Nova Orquestração</button>
+  </header>
+
+  <div class="filters">
+    <label class="muted" style="display:flex;align-items:center;gap:6px">
+      Projeto
+      <select id="projectFilter" onchange="aplicarFiltro()">
+        <option value="">Todos os projetos</option>
+      </select>
+    </label>
+    <span id="stats" class="muted"></span>
+  </div>
+
+  <div id="content"><div class="empty"><span class="spinner"></span> carregando…</div></div>
+
+  <script>
+    const token = () => localStorage.getItem('aso_token') || '';
+    const api = (p, opts={}) => {
+      const h = Object.assign({}, opts.headers || {});
+      const t = token(); if (t) h['Authorization'] = 'Bearer ' + t;
+      return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok ? r.json() : Promise.reject(r.status));
+    };
+    const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
+    const del = (p) => api(p, { method:'DELETE' });
+    const put = (p, body) => api(p, { method:'PUT', headers:{'content-type':'application/json'}, body: JSON.stringify(body) });
+    function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); carregarTudo(); }
+    const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
+    const statusPill = (s) => {
+      const m = { applied:'ok', PASSED:'ok', approved:'ok', Done:'ok', rejected:'err', FAILED:'err', Failed:'err', Blocked:'err',
+                  pending:'warn', WARNING:'warn', WaitingHuman:'warn', Testing:'info', Review:'info', InProgress:'info',
+                  Ready:'info', Backlog:'', Planning:'' };
+      return `<span class="pill ${m[s]||''}">${esc(s)}</span>`;
+    };
+
+    function novaOrquestracao() { window.location.href = '/ui/nova'; }
+    let _todosOsDados = null;
+
+    async function carregarTudo() {
+      document.getElementById('tok').value = token();
+      const content = document.getElementById('content');
+      content.innerHTML = '<div class="empty"><span class="spinner"></span> carregando…</div>';
+
+      try {
+        const [orchestrations, projectList] = await Promise.all([
+          api('/v1/orchestrations'),
+          api('/v1/projects').catch(() => [])
+        ]);
+
+        if (!orchestrations.length && !projectList.length) {
+          content.innerHTML = '<div class="empty">Nenhum projeto ou orquestração ainda.<br><br><button class="btn" onclick="abrirModalNovoProjeto()">📁 Criar primeiro projeto</button></div>';
+          document.getElementById('stats').textContent = '';
+          popularFiltro([]);
+          return;
+        }
+
+        // Busca cards de todas as orquestrações em paralelo
+        const cardsPromises = orchestrations.map(o =>
+          api(`/v1/orchestrations/${o.id}/cards`).catch(() => [])
+        );
+        const allCards = await Promise.all(cardsPromises);
+
+        // Monta estrutura
+        const projetos = {};
+        for (let i = 0; i < orchestrations.length; i++) {
+          const o = orchestrations[i];
+          const pid = o.project_id || '(sem projeto)';
+          if (!projetos[pid]) projetos[pid] = { orchestrations: [], cards: [], cardsByOrch: {} };
+          projetos[pid].orchestrations.push(o);
+          projetos[pid].cardsByOrch[o.id] = allCards[i] || [];
+          for (const c of (allCards[i] || [])) {
+            projetos[pid].cards.push(c);
+          }
+        }
+
+        _todosOsDados = { projetos, orchestrations, projectList };
+        popularFiltro(Object.keys(projetos));
+        aplicarFiltro();
+      } catch (e) {
+        content.innerHTML = `<div class="empty">Erro ao carregar (${e}). Verifique o token.</div>`;
+      }
+    }
+
+    function popularFiltro(projectIds) {
+      const sel = document.getElementById('projectFilter');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">Todos os projetos</option>' +
+        projectIds.map(id => `<option value="${esc(id)}" ${id===current?'selected':''}>${esc(id)}</option>`).join('');
+      sel.value = current;
+    }
+
+    function aplicarFiltro() {
+      if (!_todosOsDados) return;
+      const filtro = document.getElementById('projectFilter').value;
+      const { projetos, projectList } = _todosOsDados;
+      const content = document.getElementById('content');
+
+      const projectIds = filtro ? [filtro] : Object.keys(projetos);
+      let totalCards = 0, totalOrchs = 0;
+      const COLUNAS = ['Backlog','Ready','InProgress','WaitingHuman','Review','Testing','Blocked','Failed','Done'];
+      const CW = { Backlog:185, Ready:185, InProgress:195, WaitingHuman:200, Review:185, Testing:185, Blocked:190, Failed:185, Done:185 };
+
+      // Busca metadados de projeto para cada project_id
+      const projMeta = {};
+      for (const p of projectList) { projMeta[p.id] = p; }
+
+      let html = '';
+      for (const pid of projectIds) {
+        const p = projetos[pid];
+        if (!p) continue;
+        totalOrchs += p.orchestrations.length;
+        totalCards += p.cards.length;
+
+        const byCol = {};
+        COLUNAS.forEach(c => byCol[c] = []);
+        for (const card of p.cards) {
+          const col = COLUNAS.includes(card.status) ? card.status : 'Backlog';
+          if (byCol[col]) byCol[col].push(card);
+        }
+
+        // Associa orquestração a cada card
+        const orchMap = {};
+        for (const o of p.orchestrations) {
+          orchMap[o.id] = o;
+          for (const c of (p.cardsByOrch[o.id] || [])) { c._orch = o; }
+        }
+
+        // Info do projeto
+        const meta = projMeta[pid];
+        const projName = meta ? meta.name : pid;
+        const projDesc = meta ? meta.description : '';
+        const projPath = meta ? meta.target_path : '';
+
+        html += `<div class="project-section">
+          <div class="project-header">
+            <div>
+              <h2>📁 ${esc(projName)}</h2>
+              <div class="info">${esc(projDesc)}${projPath ? ` · <code>${esc(projPath)}</code>` : ''} · ${p.orchestrations.length} orquestraç${p.orchestrations.length===1?'ão':'ões'} · ${p.cards.length} cards</div>
+            </div>
+            <div class="actions">
+              ${meta ? `<button class="btn ghost sm" onclick="abrirModalNovoProjeto('${esc(pid)}')">✏️ Editar</button>
+                        <button class="btn err sm" onclick="deletarProjeto('${esc(pid)}','${esc(projName)}')">🗑 Remover</button>` : ''}
+            </div>
+          </div>
+          <div class="board">`;
+
+        for (const col of COLUNAS) {
+          const cards = byCol[col] || [];
+          html += `<div class="col" style="min-width:${CW[col]||185}px;max-width:${CW[col]||220}px">
+            <h3>${col} <span class="count">${cards.length}</span></h3>`;
+          for (const card of cards) {
+            const o = card._orch || orchMap[card.orchestration_id] || {};
+            html += `<div class="kcard" onclick="abrirOrch('${esc(card.orchestration_id)}')">
+              <div class="t">${statusPill(card.type||'Task')} ${esc(card.assignee||'—')} · ${esc(card.phase||'')}</div>
+              <div class="title">${esc(card.title)}</div>
+              <div class="orch-ref">${esc((o.user_request||o.id||'').slice(0,40))}</div>
+              ${card.block_reason?`<div class="reason">⚠ ${esc(card.block_reason)}</div>`:''}
+            </div>`;
+          }
+          if (cards.length === 0) html += '<div class="muted" style="font-size:11px;padding:4px">—</div>';
+          html += '</div>';
+        }
+        html += '</div></div>';
+      }
+
+      content.innerHTML = html || '<div class="empty">Nenhum projeto encontrado.</div>';
+      document.getElementById('stats').textContent = `${totalOrchs} orquestraç${totalOrchs===1?'ão':'ões'} · ${totalCards} cards`;
+    }
+
+    function abrirOrch(id) { window.location.href = '/ui/detalhe?id=' + encodeURIComponent(id); }
+
+    // ---- Modal: Novo/Editar Projeto ----------------------------------------
+    let _fsPathProj = null;
+    let _editProjectId = null;
+
+    async function abrirModalNovoProjeto(editId) {
+      _editProjectId = editId || null;
+      const proj = editId ? await api('/v1/projects/' + editId).catch(() => null) : null;
+      const titulo = editId ? 'Editar Projeto' : 'Novo Projeto';
+      const box = el(`<div class="overlay" id="projModal" role="dialog" aria-modal="true">
+        <div class="modal">
+          <div class="row" style="justify-content:space-between"><h2>${titulo}</h2><button class="btn ghost sm" onclick="fecharModalProj()">✕</button></div>
+          <label>Nome do projeto *</label>
+          <input id="projName" value="${esc(proj?.name||'')}" placeholder="ex.: Meu App" />
+          <label>Descrição</label>
+          <textarea id="projDesc" rows="2" placeholder="O que este projeto faz...">${esc(proj?.description||'')}</textarea>
+          <label>Pasta do projeto</label>
+          <div class="row" style="gap:6px;align-items:stretch">
+            <input id="projPath" value="${esc(proj?.target_path||'')}" placeholder="/caminho/do/projeto" style="flex:1" />
+            <button class="btn ghost sm" onclick="abrirFolderModalProj()">📁 Procurar</button>
+          </div>
+          <div id="projAnalyzeSection">
+            <label>Executor para análise</label>
+            <select id="projExec"><option value="">default</option></select>
+            <div id="projAnalyzeStatus" class="muted" style="margin-top:6px"></div>
+          </div>
+          <div class="actions">
+            <button class="btn ghost" onclick="fecharModalProj()">Cancelar</button>
+            <button class="btn ok" id="projSaveBtn" onclick="salvarProjeto()">${editId?'Salvar':'Criar e Analisar'}</button>
+          </div>
+        </div></div>`);
+      if (document.getElementById('projModal')) document.getElementById('projModal').remove();
+      document.body.appendChild(box);
+      carregarExecsNoSelect('projExec');
+    }
+
+    function fecharModalProj() {
+      const box = document.getElementById('projModal'); if (box) box.remove();
+      _editProjectId = null; _fsPathProj = null;
+    }
+
+    async function salvarProjeto() {
+      const name = document.getElementById('projName').value.trim();
+      const desc = document.getElementById('projDesc').value.trim();
+      const path = document.getElementById('projPath').value.trim();
+      const executor = document.getElementById('projExec').value || null;
+      if (!name) { alert('Nome do projeto é obrigatório.'); return; }
+
+      const btn = document.getElementById('projSaveBtn');
+      btn.disabled = true; btn.textContent = 'Salvando…';
+
+      try {
+        let proj;
+        if (_editProjectId) {
+          proj = await put('/v1/projects/' + _editProjectId, { name, description: desc, target_path: path || null });
+          fecharModalProj();
+          await carregarTudo();
+        } else {
+          proj = await post('/v1/projects', { name, description: desc, target_path: path || null });
+          // Análise automática se tem path
+          if (path) {
+            document.getElementById('projAnalyzeStatus').innerHTML = '<span class="spinner"></span> Analisando pasta…';
+            await analisarPastaProj(path, executor);
+            document.getElementById('projAnalyzeStatus').innerHTML = '<span style="color:var(--ok)">✅ Pasta analisada com sucesso.</span>';
+          }
+          btn.textContent = 'Projeto criado!';
+          setTimeout(() => { fecharModalProj(); carregarTudo(); }, 1500);
+        }
+      } catch (e) {
+        alert('Erro ao salvar projeto (' + e + ').');
+        btn.disabled = false; btn.textContent = _editProjectId ? 'Salvar' : 'Criar e Analisar';
+      }
+    }
+
+    async function analisarPastaProj(path, executor) {
+      const statusEl = document.getElementById('projAnalyzeStatus');
+      try {
+        const o = await post('/v1/orchestrations', {
+          user_request: 'Análise inicial do workspace do projeto',
+          target_path: path,
+          execution_mode: 'code-execution',
+          executor: executor,
+          validation_command: 'echo ok'
+        });
+        await post(`/v1/orchestrations/${o.id}/analyze-folder`, { executor, effort: 'medium' });
+        await del('/v1/orchestrations/' + o.id).catch(() => {});
+      } catch (e) {
+        statusEl.innerHTML = `<span style="color:var(--warn)">⚠ Análise parcial: ${esc(String(e))}</span>`;
+      }
+    }
+
+    async function deletarProjeto(pid, name) {
+      if (!confirm(`Remover o projeto "${name}" e TODAS as suas orquestrações?\n\nEsta ação é irreversível.`)) return;
+      try {
+        const r = await del('/v1/projects/' + pid);
+        alert(`Projeto removido. ${r.orchestrations_deleted} orquestraç${r.orchestrations_deleted===1?'ão':'ões'} deletada(s).`);
+        await carregarTudo();
+      } catch (e) {
+        alert('Erro ao remover projeto (' + e + ').');
+      }
+    }
+
+    // ---- Navegador de pastas (modal projeto) ---------------------------------
+    async function abrirFolderModalProj() {
+      let box = document.getElementById('fsModalProj');
+      box = el(`<div class="overlay" id="fsModalProj"><div class="modal">
+        <div class="row" style="justify-content:space-between"><h2>Selecionar pasta</h2><button class="btn ghost sm" onclick="fecharFolderModalProj()">✕</button></div>
+        <div class="fscur" id="fsCurProj"></div>
+        <div class="fslist" id="fsListProj"><div class="muted" style="padding:12px">carregando…</div></div>
+        <div class="row" style="margin-top:10px;justify-content:flex-end">
+          <button class="btn ghost" onclick="fsUpProj()">⬆ Acima</button>
+          <button class="btn" onclick="fsUsarProj()">Usar esta pasta</button>
+        </div></div></div>`);
+      if (document.getElementById('fsModalProj')) document.getElementById('fsModalProj').remove();
+      document.body.appendChild(box);
+      const start = document.getElementById('projPath').value.trim();
+      await fsNavegarProj(start || null);
+    }
+    function fecharFolderModalProj() { const b = document.getElementById('fsModalProj'); if (b) b.remove(); _fsPathProj = null; }
+    async function fsNavegarProj(path) {
+      try {
+        const data = await api('/v1/fs/dirs' + (path ? ('?path=' + encodeURIComponent(path)) : ''));
+        _fsPathProj = data.path;
+        document.getElementById('fsCurProj').textContent = data.path;
+        document.getElementById('fsListProj').innerHTML = data.dirs.map(d =>
+          `<div class="fsrow" onclick="fsNavegarProj('${esc(d.path).replace(/'/g,"\\'")}')">📁 ${esc(d.name)}</div>`
+        ).join('') || '<div class="muted" style="padding:12px">sem subpastas</div>';
+      } catch (e) { alert('Erro ao abrir pasta ('+e+').'); }
+    }
+    function fsUpProj() { const b = _fsPathProj && _fsPathProj.replace(/\/+$/,''); const p = b && b.slice(0, b.lastIndexOf('/')) || '/'; fsNavegarProj(p || '/'); }
+    function fsUsarProj() { if (_fsPathProj) document.getElementById('projPath').value = _fsPathProj; fecharFolderModalProj(); }
+
+    async function carregarExecsNoSelect(selId) {
+      const sel = document.getElementById(selId);
+      if (!sel || sel.options.length > 1) return;
+      try {
+        const execs = await api('/v1/executors');
+        sel.innerHTML = '<option value="">default</option>' + execs.map(e =>
+          `<option value="${esc(e.name)}" ${e.is_default?'selected':''}>${esc(e.name)}${e.model?(' · '+esc(e.model)):''}${e.provider?(' ('+esc(e.provider)+')'):''}</option>`).join('');
+      } catch (_) {}
+    }
+
+    carregarTudo();
+  </script>
+</body>
+</html>

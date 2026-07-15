@@ -24,6 +24,9 @@ class InMemoryOrchestrationRepository:
             return None
         return OrchestrationState.model_validate_json(blob)
 
+    def delete(self, orchestration_id: str) -> None:
+        self._store.pop(orchestration_id, None)
+
     def list_ids(self) -> list[str]:
         return list(self._store.keys())
 

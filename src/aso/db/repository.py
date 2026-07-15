@@ -304,6 +304,16 @@ class SqlAlchemyOrchestrationRepository:
                 _values("gate", gate.id, "required_actions", list(gate.required_actions))
             session.commit()
 
+    # -------------------------------------------------------------------- delete
+    def delete(self, orchestration_id: str) -> None:
+        """Remove o aggregate em ordem FK-safe (filhos → pai)."""
+        oid = orchestration_id
+        with self._session_factory() as session:
+            for table in reversed(_CHILD_TABLES):
+                session.execute(delete(table).where(table.orchestration_id == oid))  # type: ignore[attr-defined]
+            session.execute(delete(OrchestrationRow).where(OrchestrationRow.id == oid))
+            session.commit()
+
     # --------------------------------------------------------------------- load
     def load(self, orchestration_id: str) -> OrchestrationState | None:
         oid = orchestration_id
