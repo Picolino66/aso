@@ -88,6 +88,29 @@ Cada card roda numa branch/worktree `aso/<agente>-<id>`; o diff é coletado ante
 merge e a branch principal permanece intacta (§26A.6). Sem essas variáveis, usa-se o provider
 mock (determinístico).
 
+### Permissão de escrita do agente CLI (causa nº 1 de "diff vazio")
+
+Em modo não-interativo, os CLIs **não escrevem arquivos por padrão** — não têm como pedir
+aprovação, então respondem em texto, saem com código 0 e deixam o worktree intacto. O ASO
+detecta o diff vazio, tenta de novo e marca o card como `Failed`. O comando do executor
+precisa conceder a permissão explicitamente:
+
+| Agente | Comando mínimo que escreve |
+|---|---|
+| Claude Code | `claude -p --permission-mode acceptEdits` (edita arquivos) |
+| Claude Code | `claude -p --dangerously-skip-permissions` (edita **e** roda comandos) |
+| Codex | `codex exec --sandbox workspace-write` (já embutido nos perfis gerenciados) |
+
+Com `acceptEdits` o agente altera arquivos mas **não executa comandos** — cards que precisem
+rodar build/testes travam nesse ponto. Conceder autonomia total é defensável aqui porque a
+contenção do ASO é o **worktree isolado** + diff coletado + merge governado com CI e revisão
+(regra 5 · [ADR-0009](adrs/ADR-0009-entrega-de-codigo-governada.md)), não a permissão do CLI.
+
+Para corrigir um catálogo já existente: [`scripts/fix-executor-permissions.sh`](../scripts/fix-executor-permissions.sh)
+(aceita `ASO_CLAUDE_PERMISSION_FLAG` para escolher a flag). Quando o card falha assim, o
+motivo registrado passa a incluir **a última fala do agente** e o "Próximo passo" mostra o
+bloqueio `executor_sem_permissao` com a orientação.
+
 ### Catálogo Codex compatível com a conta
 
 `./scripts/manager.sh seed` consulta `codex app-server`/`model/list` pelo processo da API e

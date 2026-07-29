@@ -59,9 +59,7 @@ class CliAgentExecutionProvider:
                 )
             diff = self.worktree.collect_diff(path)
             if not diff.strip():
-                raise AgentExecutionError(
-                    "Executor CLI não produziu alterações no worktree (diff vazio)."
-                )
+                raise AgentExecutionError(_empty_diff_detail(proc.stdout, proc.stderr))
             self.worktree.commit(path, f"aso: {agent.role} ({task.get('card_id', '-')})")
         finally:
             self.worktree.remove(path)
@@ -85,6 +83,21 @@ class CliAgentExecutionProvider:
             patches=[patch],
             artifacts={"branch": branch, "diff": diff, "stdout": proc.stdout[:2000]},
         )
+
+
+def _empty_diff_detail(stdout: str, stderr: str) -> str:
+    """Motivo do diff vazio **com a última fala do agente** — é ela que revela a causa.
+
+    O caso mais comum não é o agente "não saber fazer": é ele rodar **sem permissão de
+    escrita** (`claude -p` sem `--permission-mode`, `codex exec` em sandbox read-only).
+    Aí o CLI responde em texto ("aguardo sua permissão"), sai com código 0 e o worktree
+    fica intacto. Descartar essa saída deixava o operador sem pista nenhuma.
+    """
+    base = "Executor CLI não produziu alterações no worktree (diff vazio)."
+    fala = (stdout or stderr or "").strip()
+    if not fala:
+        return f"{base} O agente não deixou saída — confira o comando do executor."
+    return f"{base} Última saída do agente: {fala[-400:]}"
 
 
 def _failure_detail(output: str) -> str:

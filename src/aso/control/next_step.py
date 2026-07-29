@@ -53,6 +53,10 @@ PHASE_LABELS: dict[Phase, str] = {
     Phase.F7: "Operate & Evolve",
 }
 
+# Marca do erro que o CliAgentExecutionProvider registra quando o agente roda sem
+# permissão de escrita (worktree intacto) — vira uma dica dedicada no próximo passo.
+_EMPTY_DIFF_MARK = "diff vazio"
+
 # Estados de um item do checklist.
 STATE_OK = "ok"
 STATE_CURRENT = "atual"  # "você está aqui"
@@ -330,6 +334,23 @@ def _card_blockers(inp: NextStepInput, phase: Phase) -> list[NextStepBlocker]:
             )
         )
     falhos = por_status.get(ColumnKey.FAILED, [])
+    if any(_EMPTY_DIFF_MARK in (c.block_reason or "") for c in falhos):
+        # Falha silenciosa clássica: o CLI roda, sai com 0 e não escreve nada porque
+        # está sem permissão de escrita. Sem esta dica o operador culpa o agente.
+        found.append(
+            NextStepBlocker(
+                code="executor_sem_permissao",
+                severity=SEVERITY_BLOCKS,
+                title="O agente rodou, mas não alterou nada no worktree",
+                detail=(
+                    "Sintoma clássico de agente CLI sem permissão de escrita: `claude -p` "
+                    "precisa de `--permission-mode acceptEdits` (ou "
+                    "`--dangerously-skip-permissions`) e `codex exec` de "
+                    "`--sandbox workspace-write`. Ajuste o comando do executor em "
+                    "/ui/console → ⚙ Config e execute a fase de novo."
+                ),
+            )
+        )
     if falhos:
         found.append(
             NextStepBlocker(

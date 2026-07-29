@@ -147,6 +147,38 @@ def test_card_bloqueado_vence_card_pronto_na_ordem() -> None:
     assert rel.explanation == "conflito"
 
 
+def test_diff_vazio_vira_dica_de_permissao_do_executor() -> None:
+    """O agente rodou e não escreveu nada: a causa quase sempre é permissão, não o card."""
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(),
+            cards=[
+                _card(
+                    ColumnKey.FAILED,
+                    block_reason=(
+                        "BackendDevelopmentAgent falhou após 2 tentativas: Executor CLI não "
+                        "produziu alterações no worktree (diff vazio)."
+                    ),
+                )
+            ],
+        )
+    )
+    assert _codes(rel)[0] == "executor_sem_permissao"
+    assert "--permission-mode" in rel.blockers[0].detail
+    assert "--sandbox workspace-write" in rel.blockers[0].detail
+    assert "cards_falhos" in _codes(rel)  # o retry continua disponível
+
+
+def test_falha_comum_nao_vira_dica_de_permissao() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(),
+            cards=[_card(ColumnKey.FAILED, block_reason="Executor CLI terminou com exit=1")],
+        )
+    )
+    assert "executor_sem_permissao" not in _codes(rel)
+
+
 def test_card_falho_oferece_retry() -> None:
     rel = compute_next_step(
         NextStepInput(orchestration=_orch(), cards=[_card(ColumnKey.FAILED, block_reason="boom")])

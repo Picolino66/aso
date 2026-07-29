@@ -219,6 +219,14 @@ aprovações. Passos:
    tarefa (JSON no stdin) em um prompt em pt-BR e chama `codex exec "<prompt>"` no worktree
    do card. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
 
+> **Permissão de escrita (causa nº 1 de card `Failed` com "diff vazio")**: em modo
+> não-interativo os CLIs não editam arquivos sem autorização explícita — respondem em texto,
+> saem com 0 e o worktree fica intacto. Use `claude -p --permission-mode acceptEdits` (só
+> edições) ou `--dangerously-skip-permissions` (edições + comandos, necessário para rodar
+> build/testes); os perfis Codex gerenciados já vêm com `--sandbox workspace-write`. Para
+> consertar um catálogo existente: `./scripts/fix-executor-permissions.sh`. Detalhes em
+> [docs/operations.md](docs/operations.md#permissão-de-escrita-do-agente-cli-causa-nº-1-de-diff-vazio).
+
 > **Caminho com espaços**: o comando do executor é separado por `shlex`, então um caminho
 > com espaços (ex.: `Área de trabalho`) precisa estar **entre aspas**:
 > `"/home/eu/Área de trabalho/.../aso-agent-wrapper.sh" codex exec`. Sem aspas, ele quebra e

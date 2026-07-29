@@ -25,6 +25,8 @@ def test_managed_profiles_tem_default_sem_modelo() -> None:
     assert profiles[0].model == ""
     assert "-m" not in profiles[0].command
     assert "--ignore-user-config" in profiles[0].command
+    # Sem sandbox de escrita o Codex sai com 0 sem tocar no worktree (diff vazio).
+    assert "--sandbox workspace-write" in profiles[0].command
     assert profiles[1].supported_efforts == ["low", "medium", "high"]
 
 

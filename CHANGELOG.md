@@ -4,6 +4,25 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
+### Corrigido
+- **Coleta de diff descartava o trabalho de agentes que commitam:** `collect_diff`
+  comparava apenas o índice (`git add -A` + `git diff --cached`), então quando o agente CLI
+  commitava o que produziu — comportamento que o próprio wrapper do ASO pede ("commits
+  pequenos") — a árvore ficava limpa, o diff saía vazio e o card era marcado como `Failed`,
+  **descartando código real**. Agora o diff é coletado contra o **merge-base com o HEAD do
+  repo base**: cobre commits do agente e mudanças pendentes, e ignora o que o repo base
+  ganhou em paralelo. `commit()` virou no-op quando a árvore já está limpa (o trabalho já
+  está nos commits do agente).
+- **Diagnóstico de agente CLI sem permissão de escrita:** em modo não-interativo,
+  `claude -p` (sem `--permission-mode`) e `codex exec` em sandbox read-only respondem em
+  texto, saem com código 0 e deixam o worktree intacto — o card falhava com "diff vazio" e
+  a saída do agente era descartada, sem pista da causa. Agora o motivo registrado no card
+  inclui **a última fala do agente**, o "Próximo passo" mostra o bloqueio dedicado
+  `executor_sem_permissao` com as flags necessárias, os perfis Codex gerenciados passam a
+  ser criados com `--sandbox workspace-write` (o `--ignore-user-config` descartava o
+  sandbox do `config.toml` pessoal) e `scripts/fix-executor-permissions.sh` corrige um
+  catálogo já existente. Documentado em `docs/operations.md` e no README.
+
 ### Adicionado
 - **Tela de detalhe orientada a "próximo passo" (ADR-0013):** novo motor puro
   `control/next_step.py` (`compute_next_step`) que reúne, num único contrato, as regras de

@@ -2790,6 +2790,69 @@
         "TASK-87"
       ],
       "evidence": "291 testes verdes (35 novos: 28 unitários do motor + 7 de integração do endpoint/rotas de UI), cobertura 90.92% (next_step.py 98%); ruff/format/mypy strict OK; alembic check sem diff"
+    },
+    {
+      "id": "TASK-89",
+      "epic": "EPIC-5",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Diagnóstico de agente CLI sem permissão de escrita (falha silenciosa 'diff vazio')",
+      "description": "Em modo não-interativo o CLI não escreve arquivos sem autorização: responde em texto, sai com código 0 e o worktree fica intacto. O card falhava com 'diff vazio' e a saída do agente era descartada, deixando o operador sem pista. Agora _empty_diff_detail preserva a última fala do agente no motivo do card; o motor de próximo passo ganha o bloqueio dedicado executor_sem_permissao (severidade bloqueia) com as flags necessárias; managed_codex_profiles passa a gerar --sandbox workspace-write (o --ignore-user-config descartava o sandbox do config.toml pessoal); scripts/fix-executor-permissions.sh corrige catálogos já existentes. Documentado em docs/operations.md e README.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "diff vazio → motivo do card inclui a última fala do agente (stdout ou stderr)",
+        "sem saída nenhuma → motivo orienta a conferir o comando do executor",
+        "card Failed com 'diff vazio' → próximo passo mostra executor_sem_permissao como 1º bloqueio",
+        "falha comum (exit != 0) não vira dica de permissão",
+        "perfis Codex gerenciados nascem com --sandbox workspace-write e o sync não reverte"
+      ],
+      "linked_requirements": [
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0009",
+        "ADR-0011",
+        "ADR-0013"
+      ],
+      "dependencies": [
+        "TASK-88"
+      ],
+      "evidence": "297 testes verdes (6 novos), cobertura 90.94%; causa reproduzida fora do ASO: 'claude -p --model haiku' respondeu 'Vou aguardar sua permissão' com exit 0 e worktree intacto, e com --permission-mode acceptEdits criou o arquivo; ruff/format/mypy OK"
+    },
+    {
+      "id": "TASK-90",
+      "epic": "EPIC-5",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Coleta de diff descartava o trabalho de agentes que commitam",
+      "description": "collect_diff comparava só o índice (git add -A + git diff --cached), então quando o agente CLI commitava o próprio trabalho — comportamento que o wrapper do ASO explicitamente pede ('commits pequenos') — a árvore ficava limpa, o diff saía vazio e o runtime marcava o card como Failed, descartando código real. Reproduzido em produção local: 4 branches aso/ com 4 commits cada (calculadora completa: HTML/CSS/JS, testes, build e docs) foram jogadas fora. Agora o diff é coletado contra o merge-base com o HEAD do repo base, cobrindo commits do agente + pendências e ignorando o que a base andou em paralelo; commit() virou no-op quando a árvore já está limpa.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0009-entrega-de-codigo-governada.md",
+      "acceptance_criteria": [
+        "agente que commita o trabalho → diff coletado contém as mudanças (não é mais 'vazio')",
+        "agente que não commita → diff continua sendo coletado do índice",
+        "commitado + pendente na mesma execução → ambos entram no diff",
+        "commits que o repo base ganhou em paralelo não entram no diff do card",
+        "commit() não explode com 'nothing to commit' quando o agente já commitou",
+        "agente que só conversa continua sendo recusado, com a fala preservada no erro"
+      ],
+      "linked_requirements": [
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0009"
+      ],
+      "dependencies": [
+        "TASK-89"
+      ],
+      "evidence": "305 testes verdes (8 novos em tests/integration/test_worktree_diff.py, com git real), cobertura 90.99%; ruff/format/mypy OK"
     }
   ]
 }

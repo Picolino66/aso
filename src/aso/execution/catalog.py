@@ -255,7 +255,20 @@ def managed_codex_profiles(
         wrapper = os.environ.get("ASO_AGENT_WRAPPER", str(root / "scripts/aso-agent-wrapper.sh"))
     # A configuração pessoal pode fixar um modelo novo demais para o binário no PATH.
     # A autenticação continua no CODEX_HOME, mas modelo/esforço vêm do catálogo descoberto.
-    base_command = shlex.join([wrapper, capabilities.binary, "exec", "--ignore-user-config"])
+    # `--sandbox workspace-write` é obrigatório: com `--ignore-user-config` o sandbox do
+    # config.toml pessoal é descartado e o Codex cairia em read-only — ele responderia em
+    # texto, sairia com 0 e deixaria o worktree intacto (diff vazio). Escrita fica contida
+    # no worktree isolado do card, que é a fronteira de governança (regra 5 · ADR-0009).
+    base_command = shlex.join(
+        [
+            wrapper,
+            capabilities.binary,
+            "exec",
+            "--ignore-user-config",
+            "--sandbox",
+            "workspace-write",
+        ]
+    )
     default_model = next((m for m in capabilities.models if m.is_default), capabilities.models[0])
     profiles = [
         ExecutorProfile(

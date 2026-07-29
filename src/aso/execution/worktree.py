@@ -44,16 +44,28 @@ class WorktreeManager:
         return path, branch
 
     def collect_diff(self, path: Path) -> str:
-        """Coleta o diff (inclui arquivos novos) do worktree."""
+        """Coleta **todo** o trabalho do card: commits do agente + o que ficou pendente.
+
+        Comparar só o índice (`git diff --cached`) era um bug silencioso: agentes CLI
+        costumam commitar o que fazem — o wrapper do ASO inclusive pede "commits
+        pequenos" — e aí a árvore fica limpa, o diff sai vazio e o runtime descartava
+        trabalho real como se o agente não tivesse feito nada. O diff certo é contra o
+        **ponto de partida** da branch (merge-base com o HEAD do repo base), que cobre os
+        dois casos e ignora commits que o repo base ganhou depois.
+        """
         # `git add`/`commit` disputam lockfiles de ref/index com merge/worktree-add
         # concorrentes no mesmo repo base; serializamos para evitar falha espúria.
         with _GIT_META_LOCK:
             self._git("add", "-A", cwd=path)
-            return self._git("diff", "--cached", cwd=path).stdout
+            base_head = self._git("rev-parse", "HEAD").stdout.strip()
+            origem = self._git("merge-base", "HEAD", base_head, cwd=path).stdout.strip()
+            return self._git("diff", "--cached", origem, cwd=path).stdout
 
     def commit(self, path: Path, message: str) -> None:
-        """Faz commit do que já está staged no worktree (branch do card)."""
+        """Faz commit do que restou staged; no-op se o agente já commitou tudo."""
         with _GIT_META_LOCK:
+            if not self._git("status", "--porcelain", cwd=path).stdout.strip():
+                return  # árvore limpa: o trabalho já está nos commits do próprio agente
             self._git("commit", "-m", message, cwd=path)
 
     def merge(self, branch: str, *, message: str = "aso: merge governado") -> None:
