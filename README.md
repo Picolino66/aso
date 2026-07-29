@@ -166,8 +166,13 @@ GET  .../events/stream                           # SSE ao vivo (console)
 GET  /metrics                                    # exposição Prometheus
 ```
 
-Console em `/ui/`: catálogo de projetos ativos/arquivados e Kanban agrupado. O detalhe
-mantém timeline, ADRs, aprovações, snapshots (diff), patches, conflitos, métricas e PRs.
+Console em `/ui/`: catálogo de projetos ativos/arquivados e Kanban agrupado. Clicar num
+card abre `/ui/detalhe?id=…`, a **sala de controle** daquela orquestração: esteira F1→F7,
+card **"Próximo passo"** (o que falta e qual é o clique, vindo de
+`GET .../next-step`), funil só da fase corrente, pendências de governança acionáveis e
+atividade ao vivo por SSE. O console técnico completo — timeline, ADRs, aprovações,
+snapshots (diff), patches, conflitos, corridas de candidatos, custos e PRs — continua em
+`/ui/console`.
 
 ### Autenticação / RBAC
 

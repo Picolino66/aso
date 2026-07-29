@@ -459,9 +459,11 @@
             <button class="btn ghost" onclick="runPhase('${id}')">Rodar fase</button>
             <button class="btn ghost" onclick="runAll('${id}')">Rodar cards</button>
             <button class="btn ghost" onclick="runGate('${id}')">Rodar gate</button>
+            <button class="btn ghost" onclick="healDocs('${id}')" ${wsPath ? '' : 'disabled'} title="${wsPath ? 'Sincroniza a documentação docs-first com o código' : 'Defina a pasta de trabalho'}">🔄 Sincronizar docs</button>
           </div>
           <div class="docstatus muted">
             ${wsPath ? `pasta: <code>${esc(wsPath)}</code>` : '<span class="pill warn">sem pasta de trabalho</span>'}
+            <span id="driftStatus"></span>
           </div>
           <div class="muted" style="margin-top:4px">Executor efetivo: <b>${esc(orch.selected_executor||'default')}</b>. O Autopilot pausa quando houver PR, CI, revisão ou merge pendente.</div>
         </div>
@@ -478,6 +480,7 @@
         }
         _pendingExec = null;
       }
+      if (wsPath) refreshDrift(id);
       renderTab(id);
     }
 
@@ -887,6 +890,29 @@
       await openOrch(id);
     }
     async function runGate(id) { await post(`/v1/orchestrations/${id}/quality-gates/run`); await openOrch(id); }
+    async function refreshDrift(id) {
+      const box = document.getElementById('driftStatus'); if (!box) return;
+      let d;
+      try { d = await api(`/v1/orchestrations/${id}/docs-drift`); } catch (_) { return; }
+      if (!d.has_docs) { box.innerHTML = ' <span class="pill warn">docs-first ainda não gerada</span>'; return; }
+      if (!d.has_drift) { box.innerHTML = ' <span class="pill ok">docs em sincronia</span>'; return; }
+      const partes = [];
+      if (d.undocumented_modules.length) partes.push(`${d.undocumented_modules.length} módulo(s) sem doc`);
+      if (d.orphan_module_docs.length) partes.push(`${d.orphan_module_docs.length} doc(s) órfã(s)`);
+      if (d.broken_links.length) partes.push(`${d.broken_links.length} link(s) quebrado(s)`);
+      if (d.unfilled_features.length) partes.push(`${d.unfilled_features.length} doc(s) por preencher`);
+      box.innerHTML = ` <span class="pill warn">drift de docs: ${esc(partes.join(' · '))}</span>`;
+    }
+    async function healDocs(id) {
+      const box = document.getElementById('driftStatus');
+      if (box) box.innerHTML = ' <span class="pill info">sincronizando docs…</span>';
+      let r;
+      try { r = await post(`/v1/orchestrations/${id}/docs-heal`, _sel()); }
+      catch (st) { alert('Falha ao sincronizar docs (código '+st+').'); return; }
+      const a = r.after || {};
+      alert(`Sincronização (${r.mode}). Docs em sincronia: ${a.has_drift ? 'ainda há drift' : 'sim'}. Arquivos criados: ${(r.healed||[]).length}.`);
+      await openOrch(id);
+    }
     function _sel() {
       const e = document.getElementById('execSel'), f = document.getElementById('effortSel');
       return { executor: (e && e.value) || null, effort: (f && f.value) || null };

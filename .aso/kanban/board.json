@@ -2539,9 +2539,16 @@
         "CI roda na branch e merge usa o workspace da orquestração",
         "F5 não abre aprovação enquanto entrega estiver pendente"
       ],
-      "linked_requirements": ["§26A", "§27"],
-      "linked_adrs": ["ADR-0009"],
-      "dependencies": ["TASK-80"],
+      "linked_requirements": [
+        "§26A",
+        "§27"
+      ],
+      "linked_adrs": [
+        "ADR-0009"
+      ],
+      "dependencies": [
+        "TASK-80"
+      ],
       "evidence": "193 testes verdes, cobertura 91.51%; ruff, mypy e alembic check OK."
     },
     {
@@ -2562,9 +2569,16 @@
         "/ui/nova só tem o formulário de criação",
         "Cards clicáveis levam ao detalhe da orquestração"
       ],
-      "linked_requirements": ["§28", "§33"],
-      "linked_adrs": ["ADR-0001"],
-      "dependencies": ["TASK-81"],
+      "linked_requirements": [
+        "§28",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0001"
+      ],
+      "dependencies": [
+        "TASK-81"
+      ],
       "evidence": "Fluxos /ui/, /ui/nova e /ui/detalhe preservados; regressão final com 208 testes verdes, cobertura 91.63% e smoke Docker/Postgres OK."
     },
     {
@@ -2585,9 +2599,17 @@
         "Movimento real Backlog → Ready permanece funcional",
         "Comportamentos destrutivos e placeholders são substituídos por contrato governado"
       ],
-      "linked_requirements": ["§28", "§33"],
-      "linked_adrs": ["ADR-0001", "ADR-0010"],
-      "dependencies": ["TASK-82"],
+      "linked_requirements": [
+        "§28",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0001",
+        "ADR-0010"
+      ],
+      "dependencies": [
+        "TASK-82"
+      ],
       "evidence": "Implementação intermediária identificada no commit 8bac160; partes úteis preservadas e regressão da consolidação validada por 208 testes + smoke Docker/Postgres."
     },
     {
@@ -2611,9 +2633,23 @@
         "Console não cria orquestração temporária, não inicia Autopilot e não mantém placeholders",
         "OpenAPI, docs-first, ADR, changelog e smoke estão sincronizados"
       ],
-      "linked_requirements": ["§10", "§24", "§28", "§29", "§33"],
-      "linked_adrs": ["ADR-0006", "ADR-0008", "ADR-0010"],
-      "dependencies": ["TASK-79", "TASK-82", "TASK-83"],
+      "linked_requirements": [
+        "§10",
+        "§24",
+        "§28",
+        "§29",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0006",
+        "ADR-0008",
+        "ADR-0010"
+      ],
+      "dependencies": [
+        "TASK-79",
+        "TASK-82",
+        "TASK-83"
+      ],
       "evidence": "208 testes verdes, cobertura 91.63%; ruff check/format e mypy strict OK; Alembic head f84c2a1d9e30 + check sem drift; Docker/Postgres smoke multi-repo/docs-first OK; FKs de projects confirmadas como RESTRICT."
     },
     {
@@ -2636,10 +2672,124 @@
         "Gate contínuo é rejeitado e docs-first falho permanece repetível",
         "Console, OpenAPI, ADR e operação refletem disponibilidade real"
       ],
-      "linked_requirements": ["§24", "§26", "§28", "§33"],
-      "linked_adrs": ["ADR-0007", "ADR-0008", "ADR-0010", "ADR-0011"],
-      "dependencies": ["TASK-78", "TASK-79", "TASK-84"],
+      "linked_requirements": [
+        "§24",
+        "§26",
+        "§28",
+        "§33"
+      ],
+      "linked_adrs": [
+        "ADR-0007",
+        "ADR-0008",
+        "ADR-0010",
+        "ADR-0011"
+      ],
+      "dependencies": [
+        "TASK-78",
+        "TASK-79",
+        "TASK-84"
+      ],
       "evidence": "240 testes verdes, cobertura 91.16%; ruff check/format e mypy strict OK; Alembic upgrade/check sem drift; descoberta real /usr/bin/codex 0.133.0 => gpt-5.5/5.4/5.4-mini; Docker isolado + Postgres 16 + smoke.sh OK; orch_274fb313b8f248b58c0ec80f97d680b3 preservada, atualizada para codex-default/medium/npm test e recuperada com oito seções + workspace_prepared=true."
+    },
+    {
+      "id": "TASK-86",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Drift-check contínuo de docs-first + self-heal (F5/F6)",
+      "description": "Novo módulo execution/docs_drift.py com check_drift(path)->DocsDriftReport (só leitura): detecta undocumented_modules, orphan_module_docs (exclui módulo neutro 'projeto'), broken_links e unfilled_features (placeholder _A preencher._). run_quality_gate registra em F5/F6 um critério NÃO-bloqueante 'docs_in_sync' — drift vira warning no QualityGateResult, nunca blocking_issue (esteira segue, snapshot gerado). Service.heal_docs faz self-heal em 2 camadas: determinística (write_scaffold p/ módulos sem doc) + agente (preenche placeholders/conserta links em worktree isolado, diff mesclado governado); evento DocsHealed + ContextPatch engineering.docs_drift. API: GET /v1/orchestrations/{id}/docs-drift e POST /docs-heal. Console: indicador de drift + botão 'Sincronizar docs'. ADR-0012.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0012-drift-check-docs-first.md",
+      "acceptance_criteria": [
+        "check_drift detecta módulos sem doc, órfãs, links quebrados e placeholders",
+        "gate F5/F6 emite warning docs_in_sync sem reprovar (não-bloqueante)",
+        "heal_docs cria docs de módulos sem doc (determinístico) e usa agente quando disponível",
+        "GET /docs-drift (relatório) e POST /docs-heal funcionam; sem pasta → 409",
+        "console mostra status de drift e botão Sincronizar docs"
+      ],
+      "linked_requirements": [
+        "§10",
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0008",
+        "ADR-0012"
+      ],
+      "dependencies": [
+        "TASK-79"
+      ],
+      "evidence": "253 testes verdes (13 novos), cobertura 90.74%; ruff/format/mypy OK; alembic check sem diff"
+    },
+    {
+      "id": "TASK-87",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Self-heal automático de docs-first ao fim de F5/F6 no autopilot",
+      "description": "run_phase passa a acionar _maybe_autoheal_docs após o gate em F5/F6: quando há pasta, docs geradas e drift real, chama heal_docs automaticamente (best-effort, nunca derruba a esteira) e retorna o resultado em docs_autoheal. Desligável por ASO_AUTOHEAL_DOCS=0. Mantém o botão 'Sincronizar docs' como ação explícita. Evento autoheal_docs no log. ADR-0012 atualizada.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0012-drift-check-docs-first.md",
+      "acceptance_criteria": [
+        "run_phase(F5/F6) com drift → docs_autoheal preenchido e docs sincronizadas",
+        "sem drift ou fase != F5/F6 → docs_autoheal None",
+        "ASO_AUTOHEAL_DOCS=0 desliga o auto-heal",
+        "falha do self-heal não derruba a fase (best-effort)"
+      ],
+      "linked_requirements": [
+        "§10",
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0012"
+      ],
+      "dependencies": [
+        "TASK-86"
+      ],
+      "evidence": "256 testes verdes (3 novos), cobertura 90.67%; ruff/format/mypy OK"
+    },
+    {
+      "id": "TASK-88",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Tela de detalhe orientada a 'próximo passo' + motor de bloqueios no runtime",
+      "description": "A rota /ui/detalhe servia o console genérico e ignorava o ?id=, exigindo um segundo clique e repetindo o formulário de criação e o kanban de 12 colunas sobre uma orquestração já escolhida. Novo módulo puro control/next_step.py (compute_next_step → checklist do ciclo da fase, blockers ordenados por severidade com a rota que destrava cada um e o papel exigido, e primary_action); OrchestrationService.next_step coleta bundle + drift de docs + disponibilidade do executor + breaches de SLO; endpoint GET /v1/orchestrations/{id}/next-step. Nova static/detalhe.html servida em /ui/detalhe (breadcrumb do projeto, esteira F1→F7, card 'Próximo passo', funil só da fase corrente, pendências acionáveis, atividade ao vivo por SSE e acordeão técnico); console completo preservado em /ui/console. ADR-0013.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0013-tela-de-detalhe-por-proximo-passo.md",
+      "acceptance_criteria": [
+        "GET /next-step devolve fase, rótulo, próxima fase, checklist, blockers e primary_action",
+        "card em Ready → primary_action é POST /run-phase; card em Backlog → move para Ready",
+        "aprovação pendente ranqueia acima do trabalho de card e exige papel admin",
+        "PR aberta: CI pendente → rodar CI; CI verde → revisão; CI+review → merge (admin)",
+        "gate reprovado e cards bloqueados/falhos entram como severidade 'bloqueia'",
+        "drift de docs e SLO entram como 'informativo' e não viram a manchete",
+        "orquestração cancelada só oferece Retomar; concluída não tem bloqueios",
+        "/ui/detalhe abre direto na orquestração do ?id=, sem 'Nova orquestração' nem kanban global",
+        "/ui/console continua servindo o console técnico completo"
+      ],
+      "linked_requirements": [
+        "§14",
+        "§22",
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0013",
+        "ADR-0010",
+        "ADR-0012"
+      ],
+      "dependencies": [
+        "TASK-87"
+      ],
+      "evidence": "291 testes verdes (35 novos: 28 unitários do motor + 7 de integração do endpoint/rotas de UI), cobertura 90.92% (next_step.py 98%); ruff/format/mypy strict OK; alembic check sem diff"
     }
   ]
 }

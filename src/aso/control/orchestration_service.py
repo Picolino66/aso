@@ -23,10 +23,12 @@ from aso.agents.supervisor import AgentSupervisor
 from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.execution_planner import ExecutionPlanner
 from aso.control.models import DecisionInput, ExecutionPlan, Orchestration, Project, ProjectEvent
+from aso.control.next_step import NextStepInput, NextStepReport, compute_next_step
 from aso.control.project_service import ProjectService
 from aso.execution.candidates import CandidateRunner
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile, managed_codex_profiles
 from aso.execution.codex_discovery import CodexDiscoveryError, discover_codex
+from aso.execution.docs_drift import DocsDriftReport, check_drift
 from aso.execution.docs_scaffold import write_scaffold
 from aso.execution.gate_command import run_gate_command
 from aso.execution.gate_validation import validate_gate_command
@@ -95,6 +97,33 @@ def _section_delta(before: Any, after: Any) -> dict[str, list[str]]:
         "removed": [] if has_after else ["*"],
         "modified": ["*"] if has_before and has_after and before != after else [],
     }
+
+
+def _drift_summary(rep: DocsDriftReport) -> str:
+    """Resumo textual (pt-BR) do drift de docs para evidência do gate/UI."""
+    partes: list[str] = []
+    if rep.undocumented_modules:
+        partes.append("módulos sem doc: " + ", ".join(rep.undocumented_modules))
+    if rep.orphan_module_docs:
+        partes.append("docs órfãs: " + ", ".join(rep.orphan_module_docs))
+    if rep.broken_links:
+        partes.append(f"{len(rep.broken_links)} link(s) quebrado(s)")
+    if rep.unfilled_features:
+        partes.append(f"{len(rep.unfilled_features)} doc(s) por preencher")
+    return "; ".join(partes)
+
+
+def _docs_sync_check(root: str) -> tuple[bool, str]:
+    """Predicado (não-bloqueante) do gate F5/F6: docs-first em sincronia com o código?"""
+    try:
+        rep = check_drift(root)
+    except ValueError:
+        return True, "sem pasta para checar docs"
+    if not rep.has_docs:
+        return True, "docs-first ainda não gerada"
+    if not rep.has_drift:
+        return True, "docs em sincronia com o código"
+    return False, "drift de docs — " + _drift_summary(rep)
 
 
 def _phase_for_agent(agent: str) -> Phase:
@@ -1720,6 +1749,13 @@ class OrchestrationService:
                     ),
                 )
             )
+        # Drift contínuo de docs (NÃO-bloqueante): nas fases de código, avisa quando a
+        # documentação docs-first ficou fora de sincronia com o código, sem reprovar o
+        # gate — o operador sincroniza via "Sincronizar docs" (§ai-docs-self-healing).
+        if repo and target_phase in (Phase.F5, Phase.F6):
+            criteria.append(
+                Criterion("docs_in_sync", lambda _c: _docs_sync_check(repo), blocking=False)
+            )
         b.gate_engine.register(target_phase, criteria)
         result = b.gate_engine.run(target_phase, orchestration_id, b.store.get())
         if result.status == GateStatus.PASSED:
@@ -1890,6 +1926,235 @@ class OrchestrationService:
             "report": after.model_dump(),
         }
 
+    def docs_drift(self, orchestration_id: str) -> dict[str, object]:
+        """Relatório determinístico (só leitura) do drift docs↔código do workspace."""
+        b = self._bundle(orchestration_id)
+        tp = b.orchestration.target_path
+        if not tp:
+            raise ValueError("Orquestração sem pasta de trabalho (workspace) definida.")
+        return check_drift(tp).model_dump()
+
+    # ------------------------------------------------------------- próximo passo
+    def next_step(
+        self, orchestration_id: str, *, slo_breaches: list[str] | None = None
+    ) -> NextStepReport:
+        """Diz o que falta para a esteira seguir (§14 · ADR-0013).
+
+        Coleta o retrato do estado governado e delega o cálculo ao motor puro em
+        `control/next_step.py` — assim a UI não reimplementa regra de governança.
+        Sinais externos que não vivem no bundle (drift de docs, SLO) entram como
+        entrada opcional e nunca derrubam a leitura.
+        """
+        b = self._bundle(orchestration_id)
+        drift: DocsDriftReport | None = None
+        if b.orchestration.target_path:
+            try:
+                drift = check_drift(b.orchestration.target_path)
+            except (OSError, WorkspaceError):  # pasta sumiu/sem permissão: segue sem o sinal
+                drift = None
+        available, reason = self._executor_availability(b.orchestration.selected_executor)
+        return compute_next_step(
+            NextStepInput(
+                orchestration=b.orchestration,
+                cards=b.board_service.cards_of(b.board.id),
+                approvals=list(b.approvals),
+                pulls=list(b.pull_requests),
+                conflicts=list(b.bus.conflicts),
+                gate_results=list(b.gate_results),
+                drift=drift,
+                executor_available=available,
+                executor_reason=reason,
+                slo_breaches=list(slo_breaches or []),
+            )
+        )
+
+    def _executor_availability(self, name: str | None) -> tuple[bool | None, str]:
+        """Disponibilidade do executor escolhido (None = catálogo não configurado)."""
+        if self._catalog is None or not name:
+            return None, ""
+        entry = next((e for e in self._catalog.entries() if e.get("name") == name), None)
+        if entry is None:
+            return False, f"Executor '{name}' não está mais no catálogo."
+        if entry.get("available"):
+            return True, str(entry.get("runtime_version") or "")
+        return False, str(entry.get("availability_reason") or "Executor indisponível.")
+
+    def _docs_heal_task(
+        self, b: OrchestrationBundle, drift: DocsDriftReport, *, effort: str | None = None
+    ) -> dict[str, Any]:
+        """Tarefa (JSON via stdin) que instrui o agente a sincronizar docs com o código."""
+        partes: list[str] = []
+        if drift.undocumented_modules:
+            partes.append(
+                "crie docs/modules/<módulo>/<feature>.md para: "
+                + ", ".join(drift.undocumented_modules)
+            )
+        if drift.orphan_module_docs:
+            partes.append(
+                "revise/remova docs de módulos que não existem mais no código: "
+                + ", ".join(drift.orphan_module_docs)
+            )
+        if drift.broken_links:
+            partes.append(
+                "conserte os links internos quebrados: " + "; ".join(drift.broken_links[:20])
+            )
+        if drift.unfilled_features:
+            partes.append(
+                "preencha, com fatos reais do código, as docs ainda em placeholder: "
+                + ", ".join(drift.unfilled_features[:20])
+            )
+        instrucao = (
+            "Sincronize a documentação docs-first (IA-first) com o código atual, em pt-BR, "
+            "de forma LOCALIZADA (não recrie tudo). Mantenha o template de 8 seções por "
+            "feature (Descrição, Localização no código, Entrada, Saída, Dependências, "
+            "Regras de negócio, Fluxo resumido, Possíveis erros), o índice e os links "
+            "internos válidos. Pontos de drift a resolver: " + "; ".join(partes) + "."
+        )
+        task: dict[str, Any] = {
+            "orchestration_id": b.orchestration.id,
+            "phase": Phase.F6.value,
+            "target_path": "engineering.docs_drift",
+            "content": {"request": instrucao, "by": "DocumentationAgent"},
+        }
+        if effort:
+            task["effort"] = effort
+        return task
+
+    def heal_docs(
+        self,
+        orchestration_id: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+    ) -> dict[str, object]:
+        """Sincroniza (self-heal) a documentação docs-first com o código do workspace.
+
+        - Determinístico: cria `docs/modules/<módulo>/` para módulos de código sem doc.
+        - Agente (se houver executor real): preenche placeholders e conserta links num
+          worktree isolado, com o diff mesclado (governado).
+        - Registra evento `DocsHealed` + ContextPatch (`engineering.docs_drift`).
+        """
+        b = self._bundle(orchestration_id)
+        tp = b.orchestration.target_path
+        if not tp:
+            raise ValueError("Orquestração sem pasta de trabalho (workspace) definida.")
+        ws = WorkspaceService()
+        root = ws.validate(tp)
+        ws.ensure_git(root)
+        before = check_drift(root, ws)
+
+        healed: list[str] = []
+        mode = "noop"
+        if before.has_drift:
+            if before.undocumented_modules:
+                created = write_scaffold(root, before.undocumented_modules)
+                if created:
+                    healed += created
+                    ws.commit_all(root, "aso: docs-first (módulos sem doc)")
+                    mode = "scaffold"
+            provider = self._provider_for(b, executor, effort)
+            spec = b.agent_registry.get("DocumentationAgent")
+            if (
+                provider is not None
+                and spec is not None
+                and not isinstance(provider, LocalMockExecutionProvider)
+            ):
+                task = self._docs_heal_task(b, before, effort=effort)
+                try:
+                    output = provider.execute(spec, task)
+                except AgentExecutionError as exc:
+                    raise WorkspaceError(f"Falha ao sincronizar docs com o agente: {exc}") from exc
+                branch = output.artifacts.get("branch")
+                if branch:
+                    try:
+                        WorktreeManager(str(root)).merge(str(branch))
+                        mode = "agent"
+                    except WorktreeError:
+                        # Agente não gerou diff mesclável — o scaffold determinístico cobre.
+                        pass
+
+        after = check_drift(root, ws)
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "DocsHealed",
+                {
+                    "orchestration_id": orchestration_id,
+                    "mode": mode,
+                    "had_drift": before.has_drift,
+                    "has_drift": after.has_drift,
+                },
+            )
+            patch = ContextPatch(
+                orchestration_id=orchestration_id,
+                agent="DocumentationAgent",
+                phase=b.orchestration.current_phase,
+                patch_type=PatchType.UPDATE,
+                target_path="engineering.docs_drift",
+                content={
+                    "mode": mode,
+                    "healed": healed,
+                    "before": before.model_dump(),
+                    "after": after.model_dump(),
+                },
+                evidence=[
+                    f"mode={mode}",
+                    f"had_drift={before.has_drift}",
+                    f"has_drift={after.has_drift}",
+                ],
+            )
+            b.bus.submit(patch)
+            self._persist(b)
+        self._log.info(
+            "docs_healed",
+            orchestration_id=orchestration_id,
+            mode=mode,
+            has_drift=after.has_drift,
+        )
+        return {
+            "path": str(root),
+            "mode": mode,
+            "healed": healed,
+            "before": before.model_dump(),
+            "after": after.model_dump(),
+        }
+
+    def _maybe_autoheal_docs(
+        self,
+        orchestration_id: str,
+        phase: Phase,
+        executor: str | None,
+        effort: str | None,
+    ) -> dict[str, object] | None:
+        """Ao fim de F5/F6, sincroniza docs-first automaticamente quando há drift.
+
+        Best-effort: nunca derruba a fase/autopilot. Só roda quando há pasta, docs
+        geradas e drift real. Pode ser desligado com `ASO_AUTOHEAL_DOCS=0`.
+        """
+        if os.environ.get("ASO_AUTOHEAL_DOCS", "1") == "0":
+            return None
+        if phase not in (Phase.F5, Phase.F6):
+            return None
+        tp = self._bundle(orchestration_id).orchestration.target_path
+        if not tp:
+            return None
+        try:
+            drift = check_drift(tp)
+        except ValueError:
+            return None
+        if not (drift.has_docs and drift.has_drift):
+            return None
+        try:
+            result = self.heal_docs(orchestration_id, executor=executor, effort=effort)
+        except (WorkspaceError, ValueError) as exc:  # não derruba a esteira
+            self._log.warning(
+                "autoheal_docs_failed", orchestration_id=orchestration_id, error=str(exc)
+            )
+            return None
+        self._log.info("autoheal_docs", orchestration_id=orchestration_id, mode=result.get("mode"))
+        return result
+
     # ------------------------------------------------------------- autopilot (M3)
     def run_phase(
         self,
@@ -1969,6 +2234,8 @@ class OrchestrationService:
                 }
 
         gate = self.run_quality_gate(orchestration_id, target)
+        # Self-heal automático da documentação docs-first ao fim de F5/F6 (§ADR-0012).
+        autoheal = self._maybe_autoheal_docs(orchestration_id, target, executor, effort)
         approval_id: str | None = None
         snapshot: str | None = None
         with self._lock_for(orchestration_id):
@@ -2012,6 +2279,7 @@ class OrchestrationService:
             "snapshot": snapshot,
             "approval_id": approval_id,
             "next_phase": nxt.value if nxt else None,
+            "docs_autoheal": autoheal,
         }
 
     @staticmethod

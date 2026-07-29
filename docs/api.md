@@ -70,6 +70,7 @@ GET    /v1/orchestrations/{id}
 GET    /v1/orchestrations/{id}/context
 GET    /v1/orchestrations/{id}/plan
 GET    /v1/orchestrations/{id}/timeline
+GET    /v1/orchestrations/{id}/next-step    # o que falta para a esteira seguir
 POST   /v1/orchestrations/{id}/resume
 POST   /v1/orchestrations/{id}/cancel
 POST   /v1/orchestrations/{id}/rollback     # body: { to_snapshot: "O3" }
@@ -80,6 +81,16 @@ PATCH  /v1/orchestrations/{id}/execution-settings
 Ao receber `project_id`, `POST /v1/orchestrations` exige projeto ativo e copia seu
 `target_path`. Um path divergente retorna `409`. Essa cópia não muda quando o projeto é
 editado ou arquivado; orquestrações sem projeto continuam válidas por compatibilidade.
+
+`GET /v1/orchestrations/{id}/next-step` é o contrato de **"o que falta"**
+([ADR-0013](adrs/ADR-0013-tela-de-detalhe-por-proximo-passo.md)): devolve a fase e seu
+rótulo, `next_phase`, o `checklist` do ciclo da fase (workspace → docs-first → validação →
+cards executados → entrega mesclada → gate → aprovação, com o item corrente em `atual`),
+a lista `blockers` — cada um com `code`, `severity` (`bloqueia` > `aguardando_humano` >
+`acao_do_operador` > `informativo`), `detail` e a `action` (método, rota v1, `body` e
+`role` exigido) — e a `primary_action`, que é a ação do bloqueio de maior severidade.
+As regras vêm do runtime, não da UI: é a mesma governança aplicada por `run_phase`,
+`merge_pr`, o quality gate e o autopilot.
 
 ### Kanban (§28.2)
 ```

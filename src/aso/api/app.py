@@ -587,6 +587,40 @@ def create_app(
         except (ValueError, WorkspaceError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    @app.get("/v1/orchestrations/{orchestration_id}/docs-drift")
+    def docs_drift(orchestration_id: str) -> Any:
+        """Relatório de drift entre a documentação docs-first e o código (só leitura)."""
+        _guard(orchestration_id)
+        try:
+            return svc.docs_drift(orchestration_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except (ValueError, WorkspaceError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.get("/v1/orchestrations/{orchestration_id}/next-step")
+    def next_step(orchestration_id: str) -> Any:
+        """O que falta para a esteira seguir: checklist, bloqueios e ação primária.
+
+        Fonte única de verdade das regras que travam o avanço (ADR-0013) — a tela de
+        detalhe apenas renderiza este contrato.
+        """
+        _guard(orchestration_id)
+        breaches = metrics.slo_report(orchestration_id).get("breaches", [])
+        return svc.next_step(orchestration_id, slo_breaches=list(breaches))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/docs-heal", status_code=201)
+    def docs_heal(orchestration_id: str, body: AnalyzeFolderBody | None = None) -> Any:
+        """Sincroniza (self-heal) a documentação docs-first com o código do workspace."""
+        _guard(orchestration_id)
+        body = body or AnalyzeFolderBody()
+        try:
+            return svc.heal_docs(orchestration_id, executor=body.executor, effort=body.effort)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except (ValueError, WorkspaceError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
     @app.patch("/v1/orchestrations/{orchestration_id}/execution-settings")
     def update_execution_settings(
         orchestration_id: str, body: ExecutionSettingsBody, request: Request
@@ -1004,7 +1038,12 @@ def create_app(
 
     @app.get("/ui/detalhe", include_in_schema=False)
     def ui_detalhe() -> FileResponse:
-        """Console/detalhe de uma orquestração individual (index.html original)."""
+        """Sala de controle de UMA orquestração: fase, próximo passo e pendências."""
+        return FileResponse(_STATIC_DIR / "detalhe.html")
+
+    @app.get("/ui/console", include_in_schema=False)
+    def ui_console() -> FileResponse:
+        """Console técnico completo (abas de auditoria) — mantido para operação avançada."""
         return FileResponse(_STATIC_DIR / "index.html")
 
     # Montagem de arquivos estáticos (CSS/JS/etc.), se houver.

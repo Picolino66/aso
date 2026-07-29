@@ -5,6 +5,31 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
 ### Adicionado
+- **Tela de detalhe orientada a "próximo passo" (ADR-0013):** novo motor puro
+  `control/next_step.py` (`compute_next_step`) que reúne, num único contrato, as regras de
+  governança que travam a esteira — configuração (pasta, validação, executor, docs-first),
+  pendências governadas (aprovação humana, CI/revisão/merge da PR, conflitos), trabalho da
+  fase (cards bloqueados, falhos, em Ready ou Backlog, entrega sem PR) e sinais do gate,
+  drift de docs e SLO. Cada bloqueio traz severidade, explicação e a rota que o destrava
+  (com o papel exigido), e o de maior severidade vira a **ação primária**. Exposto em
+  `GET /v1/orchestrations/{id}/next-step`. A rota `/ui/detalhe?id=…` passa a servir a nova
+  `static/detalhe.html`, dedicada a **uma** orquestração (breadcrumb do projeto, esteira
+  F1→F7, card "Próximo passo" com checklist, funil só da fase corrente, pendências
+  acionáveis e atividade ao vivo por SSE) — sem o formulário de criação nem o kanban de 12
+  colunas. O console técnico completo continua em `/ui/console`.
+- **Drift-check contínuo de docs-first + self-heal (ADR-0012):** novo módulo
+  determinístico `execution/docs_drift.py` (`check_drift` → módulos de código sem doc,
+  docs órfãs, links internos quebrados e features ainda em placeholder). O quality gate de
+  **F5/F6** ganha um critério **não-bloqueante** `docs_in_sync`: quando há drift, emite um
+  **aviso** no `QualityGateResult` (a esteira segue, o snapshot é gerado). O **self-heal**
+  (`POST /v1/orchestrations/{id}/docs-heal`) resolve em duas camadas — cria
+  `docs/modules/<módulo>/` para módulos sem doc (determinístico) e, com executor real,
+  preenche placeholders e conserta links num worktree isolado com o diff mesclado
+  (governado) — registrando evento `DocsHealed` + `ContextPatch` `engineering.docs_drift`.
+  Relatório em `GET /v1/orchestrations/{id}/docs-drift`; no console, indicador de drift e
+  botão **"Sincronizar docs"**. **Self-heal automático no autopilot:** ao fim de F5/F6, o
+  `run_phase` sincroniza a doc sozinho quando há drift (best-effort, retornado em
+  `docs_autoheal`), desligável por `ASO_AUTOHEAL_DOCS=0`.
 - **Executores Codex compatíveis (ADR-0011):** o catálogo gerenciado consulta
   `codex app-server`/`model/list`, cria `codex-default` sem modelo fixo e um perfil por
   modelo realmente disponível, com esforços suportados e versão do runtime. Nova

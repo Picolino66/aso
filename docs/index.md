@@ -51,3 +51,5 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0009 — Entrega de código com evidência verificável](adrs/ADR-0009-entrega-de-codigo-governada.md)
 - [ADR-0010 — Catálogo multi-repo relacional e arquivamento](adrs/ADR-0010-catalogo-multi-repo-governado.md)
 - [ADR-0011 — Descoberta de capacidades de executores CLI](adrs/ADR-0011-descoberta-de-capacidades-cli.md)
+- [ADR-0012 — Drift-check contínuo de docs-first + self-heal](adrs/ADR-0012-drift-check-docs-first.md)
+- [ADR-0013 — Tela de detalhe orientada a "próximo passo"](adrs/ADR-0013-tela-de-detalhe-por-proximo-passo.md)

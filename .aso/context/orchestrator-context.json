@@ -2,7 +2,7 @@
   "orchestration_id": "orch-aso-runtime-0001",
   "project_id": "proj-aso-runtime",
   "created_at": "2026-07-02T00:00:00Z",
-  "updated_at": "2026-07-15T02:52:51Z",
+  "updated_at": "2026-07-29T00:55:24Z",
   "current_phase": "F7",
   "phase_status": "F7 concluída — observabilidade/métricas, SLOs, alertas (regras) e feedback→backlog; pipeline F1–F7 fechado (O7). 2 avisos dependem de produção real (§7)",
   "snapshot_version": "O7",
@@ -758,12 +758,12 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 240,
-      "coverage": "91.16%",
+      "tests": 291,
+      "coverage": "90.92%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
-      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + catálogo multi-repo + executores Codex descobertos por model/list (modelo/esforço efetivos, migração de seeds, preflight, recuperação auditável e gates finitos) + consoles /ui, /ui/nova e /ui/detalhe; 240 testes / 91.16%; Docker/Postgres smoke OK; recuperação real da orquestração preservada comprovada."
+      "scope": "F1–F7 + autopilot + auth/RBAC + workspace/docs-first + catálogo multi-repo + executores Codex descobertos por model/list (modelo/esforço efetivos, migração de seeds, preflight, recuperação auditável e gates finitos) + consoles /ui, /ui/nova e /ui/detalhe; 240 testes / 91.16%; Docker/Postgres smoke OK; recuperação real da orquestração preservada comprovada. + DRIFT-CHECK CONTÍNUO DE DOCS-FIRST + SELF-HEAL (F5/F6): execution/docs_drift.py check_drift(path)->DocsDriftReport (módulos sem doc, docs órfãs, links quebrados, placeholders); critério NÃO-bloqueante 'docs_in_sync' no run_quality_gate F5/F6 (warning, não reprova); Service.heal_docs (scaffold determinístico p/ módulos novos + agente em worktree p/ placeholders/links, diff mesclado; evento DocsHealed + ContextPatch engineering.docs_drift); GET /docs-drift + POST /docs-heal; console com status de drift + botão 'Sincronizar docs'; ADR-0012) + SELF-HEAL AUTOMÁTICO ao fim de F5/F6 no autopilot (run_phase._maybe_autoheal_docs → heal_docs quando há drift; best-effort; docs_autoheal no retorno; ASO_AUTOHEAL_DOCS=0 desliga) + MOTOR DE PRÓXIMO PASSO + TELA DE DETALHE DEDICADA (ADR-0013): control/next_step.py compute_next_step(NextStepInput)->NextStepReport (função pura: checklist do ciclo da fase workspace→docs-first→validação→cards→entrega→gate→aprovação com item 'atual'; blockers ordenados por severidade bloqueia>aguardando_humano>acao_do_operador>informativo, cada um com rota da API v1 e papel exigido; primary_action = bloqueio de maior severidade); Service.next_step coleta bundle + drift + disponibilidade do executor + breaches de SLO; GET /v1/orchestrations/{id}/next-step; /ui/detalhe passa a servir static/detalhe.html (breadcrumb do projeto, esteira F1→F7, card 'Próximo passo', funil só da fase corrente, pendências acionáveis, SSE ao vivo, acordeão técnico) e o console completo migra para /ui/console"
     },
     "cards_done": [
       "TASK-01",
@@ -793,7 +793,8 @@
       "TASK-82",
       "TASK-83",
       "TASK-84",
-      "TASK-85"
+      "TASK-85",
+      "TASK-88"
     ],
     "increments_post_o5": [
       "TASK-85 — Executores Codex compatíveis (ADR-0011): descoberta model/list pelo binário/autenticação efetivos; codex-default sem -m e isolado do modelo pessoal; perfis por modelo e esforços suportados; seeds legados bloqueados; preflight sem fallback silencioso; PATCH auditável e retry docs-first; gates contínuos rejeitados. Orquestração preservada recuperada com codex-default/medium/npm test, oito seções e workspace_prepared=true. 240 testes / 91.16%; ruff+format+mypy OK; Alembic sem drift; Docker/Postgres smoke OK.",
@@ -859,7 +860,10 @@
       "TASK-80 — Pré-análise de workspace antes da demanda: WorkspaceService.iter_files enumera arquivos regulares em ordem determinística e ignora diretórios técnicos; GET /v1/fs/analyze/stream transmite SSE com arquivo, contador e percentual sem escrita; console bloqueia a demanda até concluir o modal de progresso e invalida a análise ao trocar a pasta. Docs/OpenAPI/ADR-0008 sincronizados. 191 testes / 93.01% / ruff+mypy OK / alembic check sem diff.",
       "TASK-81 — Entrega de código verificável: executor CLI rejeita exit não-zero e diff vazio; configuração persistida por orquestração (executor, esforço, comando de validação); execução estrita aguarda PR, CI real na branch, revisão e merge no workspace antes do gate. 193 testes / 91.51% / ruff+mypy OK / alembic check sem diff.",
       "TASK-82 — Base dos consoles separada em catálogo /ui/, criação /ui/nova e detalhe /ui/detalhe; fluxos preservados e consolidados pela TASK-84. Regressão final: 208 testes / 91.63% + smoke Docker/Postgres.",
-      "TASK-83 — Projetos (CRUD + cascade delete) + UI completa: entidade Project com ProjectStore JSON (.aso/projects.json); endpoints CRUD + cascade delete de orquestrações (DELETE /v1/orchestrations/{id}, DELETE /v1/projects/{id}); Kanban Macro com modal Novo Projeto (nome, descrição, path, executor → auto-análise), Remover Projeto com confirmação; Nova Orquestração simplificada (textarea + seletor projeto/agente/esforço); Detalhe com Kanban completo (todas colunas), botão ▶ Ready (Backlog→Ready libera IA), seletor de executor por card (🤖). 193 testes / 89.65% / ruff+mypy OK / alembic check sem diff."
+      "TASK-83 — Projetos (CRUD + cascade delete) + UI completa: entidade Project com ProjectStore JSON (.aso/projects.json); endpoints CRUD + cascade delete de orquestrações (DELETE /v1/orchestrations/{id}, DELETE /v1/projects/{id}); Kanban Macro com modal Novo Projeto (nome, descrição, path, executor → auto-análise), Remover Projeto com confirmação; Nova Orquestração simplificada (textarea + seletor projeto/agente/esforço); Detalhe com Kanban completo (todas colunas), botão ▶ Ready (Backlog→Ready libera IA), seletor de executor por card (🤖). 193 testes / 89.65% / ruff+mypy OK / alembic check sem diff.",
+      "TASK-86 — Drift-check contínuo de docs-first + self-heal (F5/F6): módulo determinístico execution/docs_drift.py (check_drift → undocumented_modules/orphan_module_docs/broken_links/unfilled_features); gate F5/F6 ganha critério não-bloqueante docs_in_sync (drift vira warning, esteira segue); heal_docs em 2 camadas (write_scaffold p/ módulos sem doc + agente em worktree p/ preencher/consertar, diff mesclado); GET /docs-drift + POST /docs-heal; console: indicador de drift + botão 'Sincronizar docs'; ADR-0012. 253 testes / 90.74% / ruff+mypy OK / alembic check sem diff.",
+      "TASK-87 — Self-heal automático de docs-first ao fim de F5/F6: run_phase chama _maybe_autoheal_docs após o gate (há pasta + docs + drift → heal_docs, best-effort, retorno docs_autoheal; desligável por ASO_AUTOHEAL_DOCS=0); botão 'Sincronizar docs' segue como ação explícita; ADR-0012 atualizada. 256 testes / 90.67% / ruff+mypy OK.",
+      "TASK-88 — Tela de detalhe orientada a 'próximo passo' + motor no runtime: control/next_step.py (compute_next_step puro; 21 códigos de bloqueio: workspace_ausente, validacao_ausente, executor_indisponivel, docs_first_pendente, aprovacao_pendente, pr_ci_pendente, pr_review_pendente, pr_pronto_merge, conflitos_abertos, cards_bloqueados, cards_falhos, cards_aguardando_humano, cards_prontos, cards_em_backlog, sem_cards_na_fase, entrega_pendente, gate_pendente, gate_reprovado, drift_docs, slo_em_risco, cancelada); OrchestrationService.next_step + GET /v1/orchestrations/{id}/next-step; nova static/detalhe.html servida em /ui/detalhe (corrige o ?id= ignorado, remove formulário de criação e kanban de 12 colunas do detalhe) e console técnico preservado em /ui/console; ADR-0013. 291 testes / 90.92% / ruff+mypy OK / alembic check sem diff."
     ],
     "maintenance_log": [
       "Correção de governança TASK-83 — o ProjectStore JSON, a cascata destrutiva, a autoanálise na criação de projeto e o seletor local de executor por card foram removidos; a evidência vigente é a TASK-84/ADR-0010."
@@ -1075,6 +1079,48 @@
       "status": "ACCEPTED",
       "phase": "F5",
       "file": "docs/adrs/ADR-0007-llm-provider-and-autopilot.md"
+    },
+    {
+      "id": "ADR-0008",
+      "title": "Workspace por orquestração e docs-first",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0008-workspace-por-orquestracao.md"
+    },
+    {
+      "id": "ADR-0009",
+      "title": "Entrega de código com evidência verificável",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0009-entrega-de-codigo-governada.md"
+    },
+    {
+      "id": "ADR-0010",
+      "title": "Catálogo multi-repo relacional e arquivamento",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0010-catalogo-multi-repo-governado.md"
+    },
+    {
+      "id": "ADR-0011",
+      "title": "Descoberta de capacidades de executores CLI",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0011-descoberta-de-capacidades-cli.md"
+    },
+    {
+      "id": "ADR-0012",
+      "title": "Drift-check contínuo de docs-first + self-heal (F5/F6)",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0012-drift-check-docs-first.md"
+    },
+    {
+      "id": "ADR-0013",
+      "title": "Tela de detalhe orientada a 'próximo passo' + motor no runtime",
+      "status": "ACCEPTED",
+      "phase": "F5",
+      "file": "docs/adrs/ADR-0013-tela-de-detalhe-por-proximo-passo.md"
     }
   ],
   "snapshots": [
