@@ -34,12 +34,24 @@ orquestração e sujeita à governança definida na ADR-0008.
 GET    /v1/executors
 POST   /v1/executors/sync                         # admin; Codex model/list
 PATCH  /v1/orchestrations/{id}/execution-settings # operator; created/blocked
+PUT    /v1/orchestrations/{id}/agents/{key}       # executor da etapa; body {executor, effort}
+DELETE /v1/orchestrations/{id}/agents/{key}       # volta a etapa ao padrão
 ```
 
 Perfis Codex gerenciados expõem `managed_by`, `supported_efforts`, `available`,
 `availability_reason` e `runtime_version`. Modelo ou esforço indisponível retorna `409`
 antes do worktree. A sincronização preserva perfis personalizados. O PATCH registra
 `ExecutionSettingsUpdated`; comandos contínuos retornam `400`.
+
+`{key}` é uma fase (`F1`..`F7`) ou `naming`, o agente que batiza branches e commits
+([ADR-0014](adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md)). O mapa resultante sai
+em `agent_assignments` no `GET` da orquestração. A resolução do executor de uma execução
+é, nesta ordem: parâmetro explícito da chamada → `agent_assignments[fase]` →
+`selected_executor` → default do catálogo (quando há pasta) → provider global. Uma etapa
+com executor próprio **não** herda `selected_effort` — o esforço casa com o modelo, então
+sem esforço na etapa vale o do perfil. Fase que já ficou para trás retorna `409`
+(`index(fase) < index(current_phase)`); `naming` é sempre editável. Ambos registram
+`AgentAssignmentUpdated` com `before`/`after`/`actor`.
 
 Para execução de código, a criação aceita `execution_mode`, `executor`, `effort` e
 `validation_command`. O modo `code-execution` inicia em F5 e exige validação. A PR só
@@ -71,6 +83,8 @@ GET    /v1/orchestrations/{id}/context
 GET    /v1/orchestrations/{id}/plan
 GET    /v1/orchestrations/{id}/timeline
 GET    /v1/orchestrations/{id}/next-step    # o que falta para a esteira seguir
+GET    /v1/orchestrations/{id}/agent-log?after={seq}&limit={n}   # saída ao vivo do agente
+GET    /v1/phases                           # catálogo didático da esteira F1..F7
 POST   /v1/orchestrations/{id}/resume
 POST   /v1/orchestrations/{id}/cancel
 POST   /v1/orchestrations/{id}/rollback     # body: { to_snapshot: "O3" }
@@ -91,6 +105,23 @@ a lista `blockers` — cada um com `code`, `severity` (`bloqueia` > `aguardando_
 `role` exigido) — e a `primary_action`, que é a ação do bloqueio de maior severidade.
 As regras vêm do runtime, não da UI: é a mesma governança aplicada por `run_phase`,
 `merge_pr`, o quality gate e o autopilot.
+
+`GET /v1/orchestrations/{id}/agent-log` devolve a saída dos agentes CLI **enquanto eles
+trabalham** ([ADR-0015](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)):
+`{lines, next, running, sessions, last_seq, retained}`. Cada linha traz `seq`, `at`,
+`stream` (`stdout`/`stderr`/`aso`), `kind` (`texto`/`ferramenta`/`resultado`/`marco`/`bruto`),
+`text`, `detail`, `card_id`, `agent` e `executor`. `after` é o cursor: passe o `next` da
+resposta anterior para receber só o que ainda não viu — o que permite acompanhar a execução
+e também reexibir o log ao recarregar a página. O ring guarda as últimas 2 000 linhas por
+orquestração **em memória**, então não sobrevive a um restart da API. Cada tentativa do
+`AgentSupervisor` é uma sessão própria (ele tenta 2x), e `running` fica `true` enquanto
+qualquer uma delas estiver aberta.
+
+`GET /v1/phases` devolve `[{id, label, nome, resumo, entrega}]` para F1..F7 — a explicação
+didática de cada etapa, para a UI montar a esteira sem duplicar texto.
+
+`GET /v1/orchestrations/{id}/timeline` aceita `newest_first=true`, aplicado na consulta ao
+banco. Sem ele, pedir "as N últimas atividades" devolvia as N **mais antigas**.
 
 ### Kanban (§28.2)
 ```

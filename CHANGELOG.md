@@ -5,6 +5,31 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
 ### Corrigido
+- **Painel de atividade mostrava o começo da história (ADR-0015):** ele pedia
+  `timeline?page_size=14`, e `events_page` ordena `seq ASC` com `offset=0` — recebia os 14
+  eventos **mais antigos** da orquestração e os invertia no render, recarregando a mesma
+  fatia errada a cada tick do SSE. `events_page`/`timeline_page` ganharam `newest_first`,
+  aplicado na consulta ao banco (reordenar depois só embaralha a fatia errada).
+- **Agente CLI sem tempo limite (ADR-0015):** era o único subprocess do repositório sem
+  timeout — um `claude -p` travado esperando permissão interativa prendia uma thread do
+  servidor e um worktree para sempre. Agora `ASO_AGENT_TIMEOUT` (default 1800 s) encerra o
+  processo e reporta a cauda da saída. `artifacts["stdout"]` passou a guardar os **últimos**
+  4 000 caracteres em vez dos primeiros 2 000, e `stderr`, antes descartado no caminho de
+  sucesso, agora entra no log.
+- **Estado de runtime versionado por engano:** `aso.db` (356 KB, SQLite binário) estava
+  rastreado desde o commit inicial e acumulava 6 commits de churn — ele é criado pelo
+  fallback `sqlite:///aso.db` de `migrations/env.py` sempre que se roda `alembic` sem
+  `ASO_DATABASE_URL`, e o que guardava era uma orquestração de teste esquecida. Saiu do
+  índice (`git rm --cached`) e entrou no `.gitignore`, junto de `*.sqlite`/`*.sqlite3` e de
+  `.aso/worktrees/` — esta última já era injetada pelo runtime no `.gitignore` dos
+  repositórios-alvo (`WorkspaceService.ensure_git`), mas faltava no próprio ASO, que
+  também já foi alvo de orquestração. A governança versionada (`.aso/context`,
+  `.aso/kanban`, `.aso/quality-gates`, `.aso/snapshots`, `.aso/reviews`) segue rastreada
+  de propósito.
+- **O agente executava cego (ADR-0014):** `_build_task` mandava só o `user_request` da
+  orquestração inteira e um `card_id` opaco — o título, a descrição e os critérios de
+  aceite do card nunca saíam do board. Agora vão na tarefa e no prompt do wrapper, junto
+  da convenção de commit sugerida.
 - **Coleta de diff descartava o trabalho de agentes que commitam:** `collect_diff`
   comparava apenas o índice (`git add -A` + `git diff --cached`), então quando o agente CLI
   commitava o que produziu — comportamento que o próprio wrapper do ASO pede ("commits
@@ -24,6 +49,51 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   catálogo já existente. Documentado em `docs/operations.md` e no README.
 
 ### Adicionado
+- **Painel "o que o agente está fazendo" (ADR-0015):** a saída do agente CLI passa a ser
+  lida **linha a linha enquanto ele trabalha** — `subprocess.run(capture_output=True)` só
+  entregava os pipes depois que o processo morria, então a tela ficava parada por minutos.
+  Novos `shared/agent_output.py` (porta: vocabulário + Protocols `OutputSink`/`OutputBus`),
+  `observability/agent_log.py` (ring de 2 000 linhas por orquestração, cursor monotônico,
+  thread-safe) e `GET /v1/orchestrations/{id}/agent-log?after={seq}`, lido por polling com
+  cursor — o que dá replay ao recarregar a página no meio da execução. O log vive em
+  memória e não sobrevive a restart da API (é telemetria; falha e motivo continuam no event
+  log e no `block_reason`).
+- **Feed interpretado do NDJSON (ADR-0015):** `execution/agent_stream.py`, função pura, traduz
+  a saída em eventos legíveis — 💬 fala, 🔧 `Write src/app.js`, ✓ resultado. `claude -p`
+  imprime só a resposta final, então `scripts/enable-agent-stream.sh` acrescenta
+  `--output-format stream-json --verbose` aos perfis Claude e `--json` aos Codex (idempotente,
+  com `--off`). O parser foi ajustado contra a **saída real** do Claude Code: `system` e
+  `rate_limit_event` vazavam como JSON cru na tela, e o `thinking` é cortado curto para não
+  empurrar as ações para fora do painel. Schema desconhecido degrada para "mostra como veio".
+- **Esteira didática com agente por etapa (ADR-0015):** `PHASE_INFO` + `GET /v1/phases` dão
+  nome, resumo e entrega de cada fase em pt-BR — "F1" sozinho não explicava nada. Cada etapa
+  virou um cartão com chip de agente clicável (`PUT`/`DELETE .../agents/{key}`), tirando a
+  escolha por etapa da ADR-0014 de dentro do modal de configuração.
+- **Executor por etapa da esteira (ADR-0014):** `Orchestration.agent_assignments` (JSONB)
+  guarda um executor por fase `F1..F7` e um para o nomeador, com `PUT`/`DELETE
+  /v1/orchestrations/{id}/agents/{key}` e evento auditável `AgentAssignmentUpdated`. A
+  resolução passa a ser: chamada explícita → etapa → padrão da orquestração → default do
+  catálogo → provider global. Dá para rodar F1 com um modelo barato e F5 com o mais forte
+  na mesma orquestração. Uma fase que já ficou para trás não aceita troca; o nomeador é
+  sempre editável. Na tela de detalhe, o modal de configuração ganhou a matriz de agentes
+  por etapa e a esteira mostra quem roda cada fase.
+- **Nomes de branch derivados do card (ADR-0014):** novo módulo puro
+  `execution/branch_naming.py`. As branches deixam de ser
+  `aso/BackendDevelopmentAgent-claude-sonnet-medium-c6950ea8…` e passam a ser
+  `feat/calculadora-basica-a1b2c3d4` — prefixo Conventional Commits pelo `CardType`, slug
+  do título do card e sufixo curto de unicidade (necessário porque `retry` e candidatos
+  concorrentes executam a mesma task). A mensagem do merge governado passa a citar branch
+  e título em vez do `"aso: merge governado"` fixo.
+- **Agente nomeador opcional (ADR-0014):** `control/naming.py` pode usar o executor de
+  `agent_assignments["naming"]` para sugerir nome de branch e assunto de commit. Sem
+  nomeador configurado (o padrão) não há chamada nenhuma. Qualquer falha — timeout, JSON
+  inválido, exit ≠ 0, executor fora do catálogo — cai no nome determinístico e registra
+  `NamingFallback`: nomear nunca derruba um card.
+- **`scripts/reset.sh`:** zera o estado de runtime (volume do Postgres + schema recriado
+  por Alembic, `aso.db` residual, worktrees órfãos via `git worktree remove`, `.aso/run`)
+  preservando a governança versionada do próprio ASO e o catálogo de executores, que vive
+  em arquivo. Lista os repositórios-alvo antes do drop e não os toca.
+
 - **Tela de detalhe orientada a "próximo passo" (ADR-0013):** novo motor puro
   `control/next_step.py` (`compute_next_step`) que reúne, num único contrato, as regras de
   governança que travam a esteira — configuração (pasta, validação, executor, docs-first),

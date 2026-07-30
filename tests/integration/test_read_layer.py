@@ -32,9 +32,22 @@ def test_card_filters() -> None:
 def test_timeline_pagination() -> None:
     client, oid = _client_with_run()
     page = client.get(f"/v1/orchestrations/{oid}/timeline?page=1&page_size=2").json()
-    assert set(page) == {"items", "total", "page", "page_size"}
+    assert set(page) == {"items", "total", "page", "page_size", "newest_first"}
     assert len(page["items"]) == 2
     assert page["total"] >= 4
+    assert page["newest_first"] is False  # ordem histórica continua sendo o default
+
+
+def test_timeline_newest_first_devolve_os_recentes() -> None:
+    """O painel de atividade quer o que ACABOU de acontecer, não o início da história."""
+    client, oid = _client_with_run()
+    antigos = client.get(f"/v1/orchestrations/{oid}/timeline?page_size=3").json()["items"]
+    recentes = client.get(
+        f"/v1/orchestrations/{oid}/timeline?page_size=3&newest_first=true"
+    ).json()["items"]
+    assert antigos and recentes
+    assert antigos[0] != recentes[0]
+    assert recentes[0]["created_at"] >= antigos[0]["created_at"]
 
 
 def test_adr_search() -> None:

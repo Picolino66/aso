@@ -53,3 +53,5 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0011 — Descoberta de capacidades de executores CLI](adrs/ADR-0011-descoberta-de-capacidades-cli.md)
 - [ADR-0012 — Drift-check contínuo de docs-first + self-heal](adrs/ADR-0012-drift-check-docs-first.md)
 - [ADR-0013 — Tela de detalhe orientada a "próximo passo"](adrs/ADR-0013-tela-de-detalhe-por-proximo-passo.md)
+- [ADR-0014 — Executor por etapa e nomes de branch derivados do card](adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md)
+- [ADR-0015 — Observabilidade ao vivo da execução e esteira legível](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)

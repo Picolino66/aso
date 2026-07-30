@@ -626,8 +626,14 @@ class SqlAlchemyOrchestrationRepository:
             }
 
     def events_page(
-        self, orchestration_id: str, *, limit: int, offset: int
+        self, orchestration_id: str, *, limit: int, offset: int, newest_first: bool = False
     ) -> tuple[list[dict[str, Any]], int]:
+        """Página da timeline. `newest_first` inverte a ordem no BANCO, não na página.
+
+        Sem isso, um painel que quisesse "as últimas N atividades" recebia as N **mais
+        antigas** da orquestração: `ORDER BY seq` com `offset=0` devolve o começo da
+        história, e reordenar depois só embaralha a mesma fatia errada.
+        """
         with self._session_factory() as session:
             total = (
                 session.scalar(
@@ -637,11 +643,12 @@ class SqlAlchemyOrchestrationRepository:
                 )
                 or 0
             )
+            ordem = EventRow.seq.desc() if newest_first else EventRow.seq
             rows = list(
                 session.scalars(
                     select(EventRow)
                     .where(EventRow.orchestration_id == orchestration_id)
-                    .order_by(EventRow.seq)
+                    .order_by(ordem)
                     .offset(offset)
                     .limit(limit)
                 )

@@ -21,6 +21,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
+from aso.control.next_step import phase_catalog
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
 from aso.control.project_service import (
@@ -64,6 +65,13 @@ class ExecutionSettingsBody(BaseModel):
     executor: str | None = None
     effort: str | None = None
     validation_command: str | None = None
+
+
+class AgentAssignmentBody(BaseModel):
+    """Executor de uma etapa da esteira (ou do nomeador). Effort vazio = o do perfil."""
+
+    executor: str
+    effort: str | None = None
 
 
 class CreateProjectBody(BaseModel):
@@ -430,9 +438,12 @@ def create_app(
         orchestration_id: str,
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=50, ge=1, le=500),
+        newest_first: bool = Query(default=False),
     ) -> Any:
         _guard(orchestration_id)
-        return svc.timeline_page(orchestration_id, page=page, page_size=page_size)
+        return svc.timeline_page(
+            orchestration_id, page=page, page_size=page_size, newest_first=newest_first
+        )
 
     @app.get("/v1/orchestrations/{orchestration_id}/cards")
     def get_cards(
@@ -636,6 +647,52 @@ def create_app(
             )
         except GateCommandError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.get("/v1/phases")
+    def list_phases() -> Any:
+        """Catálogo da esteira F1..F7 com descrição didática (ADR-0015).
+
+        Estático: a UI monta os passos a partir daqui em vez de repetir os textos.
+        """
+        return phase_catalog()
+
+    @app.get("/v1/orchestrations/{orchestration_id}/agent-log")
+    def agent_log(
+        orchestration_id: str,
+        after: int = Query(default=0, ge=0),
+        limit: int = Query(default=500, ge=1, le=2000),
+    ) -> Any:
+        """Saída ao vivo dos agentes desta orquestração; `after` é o cursor."""
+        _guard(orchestration_id)
+        return svc.agent_log(orchestration_id, after=after, limit=limit)
+
+    @app.put("/v1/orchestrations/{orchestration_id}/agents/{key}")
+    def set_agent_assignment(
+        orchestration_id: str, key: str, body: AgentAssignmentBody, request: Request
+    ) -> Any:
+        """Define o executor de uma etapa (F1..F7) ou do nomeador de branches/commits."""
+        _guard(orchestration_id)
+        try:
+            return svc.set_agent_assignment(
+                orchestration_id,
+                key,
+                executor=body.executor,
+                effort=body.effort,
+                actor=_actor(request),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.delete("/v1/orchestrations/{orchestration_id}/agents/{key}")
+    def clear_agent_assignment(orchestration_id: str, key: str, request: Request) -> Any:
+        """Remove o executor da etapa: ela volta a herdar o padrão da orquestração."""
+        _guard(orchestration_id)
+        try:
+            return svc.clear_agent_assignment(orchestration_id, key, actor=_actor(request))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 

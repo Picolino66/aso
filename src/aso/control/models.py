@@ -35,6 +35,23 @@ class ProjectEvent(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+# Chave reservada em `Orchestration.agent_assignments` para o agente que gera nomes de
+# branch e mensagens de commit. Não é uma fase da esteira: pode ser trocada a qualquer
+# momento, inclusive com a orquestração já em andamento.
+NAMING_KEY = "naming"
+
+
+class AgentAssignment(BaseModel):
+    """Executor escolhido para uma etapa específica da esteira (ADR-0014).
+
+    Existe porque as fases têm custos e exigências diferentes: um modelo barato basta
+    para F1 (discovery), enquanto F5 (código) costuma pedir o mais forte disponível.
+    """
+
+    executor: str
+    effort: str | None = None
+
+
 class Orchestration(BaseModel):
     """Instância de uma orquestração (§17)."""
 
@@ -45,8 +62,12 @@ class Orchestration(BaseModel):
     # `None` → cai no comportamento legado (env/provider global).
     target_path: str | None = None
     # Configuração efetiva da execução, preservada para a UI não exibir um default falso.
+    # `selected_*` é o padrão da orquestração; `agent_assignments` sobrescreve por etapa.
     selected_executor: str | None = None
     selected_effort: str | None = None
+    # Chaves: "F1".."F7" (etapas da esteira) e NAMING_KEY ("naming", o agente que batiza
+    # branches e commits). Etapa sem entrada aqui herda `selected_*`.
+    agent_assignments: dict[str, AgentAssignment] = Field(default_factory=dict)
     validation_command: str | None = None
     workspace_prepared: bool = False
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE

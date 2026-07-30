@@ -26,6 +26,7 @@ from aso.agents.executor import ExecutionProvider, LocalMockExecutionProvider
 from aso.execution.cli_provider import CliAgentExecutionProvider
 from aso.execution.llm_client import AnthropicClient, LlmClient, OpenAICompatibleClient
 from aso.execution.llm_provider import LlmExecutionProvider
+from aso.shared.agent_output import OutputBus
 
 _EFFORTS = ("low", "medium", "high")
 _LEGACY_CODEX_NAMES = {
@@ -156,11 +157,13 @@ class ExecutorCatalog:
         *,
         repo_override: str | None = None,
         effort_override: str | None = None,
+        log_bus: OutputBus | None = None,
     ) -> ExecutionProvider:
         """Constrói o provider do perfil (lê secrets do ambiente). Levanta se faltar.
 
         `repo_override` é a pasta da orquestração (workspace); quando informado,
-        substitui o `ASO_TARGET_REPO` global para os executores CLI.
+        substitui o `ASO_TARGET_REPO` global para os executores CLI. `log_bus` liga o
+        painel ao vivo (ADR-0015); sem ele a execução funciona igual, só sem streaming.
         """
         try:
             profile = self.validate(name, effort_override)
@@ -172,43 +175,57 @@ class ExecutorCatalog:
             return LocalMockExecutionProvider()
         if profile.kind == "cli":
             repo = repo_override or os.environ.get("ASO_TARGET_REPO")
-            if not (profile.command and repo):
+            if not repo:
                 raise ValueError(
                     f"Executor CLI '{name}' exige command + pasta da orquestração "
                     "(ou ASO_TARGET_REPO)."
                 )
-            command = shlex.split(profile.command)
-            if profile.managed_by == "codex":
-                if profile.model:
-                    command.extend(["-m", profile.model])
-                command.extend(
-                    ["-c", f"model_reasoning_effort={effort_override or profile.effort}"]
-                )
-            return CliAgentExecutionProvider(command, repo, executor_id=profile.name)
+            command = self.cli_command(name, effort_override=effort_override)
+            return CliAgentExecutionProvider(
+                command, repo, executor_id=profile.name, log_bus=log_bus
+            )
         if profile.kind == "llm":
-            key = os.environ.get(profile._key_env_name()) or os.environ.get("ASO_LLM_API_KEY")
-            if not (key and profile.model):
-                raise ValueError(f"Executor LLM '{name}' exige API key + model.")
-            client: LlmClient
-            if profile.provider == "anthropic":
-                base = profile.base_url or "https://api.anthropic.com"
-                client = AnthropicClient(
-                    api_key=key, model=profile.model, base_url=base, client_id=name
-                )
-            else:
-                default_base = (
-                    "https://api.deepseek.com"
-                    if profile.provider == "deepseek"
-                    else "https://api.openai.com/v1"
-                )
-                client = OpenAICompatibleClient(
-                    api_key=key,
-                    model=profile.model,
-                    base_url=profile.base_url or default_base,
-                    client_id=name,
-                )
-            return LlmExecutionProvider(client, executor_id=f"llm:{name}")
+            return LlmExecutionProvider(self.llm_client(name), executor_id=f"llm:{name}")
         raise ValueError(f"Tipo de executor inválido: {profile.kind}")
+
+    def cli_command(self, name: str, *, effort_override: str | None = None) -> list[str]:
+        """Comando CLI pronto do perfil, já com modelo/esforço quando gerenciado.
+
+        Exposto separadamente do `build` porque nem todo uso de um agente CLI cria
+        worktree: o nomeador (ADR-0014) só quer uma resposta em texto.
+        """
+        profile = self.validate(name, effort_override)
+        if profile.kind != "cli" or not profile.command:
+            raise ValueError(f"Executor '{name}' não é um agente CLI com comando definido.")
+        command = shlex.split(profile.command)
+        if profile.managed_by == "codex":
+            if profile.model:
+                command.extend(["-m", profile.model])
+            command.extend(["-c", f"model_reasoning_effort={effort_override or profile.effort}"])
+        return command
+
+    def llm_client(self, name: str, *, effort_override: str | None = None) -> LlmClient:
+        """Cliente LLM do perfil (lê a chave do ambiente). Levanta se faltar."""
+        profile = self.validate(name, effort_override)
+        if profile.kind != "llm":
+            raise ValueError(f"Executor '{name}' não é do tipo llm.")
+        key = os.environ.get(profile._key_env_name()) or os.environ.get("ASO_LLM_API_KEY")
+        if not (key and profile.model):
+            raise ValueError(f"Executor LLM '{name}' exige API key + model.")
+        if profile.provider == "anthropic":
+            base = profile.base_url or "https://api.anthropic.com"
+            return AnthropicClient(api_key=key, model=profile.model, base_url=base, client_id=name)
+        default_base = (
+            "https://api.deepseek.com"
+            if profile.provider == "deepseek"
+            else "https://api.openai.com/v1"
+        )
+        return OpenAICompatibleClient(
+            api_key=key,
+            model=profile.model,
+            base_url=profile.base_url or default_base,
+            client_id=name,
+        )
 
 
 def build_catalog_from_env() -> ExecutorCatalog:

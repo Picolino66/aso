@@ -26,7 +26,7 @@ class OrchestrationRepository(Protocol):
     def aggregate_metrics(self) -> dict[str, Any]: ...
 
     def events_page(
-        self, orchestration_id: str, *, limit: int, offset: int
+        self, orchestration_id: str, *, limit: int, offset: int, newest_first: bool = False
     ) -> tuple[list[dict[str, Any]], int]: ...
 
     # --- consultas (lado de leitura / CQRS-lite) ---

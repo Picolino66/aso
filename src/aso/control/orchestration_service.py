@@ -22,7 +22,16 @@ from aso.agents.registry import AgentRegistry
 from aso.agents.supervisor import AgentSupervisor
 from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.execution_planner import ExecutionPlanner
-from aso.control.models import DecisionInput, ExecutionPlan, Orchestration, Project, ProjectEvent
+from aso.control.models import (
+    NAMING_KEY,
+    AgentAssignment,
+    DecisionInput,
+    ExecutionPlan,
+    Orchestration,
+    Project,
+    ProjectEvent,
+)
+from aso.control.naming import NamingService
 from aso.control.next_step import NextStepInput, NextStepReport, compute_next_step
 from aso.control.project_service import ProjectService
 from aso.execution.candidates import CandidateRunner
@@ -58,6 +67,7 @@ from aso.governance.quality_gate_engine import Criterion, QualityGateEngine
 from aso.governance.snapshot_engine import SnapshotEngine
 from aso.kanban.board_service import BoardService
 from aso.kanban.models import Board, KanbanCard
+from aso.observability.agent_log import AgentLogBus
 from aso.observability.logging import get_logger
 from aso.persistence.memory import InMemoryOrchestrationRepository, InMemoryProjectRepository
 from aso.persistence.ports import OrchestrationRepository, ProjectRepository
@@ -184,11 +194,18 @@ class OrchestrationService:
         max_slo_samples: int | None = None,
         catalog: ExecutorCatalog | None = None,
         executor_store: ExecutorSettingsStore | None = None,
+        naming: NamingService | None = None,
+        log_bus: AgentLogBus | None = None,
     ) -> None:
         self._bundles: dict[str, OrchestrationBundle] = {}
         self._provider = provider
         # Catálogo de executores selecionáveis por etapa (Claude/Codex/DeepSeek/…).
         self._catalog = catalog
+        # Batiza branches/commits a partir do card (ADR-0014); sem agente nomeador
+        # configurado, resolve tudo de forma determinística e sem custo.
+        self._naming = naming or NamingService(catalog)
+        # Saída ao vivo dos agentes CLI (ADR-0015): ring em memória, lido por polling.
+        self._log_bus = log_bus or AgentLogBus()
         self._executor_store = executor_store  # persiste perfis (sem secrets)
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._projects = ProjectService(project_repository or InMemoryProjectRepository())
@@ -713,7 +730,13 @@ class OrchestrationService:
                     "Merge governado exige CI 'passed' e review 'approved' "
                     f"(ci={pr.ci_status}, review={pr.review_status})."
                 )
-            self._workspace_for(b).merge(pr.branch)  # merge git real na branch base
+            # Mensagem com o que foi entregue: `git log` da branch base precisa contar a
+            # história sozinho, e "aso: merge governado" em todo merge não conta nada.
+            titulo = (pr.title or "").strip()
+            self._workspace_for(b).merge(
+                pr.branch,
+                message=f"aso: merge {pr.branch}" + (f" — {titulo}" if titulo else ""),
+            )
             pr.status = "merged"
             pr.merged_at = now_iso()
             if pr.card_id and b.board_service.get_card(pr.card_id):
@@ -1011,6 +1034,11 @@ class OrchestrationService:
             return
         self._log.info("autopilot_advanced", orchestration_id=orchestration_id, to=nxt.value)
         self.advance_phase(orchestration_id)
+        # A escolha herdada da fase anterior só vale se a próxima etapa não tiver
+        # executor próprio (ADR-0014) — senão a configuração por etapa nunca valeria
+        # no autopilot, que é justamente onde ela mais importa.
+        if self._assignment(self._bundle(orchestration_id), nxt.value) is not None:
+            executor, effort = None, None
         self.run_phase(orchestration_id, nxt, executor=executor, effort=effort)
 
     def start_autopilot(
@@ -1282,14 +1310,29 @@ class OrchestrationService:
         return adrs
 
     def timeline_page(
-        self, orchestration_id: str, *, page: int = 1, page_size: int = 50
+        self,
+        orchestration_id: str,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        newest_first: bool = False,
     ) -> dict[str, object]:
+        """Página da timeline. `newest_first` serve a quem quer "o que acabou de acontecer"."""
         self._bundle(orchestration_id)  # valida existência (404 se não existir)
         page = max(page, 1)
         items, total = self._repo.events_page(
-            orchestration_id, limit=page_size, offset=(page - 1) * page_size
+            orchestration_id,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+            newest_first=newest_first,
         )
-        return {"items": items, "total": total, "page": page, "page_size": page_size}
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "newest_first": newest_first,
+        }
 
     # ------------------------------------------------------------------ execução
     def resolve_provider(
@@ -1306,39 +1349,78 @@ class OrchestrationService:
         """
         if not executor or self._catalog is None:
             return None
-        return self._catalog.build(executor, repo_override=target_path, effort_override=effort)
+        return self._catalog.build(
+            executor,
+            repo_override=target_path,
+            effort_override=effort,
+            log_bus=self._log_bus,
+        )
 
-    def _effective_executor(self, b: OrchestrationBundle, executor: str | None) -> str | None:
-        if executor or b.orchestration.selected_executor:
-            return executor or b.orchestration.selected_executor
+    @staticmethod
+    def _assignment(b: OrchestrationBundle, key: str | None) -> AgentAssignment | None:
+        """Executor configurado para uma etapa (ou para `naming`), se houver."""
+        if not key:
+            return None
+        return b.orchestration.agent_assignments.get(key)
+
+    def _effective_executor(
+        self, b: OrchestrationBundle, executor: str | None, *, phase: Phase | None = None
+    ) -> str | None:
+        """Executor a usar, na ordem: chamada explícita → etapa → padrão → default."""
+        if executor:
+            return executor
+        escolha = self._assignment(b, phase.value if phase else None)
+        if escolha is not None:
+            return escolha.executor
+        if b.orchestration.selected_executor:
+            return b.orchestration.selected_executor
         if b.orchestration.target_path and self._catalog is not None:
             return self._catalog.default_name()
         return None
 
     def _effective_effort(
-        self, b: OrchestrationBundle, executor: str | None, effort: str | None
+        self,
+        b: OrchestrationBundle,
+        executor: str | None,
+        effort: str | None,
+        *,
+        phase: Phase | None = None,
     ) -> str | None:
-        if effort or b.orchestration.selected_effort:
-            return effort or b.orchestration.selected_effort
+        if effort:
+            return effort
+        escolha = self._assignment(b, phase.value if phase else None)
+        if escolha is not None:
+            # Etapa com executor próprio não herda o esforço global: esforço casa com o
+            # modelo, não com a orquestração (um "high" do Codex pode nem existir no
+            # modelo escolhido para esta fase). Sem esforço na etapa, usa o do perfil.
+            if escolha.effort:
+                return escolha.effort
+        elif b.orchestration.selected_effort:
+            return b.orchestration.selected_effort
         if executor and self._catalog is not None:
             profile = self._catalog.get(executor)
             return profile.effort if profile is not None else None
         return None
 
     def _provider_for(
-        self, b: OrchestrationBundle, executor: str | None, effort: str | None = None
+        self,
+        b: OrchestrationBundle,
+        executor: str | None,
+        effort: str | None = None,
+        *,
+        phase: Phase | None = None,
     ) -> ExecutionProvider | None:
-        """Provider a usar nesta orquestração, atrelado à pasta dela (se houver).
+        """Provider a usar nesta etapa, atrelado à pasta da orquestração (se houver).
 
-        - executor escolhido → resolve do catálogo com a pasta como repo;
+        - executor escolhido (chamada ou etapa) → resolve do catálogo com a pasta;
         - sem executor, mas com pasta definida → usa o executor default do catálogo,
           também atrelado à pasta (evita cair no provider global, que aponta para
           o `ASO_TARGET_REPO`);
         - senão → provider global do bootstrap (comportamento legado).
         """
         tp = b.orchestration.target_path
-        effective_executor = self._effective_executor(b, executor)
-        effective_effort = self._effective_effort(b, effective_executor, effort)
+        effective_executor = self._effective_executor(b, executor, phase=phase)
+        effective_effort = self._effective_effort(b, effective_executor, effort, phase=phase)
         if effective_executor and self._catalog is not None:
             try:
                 self._validate_executor(effective_executor, effective_effort)
@@ -1366,6 +1448,23 @@ class OrchestrationService:
         if isinstance(legacy, WorktreeManager):
             return legacy
         raise ValueError("Orquestração sem pasta de trabalho para operação git.")
+
+    def agent_log(
+        self, orchestration_id: str, *, after: int = 0, limit: int = 500
+    ) -> dict[str, Any]:
+        """Saída ao vivo dos agentes desta orquestração (ADR-0015).
+
+        `after` é o cursor: a tela pede só as linhas que ainda não viu, o que permite
+        acompanhar a execução em andamento e também reexibir o log ao recarregar a página.
+        """
+        self._bundle(orchestration_id)  # 404 coerente com o resto da API
+        linhas = self._log_bus.lines(orchestration_id, after=after, limit=limit)
+        estado = self._log_bus.state(orchestration_id)
+        return {
+            "lines": [linha.public() for linha in linhas],
+            "next": linhas[-1].seq if linhas else after,
+            **estado,
+        }
 
     def list_executors(self) -> list[dict[str, object]]:
         """Executores disponíveis (para escolha por etapa na UI/API)."""
@@ -1469,6 +1568,87 @@ class OrchestrationService:
             self._persist(b)
             return b.orchestration
 
+    @staticmethod
+    def _validate_assignment_key(orchestration: Orchestration, key: str) -> str:
+        """Valida a chave da etapa e o momento em que ela ainda pode ser configurada.
+
+        `naming` é sempre editável (não é fase da esteira). Uma fase só aceita troca de
+        agente enquanto não ficou para trás: reconfigurar F2 com a orquestração já em F5
+        daria a falsa impressão de que o trabalho seria refeito com o novo agente.
+        """
+        if key == NAMING_KEY:
+            return key
+        try:
+            fase = Phase(key)
+        except ValueError:
+            raise ValueError(f"Etapa inválida: '{key}'. Use F1..F7 ou '{NAMING_KEY}'.") from None
+        ordem = list(Phase)
+        if ordem.index(fase) < ordem.index(orchestration.current_phase):
+            raise ValueError(
+                f"A fase {fase.value} já passou (esteira em "
+                f"{orchestration.current_phase.value}): a escolha não teria efeito."
+            )
+        return fase.value
+
+    def set_agent_assignment(
+        self,
+        orchestration_id: str,
+        key: str,
+        *,
+        executor: str,
+        effort: str | None = None,
+        actor: str = "system",
+    ) -> Orchestration:
+        """Define o executor de uma etapa (F1..F7) ou do nomeador. Ação auditável."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if b.orchestration.status == "cancelled":
+                raise ValueError("Orquestração cancelada: configuração bloqueada.")
+            chave = self._validate_assignment_key(b.orchestration, key)
+            if self._catalog is not None:
+                self._validate_executor(executor, effort)
+            antes = b.orchestration.agent_assignments.get(chave)
+            b.orchestration.agent_assignments[chave] = AgentAssignment(
+                executor=executor, effort=effort
+            )
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "AgentAssignmentUpdated",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "key": chave,
+                    "before": antes.model_dump() if antes else None,
+                    "after": {"executor": executor, "effort": effort},
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def clear_agent_assignment(
+        self, orchestration_id: str, key: str, *, actor: str = "system"
+    ) -> Orchestration:
+        """Remove o executor da etapa: ela volta a herdar o padrão da orquestração."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            chave = self._validate_assignment_key(b.orchestration, key)
+            antes = b.orchestration.agent_assignments.pop(chave, None)
+            if antes is None:
+                return b.orchestration  # já era o padrão: nada a auditar
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "AgentAssignmentUpdated",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "key": chave,
+                    "before": antes.model_dump(),
+                    "after": None,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
     def save_executor(self, profile: ExecutorProfile) -> list[dict[str, object]]:
         """Cria/atualiza um perfil de executor (tela de configurações) e persiste."""
         if self._catalog is None:
@@ -1496,14 +1676,40 @@ class OrchestrationService:
         effort: str | None = None,
     ) -> dict[str, Any]:
         section = agent.context_sections[0] if agent.context_sections else "engineering"
+        nomes = self._naming.suggest(
+            self._assignment(b, NAMING_KEY),
+            card_type=card.type,
+            title=card.title,
+            description=card.description,
+            acceptance_criteria=card.acceptance_criteria,
+            phase=card.phase,
+        )
+        if nomes.fallback_reason:
+            b.event_log.append(
+                "NamingFallback",
+                {"card_id": card.id, "reason": nomes.fallback_reason},
+            )
         task: dict[str, Any] = {
             "orchestration_id": b.orchestration.id,
             "card_id": card.id,
-            "phase": b.orchestration.current_phase.value,
+            "phase": card.phase.value,
             "target_path": f"{section}.mock_{agent.role}",
+            # Batismo do trabalho (ADR-0014): a branch sai do card, e o assunto do
+            # commit vai no prompt para o agente CLI seguir a convenção. O sufixo de
+            # unicidade é fechado por quem cria o worktree — o mesmo card pode ter
+            # várias branches vivas (retry, candidatos concorrentes).
+            "branch_stem": nomes.branch_stem,
+            "commit_subject": nomes.commit_subject,
             "content": {
                 "by": agent.role,
                 "request": b.orchestration.user_request,
+                # Sem estes campos o agente executava cego: recebia só a demanda global
+                # da orquestração e nunca sabia QUAL card estava implementando.
+                "card_title": card.title,
+                "card_description": card.description,
+                "card_type": card.type.value,
+                "acceptance_criteria": list(card.acceptance_criteria),
+                "commit_subject": nomes.commit_subject,
                 "validation_command": b.orchestration.validation_command,
             },
         }
@@ -1538,16 +1744,16 @@ class OrchestrationService:
 
     def _execute_wave(
         self,
-        jobs: list[tuple[AgentSpec, dict[str, Any]]],
+        jobs: list[tuple[AgentSpec, dict[str, Any], ExecutionProvider | None]],
         concurrent: bool,
-        provider: ExecutionProvider | None = None,
     ) -> list[tuple[AgentOutput | None, list[DomainEvent], Exception | None]]:
+        """Executa uma onda; cada job traz o **seu** provider (a etapa do card decide qual)."""
         if concurrent and len(jobs) > 1:
             with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as pool:
                 return list(
-                    pool.map(lambda job: self._execute_isolated(job[0], job[1], provider), jobs)
+                    pool.map(lambda job: self._execute_isolated(job[0], job[1], job[2]), jobs)
                 )
-        return [self._execute_isolated(agent, task, provider) for agent, task in jobs]
+        return [self._execute_isolated(agent, task, provider) for agent, task, provider in jobs]
 
     def _apply_execution(
         self,
@@ -1605,11 +1811,12 @@ class OrchestrationService:
         agent = b.agent_registry.get(card.assignee)
         if agent is None:
             raise KeyError(f"Agente não registrado: {card.assignee}")
-        # Chamada direta (ex.: /cards/{id}/run) sem provider → usa o provider
-        # atrelado à pasta desta orquestração (não o global do bootstrap).
+        # Chamada direta (ex.: /cards/{id}/run, /retry) sem provider → resolve pelo
+        # executor da fase **do card** (não a fase corrente da orquestração: um retry
+        # em F5 com a esteira já em F6 continua usando o agente configurado para F5).
         if provider is None:
-            effort = effort or b.orchestration.selected_effort
-            provider = self._provider_for(b, None, effort)
+            effort = self._effective_effort(b, None, effort, phase=card.phase)
+            provider = self._provider_for(b, None, effort, phase=card.phase)
         task = self._build_task(b, card, agent, effort=effort)
         output, events, error = self._execute_isolated(agent, task, provider)
         results = self._apply_execution(b, card_id, output, events, error)
@@ -1643,8 +1850,6 @@ class OrchestrationService:
         """Executa o plano em ondas topológicas; agentes de uma onda rodam concorrentes (§13)."""
         b = self._bundle(orchestration_id)
         plan = b.plan
-        # Provider atrelado à pasta (workspace) desta orquestração.
-        wave_provider = self._provider_for(b, None, b.orchestration.selected_effort)
         cards_by_agent = {c.assignee: c for c in b.board_service.cards_of(b.board.id)}
         agents = {a.agent: a for a in plan.agents}
         done: set[str] = set()
@@ -1659,16 +1864,21 @@ class OrchestrationService:
             ]
             if not wave:
                 wave = [remaining[0]]  # quebra defensiva de ciclo
-            jobs: list[tuple[str, AgentSpec, dict[str, Any]]] = []
+            jobs: list[tuple[str, AgentSpec, dict[str, Any], ExecutionProvider | None]] = []
             for name in wave:
                 card = cards_by_agent.get(name)
                 spec = b.agent_registry.get(name)
                 if card is not None and spec is not None and card.status == ColumnKey.READY:
-                    jobs.append((card.id, spec, self._build_task(b, card, spec)))
+                    # Provider por card: cada um roda com o executor da **sua** etapa.
+                    effort = self._effective_effort(b, None, None, phase=card.phase)
+                    provider = self._provider_for(b, None, effort, phase=card.phase)
+                    jobs.append(
+                        (card.id, spec, self._build_task(b, card, spec, effort=effort), provider)
+                    )
             outputs = self._execute_wave(
-                [(spec, task) for _cid, spec, task in jobs], concurrent, wave_provider
+                [(spec, task, prov) for _c, spec, task, prov in jobs], concurrent
             )
-            for (card_id, _spec, _task), (output, events, error) in zip(jobs, outputs, strict=True):
+            for (card_id, _s, _t, _p), (output, events, error) in zip(jobs, outputs, strict=True):
                 self._apply_execution(b, card_id, output, events, error)
                 executed.append(card_id)
             done.update(wave)
@@ -2170,11 +2380,12 @@ class OrchestrationService:
         `executor`/`effort` escolhem o agente e o esforço desta etapa; a escolha é
         guardada na aprovação para o auto-avanço (M4) manter a mesma configuração.
         """
-        # Resolve o provider já atrelado à pasta (workspace) desta orquestração.
+        # Resolve o provider da **etapa** (ADR-0014), já atrelado à pasta (workspace).
         b0 = self._bundle(orchestration_id)
-        effective_executor = self._effective_executor(b0, executor)
-        effort = self._effective_effort(b0, effective_executor, effort)
-        provider = self._provider_for(b0, effective_executor, effort)
+        target = phase or b0.orchestration.current_phase
+        effective_executor = self._effective_executor(b0, executor, phase=target)
+        effort = self._effective_effort(b0, effective_executor, effort, phase=target)
+        provider = self._provider_for(b0, effective_executor, effort, phase=target)
         # Sem esforço explícito, herda o esforço do perfil do executor efetivo
         # (o escolhido ou, quando há pasta, o default do catálogo).
         if effort is None and self._catalog is not None:
@@ -2189,7 +2400,6 @@ class OrchestrationService:
             b = self._bundle(orchestration_id)
             if b.orchestration.status == "cancelled":  # kill-switch (M6)
                 raise ValueError("Orquestração cancelada: execução bloqueada.")
-            target = phase or b.orchestration.current_phase
             card_ids = [
                 c.id
                 for c in b.board_service.cards_of(b.board.id)
@@ -2235,7 +2445,7 @@ class OrchestrationService:
 
         gate = self.run_quality_gate(orchestration_id, target)
         # Self-heal automático da documentação docs-first ao fim de F5/F6 (§ADR-0012).
-        autoheal = self._maybe_autoheal_docs(orchestration_id, target, executor, effort)
+        autoheal = self._maybe_autoheal_docs(orchestration_id, target, effective_executor, effort)
         approval_id: str | None = None
         snapshot: str | None = None
         with self._lock_for(orchestration_id):

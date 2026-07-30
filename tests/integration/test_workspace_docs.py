@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from aso.control.orchestration_service import OrchestrationService
+from aso.execution.branch_naming import slugify
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceError, WorkspaceService
 
@@ -126,8 +127,9 @@ def test_run_card_roda_na_pasta_da_orquestracao(tmp_path: Path) -> None:
     card = svc.get_cards(orch.id)[0]
     results = svc.run_card(orch.id, card.id)  # provider=None → _provider_for(pasta)
     assert results and results[0].status.value == "applied"
-    # o worktree/branch foi criado na pasta da orquestração
-    assert "aso/" in _git_out(tmp_path, "branch")
+    # o worktree/branch foi criado na pasta da orquestração, batizado pelo card (ADR-0014)
+    branches = _git_out(tmp_path, "branch")
+    assert f"{slugify(card.title)}-" in branches
 
 
 def test_run_card_default_para_repo_global_sem_pasta(tmp_path: Path) -> None:
@@ -143,4 +145,4 @@ def test_run_card_default_para_repo_global_sem_pasta(tmp_path: Path) -> None:
     card = svc.get_cards(orch.id)[0]
     results = svc.run_card(orch.id, card.id)
     assert results and results[0].status.value == "applied"
-    assert "aso/" in _git_out(repo, "branch")
+    assert f"{slugify(card.title)}-" in _git_out(repo, "branch")

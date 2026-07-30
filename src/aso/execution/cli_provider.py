@@ -4,6 +4,12 @@ Cria um worktree/branch por card, roda o comando do agente CLI (ex.: `claude`, `
 com o prompt via stdin, coleta o diff e retorna uma `AgentOutput` com um ContextPatch
 descrevendo a alteração (branch + resumo do diff) — que o ContextBus valida/aplica.
 
+A saída é lida **linha a linha, enquanto o agente trabalha** (ADR-0015): antes usávamos
+`subprocess.run(capture_output=True)`, que só entrega os pipes depois que o processo
+morre — o operador ficava minutos diante de uma tela parada sem saber se o agente estava
+produzindo, travado pedindo permissão, ou morto. Cada linha vai para o `OutputSink`
+(porta em `aso.shared.agent_output`) e alimenta o painel ao vivo da tela de detalhe.
+
 O comando é injetável; nos testes usamos um comando fake que edita arquivos, exercitando
 worktree + diff de verdade sem depender de um agente CLI instalado.
 """
@@ -11,15 +17,25 @@ worktree + diff de verdade sem depender de um agente CLI instalado.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-from typing import Any
+import threading
+from typing import IO, Any
 
 from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentOutput, AgentSpec
+from aso.execution.agent_stream import extrair_texto, interpretar
+from aso.execution.branch_naming import unique_branch
 from aso.execution.worktree import WorktreeManager
 from aso.governance.models import ContextPatch
+from aso.shared.agent_output import STREAM_STDERR, STREAM_STDOUT, OutputBus, OutputSink
 from aso.shared.ids import gen_id
 from aso.shared.types import PatchType, Phase
+
+# Rede de segurança, não limite apertado: um agente pode legitimamente levar dezenas de
+# minutos. O que este teto impede é o caso patológico — CLI parado esperando permissão
+# interativa ou TTY — que antes prendia uma thread do servidor e um worktree para sempre.
+TIMEOUT_PADRAO = float(os.environ.get("ASO_AGENT_TIMEOUT", "1800"))
 
 
 class CliAgentExecutionProvider:
@@ -32,35 +48,49 @@ class CliAgentExecutionProvider:
         *,
         worktree: WorktreeManager | None = None,
         executor_id: str = "cli_agent",
+        log_bus: OutputBus | None = None,
+        timeout: float | None = None,
     ) -> None:
         # `executor_id` distingue candidatos concorrentes no mesmo repo (§26A.6).
         self.id = executor_id
         self.command = command
         self.worktree = worktree or WorktreeManager(base_repo)
+        # Sem bus, a execução funciona igual — só não há painel ao vivo (testes, CLI).
+        self.log_bus = log_bus
+        self.timeout = TIMEOUT_PADRAO if timeout is None else timeout
 
     def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
-        # Inclui o executor_id e um id completo: candidatos concorrentes têm o mesmo
-        # `agent.role`, então o nome do worktree/branch precisa ser único por candidato
-        # para não colidir em `git worktree add` (branch/path já existente).
-        name = f"{agent.role}-{self.id}-{gen_id()}"
-        path, branch = self.worktree.create(name)
+        # A branch é batizada pelo card (`feat/calculadora-basica`, ADR-0014) e fechada
+        # aqui com um sufixo único: candidatos concorrentes (§26A.6) e retries executam
+        # a MESMA task e colidiriam em `git worktree add` com um nome fixo.
+        # Sem raiz — execução direta do provider, testes, chamadas legadas — mantém o
+        # nome antigo, que já carregava executor_id + uuid pelo mesmo motivo.
+        stem = str(task.get("branch_stem") or "")
+        escolhida = unique_branch(stem, gen_id()) if stem else ""
+        name = escolhida or f"{agent.role}-{self.id}-{gen_id()}"
+        path, branch = self.worktree.create(name, branch=escolhida or None)
+        sink = self._abrir_sink(agent, task, branch)
         try:
-            proc = subprocess.run(
-                self.command,
-                cwd=str(path),
-                input=json.dumps(task, ensure_ascii=False),
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode != 0:
-                detail = _failure_detail(proc.stderr or proc.stdout)
+            saida = self._rodar(task, str(path), sink)
+            if saida.returncode != 0:
+                detail = _failure_detail(saida.stderr or saida.stdout)
                 raise AgentExecutionError(
-                    f"Executor CLI terminou com exit={proc.returncode}: {detail or 'sem saída'}"
+                    f"Executor CLI terminou com exit={saida.returncode}: {detail or 'sem saída'}"
                 )
             diff = self.worktree.collect_diff(path)
             if not diff.strip():
-                raise AgentExecutionError(_empty_diff_detail(proc.stdout, proc.stderr))
-            self.worktree.commit(path, f"aso: {agent.role} ({task.get('card_id', '-')})")
+                raise AgentExecutionError(_empty_diff_detail(saida.stdout, saida.stderr))
+            # Só entra em ação se o agente NÃO commitou (árvore suja); quando ele
+            # commitou, o histórico já é dele — governamos via prompt, não reescrevendo.
+            padrao = f"aso: {agent.role} ({task.get('card_id', '-')})"
+            self.worktree.commit(path, str(task.get("commit_subject") or padrao))
+        except Exception as exc:
+            if sink is not None:
+                sink.close(ok=False, detail=str(exc)[:200])
+            raise
+        else:
+            if sink is not None:
+                sink.close(ok=True, detail=f"{len(diff.splitlines())} linhas de diff")
         finally:
             self.worktree.remove(path)
 
@@ -73,16 +103,115 @@ class CliAgentExecutionProvider:
             phase=Phase(task.get("phase", Phase.F5)),
             patch_type=PatchType.UPDATE,
             target_path=f"{section}.cli_{agent.role}",
-            content={"branch": branch, "diff_lines": diff_lines, "exit_code": proc.returncode},
-            evidence=[f"worktree={name}", f"branch={branch}", f"exit={proc.returncode}"],
+            content={"branch": branch, "diff_lines": diff_lines, "exit_code": saida.returncode},
+            evidence=[f"worktree={name}", f"branch={branch}", f"exit={saida.returncode}"],
         )
         return AgentOutput(
             agent_role=agent.role,
             executor_id=self.id,
             summary=f"[cli] {agent.role} rodou em {branch} (diff: {diff_lines} linhas)",
             patches=[patch],
-            artifacts={"branch": branch, "diff": diff, "stdout": proc.stdout[:2000]},
+            # A cauda, não o início: o desfecho do agente é o que interessa depois.
+            artifacts={"branch": branch, "diff": diff, "stdout": saida.stdout[-4000:]},
         )
+
+    def _abrir_sink(self, agent: AgentSpec, task: dict[str, Any], branch: str) -> OutputSink | None:
+        if self.log_bus is None:
+            return None
+        return self.log_bus.open(
+            str(task["orchestration_id"]),
+            card_id=task.get("card_id"),
+            agent=agent.role,
+            executor=self.id,
+            branch=branch,
+        )
+
+    def _rodar(self, task: dict[str, Any], cwd: str, sink: OutputSink | None) -> _Saida:
+        """Roda o agente lendo os pipes **enquanto** ele trabalha.
+
+        Uma thread por pipe em vez de `selectors`: mantém `stdout` e `stderr` separados
+        (o motivo de falha prefere o stderr) e elimina o risco de deadlock quando um dos
+        pipes enche enquanto lemos o outro.
+        """
+        # Muitos CLIs bufferizam em bloco ao detectar que não há TTY; isto ajuda no que
+        # for Python. Para os demais, quem resolve é a flag de streaming do próprio
+        # agente (`--output-format stream-json`, `--json`) — ver docs/operations.md.
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        proc = subprocess.Popen(
+            self.command,
+            cwd=cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            env=env,
+        )
+        out: list[str] = []
+        err: list[str] = []
+        bombas = [
+            threading.Thread(
+                target=self._bombear, args=(proc.stdout, out, STREAM_STDOUT, sink), daemon=True
+            ),
+            threading.Thread(
+                target=self._bombear, args=(proc.stderr, err, STREAM_STDERR, sink), daemon=True
+            ),
+        ]
+        for bomba in bombas:
+            bomba.start()
+        try:
+            if proc.stdin is not None:
+                proc.stdin.write(json.dumps(task, ensure_ascii=False))
+                proc.stdin.close()
+            proc.wait(timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            for bomba in bombas:
+                bomba.join(timeout=2.0)
+            if sink is not None:
+                sink.marco(f"tempo limite de {self.timeout:.0f}s estourado — processo encerrado")
+            raise AgentExecutionError(
+                f"Executor CLI não terminou em {self.timeout:.0f}s e foi encerrado. "
+                f"Última saída: {extrair_texto(''.join(out) or ''.join(err)) or 'nenhuma'}"
+            ) from None
+        except OSError as exc:  # pipe fechado pelo agente antes de ler a tarefa
+            proc.kill()
+            proc.wait()
+            raise AgentExecutionError(f"Falha ao enviar a tarefa ao executor CLI: {exc}") from exc
+        for bomba in bombas:
+            bomba.join(timeout=5.0)
+        return _Saida(returncode=proc.returncode, stdout="".join(out), stderr="".join(err))
+
+    @staticmethod
+    def _bombear(
+        pipe: IO[str] | None, destino: list[str], stream: str, sink: OutputSink | None
+    ) -> None:
+        """Lê o pipe linha a linha até o EOF, acumulando e publicando ao vivo."""
+        if pipe is None:
+            return
+        try:
+            for linha in pipe:
+                destino.append(linha)
+                if sink is None:
+                    continue
+                for item in interpretar(linha):
+                    sink.write(stream, item.text, kind=item.kind, detail=item.detail)
+        except (OSError, ValueError):  # pipe fechado no kill: a saída já foi capturada
+            return
+        finally:
+            pipe.close()
+
+
+class _Saida:
+    """Resultado de uma execução — o mesmo trio que o `subprocess.run` devolvia."""
+
+    __slots__ = ("returncode", "stdout", "stderr")
+
+    def __init__(self, *, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 def _empty_diff_detail(stdout: str, stderr: str) -> str:
@@ -94,10 +223,12 @@ def _empty_diff_detail(stdout: str, stderr: str) -> str:
     fica intacto. Descartar essa saída deixava o operador sem pista nenhuma.
     """
     base = "Executor CLI não produziu alterações no worktree (diff vazio)."
-    fala = (stdout or stderr or "").strip()
+    # `extrair_texto` destila a FALA do agente: com o streaming em NDJSON ligado, a saída
+    # crua é uma parede de JSON e o motivo no card ficaria ilegível.
+    fala = extrair_texto(stdout or stderr or "")
     if not fala:
         return f"{base} O agente não deixou saída — confira o comando do executor."
-    return f"{base} Última saída do agente: {fala[-400:]}"
+    return f"{base} Última saída do agente: {fala}"
 
 
 def _failure_detail(output: str) -> str:
@@ -119,4 +250,5 @@ def _failure_detail(output: str) -> str:
             messages.append(message)
     if messages:
         return " ".join(messages)[:600]
-    return output.strip()[-600:]
+    # Sem erro estruturado: devolve a fala destilada, não o NDJSON cru.
+    return extrair_texto(output, limite=600) or output.strip()[-600:]

@@ -3,8 +3,13 @@
 #
 # O ASO executa o comando do executor no worktree do card e entrega a TAREFA como
 # JSON no stdin. A maioria dos CLIs espera um PROMPT, não esse JSON. Este wrapper lê
-# o JSON, monta um prompt em pt-BR (fase/demanda/alvo) e invoca o agente passado em
-# "$@" com o prompt como último argumento.
+# o JSON, monta um prompt em pt-BR e invoca o agente passado em "$@" com o prompt
+# como último argumento.
+#
+# Dois tipos de tarefa:
+#   - execução (padrão): implementar o card no worktree, com commits pequenos;
+#   - "kind": "naming": só produzir um JSON com nome de branch e assunto de commit
+#     (ADR-0014) — roda numa pasta temporária, sem alterar código.
 #
 # Uso (campo "comando CLI" da tela ⚙ Config, com caminho ABSOLUTO):
 #   /app/scripts/aso-agent-wrapper.sh codex exec
@@ -22,17 +27,46 @@ try:
 except Exception:
     d = {}
 c = d.get("content") or {}
+
+# Tarefa de nomeação: o agente só devolve JSON, não toca em arquivo nenhum.
+if d.get("kind") == "naming":
+    print((c.get("system") or "") + "\n\n" + (c.get("request") or ""))
+    raise SystemExit
+
 req = c.get("request") or c.get("by") or "(sem demanda)"
 gate = c.get("validation_command")
-print(
-    f"Você é um agente de engenharia autônoma no ASO Runtime (fase {d.get('phase', '?')}).\n"
-    f"Demanda do produto: {req}\n"
-    f"Seção-alvo do contexto: {d.get('target_path', '')}\n"
+titulo = c.get("card_title") or ""
+descricao = c.get("card_description") or ""
+criterios = c.get("acceptance_criteria") or []
+commit = c.get("commit_subject") or ""
+
+linhas = [
+    f"Você é um agente de engenharia autônoma no ASO Runtime (fase {d.get('phase', '?')}).",
+    f"Demanda do produto: {req}",
+]
+# Sem isto o agente trabalhava cego: recebia só a demanda global da orquestração e
+# não sabia QUAL card estava implementando.
+if titulo:
+    linhas.append(f"Card desta execução ({c.get('card_type') or 'Task'}): {titulo}")
+if descricao:
+    linhas.append(f"Detalhes do card: {descricao}")
+if criterios:
+    linhas.append("Critérios de aceite (todos devem valer ao final):")
+    linhas += [f"  - {x}" for x in criterios]
+linhas.append(f"Seção-alvo do contexto: {d.get('target_path', '')}")
+linhas.append(
     "Implemente/produza o necessário NESTE diretório (worktree isolado do card), em "
-    "pt-BR, com commits pequenos e foco na fase atual. Se for fase de código, deixe os "
-    "testes verdes."
-    + (f"\nComando de aceite obrigatório e finito: {gate}" if gate else "")
+    "pt-BR, com commits pequenos e foco APENAS neste card. Se for fase de código, "
+    "deixe os testes verdes."
 )
+if commit:
+    linhas.append(
+        "Use Conventional Commits em pt-BR nas mensagens; o primeiro commit deve ter "
+        f"como assunto: {commit}"
+    )
+if gate:
+    linhas.append(f"Comando de aceite obrigatório e finito: {gate}")
+print("\n".join(linhas))
 PY
 )"
 

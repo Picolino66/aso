@@ -79,6 +79,9 @@ class OrchestrationRow(Base):
     target_path: Mapped[str | None] = mapped_column(String, nullable=True)
     selected_executor: Mapped[str | None] = mapped_column(String, nullable=True)
     selected_effort: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Executor por etapa ("F1".."F7" + "naming"); mapa pequeno e sempre lido junto da
+    # orquestração, então JSONB em vez de tabela filha (evita ordem de INSERT/FK).
+    agent_assignments: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
     validation_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     workspace_prepared: Mapped[bool] = mapped_column(Boolean, default=False)
     execution_mode: Mapped[str] = mapped_column(String)

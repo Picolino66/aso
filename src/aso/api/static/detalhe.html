@@ -36,11 +36,38 @@
     .pill.warn { background:rgba(245,158,11,.18); color:var(--warn); }
     .pill.info { background:rgba(129,140,248,.18); color:var(--info); }
     .pill.accent { background:rgba(56,189,248,.18); color:var(--accent); }
-    /* Esteira F1→F7 */
-    .esteira { display:flex; gap:0; overflow-x:auto; padding-bottom:4px; }
-    .fase { flex:1 0 108px; padding:9px 10px; border-top:3px solid var(--border); margin-right:6px; }
-    .fase.feita { border-top-color:var(--ok); } .fase.atual { border-top-color:var(--accent); background:var(--panel2); border-radius:0 0 8px 8px; }
-    .fase b { display:block; font-size:13px; } .fase span { font-size:11px; color:var(--muted); }
+    /* Esteira F1→F7 — cada etapa explica o que é e mostra quem a executa */
+    .esteira { display:grid; grid-template-columns:repeat(auto-fit,minmax(178px,1fr)); gap:8px; margin-top:10px; }
+    .fase { display:flex; flex-direction:column; gap:5px; padding:10px; border-top:3px solid var(--border);
+            border-radius:0 0 9px 9px; background:var(--panel2); }
+    .fase.feita { border-top-color:var(--ok); }
+    .fase.atual { border-top-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+    .fase.futura { opacity:.82; }
+    .fase .topo { display:flex; align-items:baseline; gap:6px; }
+    .fase b { font-size:13px; } .fase .nome { font-size:12px; color:var(--fg); font-weight:600; }
+    .fase .resumo { font-size:11px; line-height:1.45; color:var(--muted); }
+    .fase .entrega { font-size:10.5px; color:var(--muted); font-style:italic; }
+    .chip { align-self:flex-start; margin-top:2px; padding:3px 8px; border:1px solid var(--border); border-radius:999px;
+            background:var(--panel); font-size:11px; color:var(--fg); cursor:pointer; max-width:100%;
+            overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .chip:hover { border-color:var(--accent); } .chip.herdado { color:var(--muted); }
+    .chip[disabled] { cursor:default; opacity:.6; } .chip[disabled]:hover { border-color:var(--border); }
+    .fase select { margin-top:3px; font-size:11px; padding:4px 6px; }
+    /* Painel ao vivo do agente */
+    .aovivo-topo { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:9px; }
+    .feed { max-height:340px; overflow-y:auto; padding:9px 11px; border:1px solid var(--border);
+            border-radius:9px; background:#0a1220; font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+            font-size:12px; line-height:1.6; }
+    .feed .l { display:flex; gap:8px; align-items:baseline; padding:1px 0; }
+    .feed .l .ic { width:15px; flex:0 0 15px; text-align:center; opacity:.9; }
+    .feed .l .tx { flex:1; min-width:0; overflow-wrap:anywhere; }
+    .feed .l .dt { color:var(--accent); }
+    .feed .l.texto .tx { color:var(--fg); }
+    .feed .l.ferramenta .tx { color:var(--info); }
+    .feed .l.resultado .tx { color:var(--ok); }
+    .feed .l.marco { color:var(--muted); font-style:italic; }
+    .feed .l.bruto .tx { color:var(--muted); }
+    .feed .l.err .tx { color:var(--warn); }
     /* Próximo passo */
     .hero { border-color:var(--accent); }
     .hero h3 { margin:0 0 4px; font-size:18px; }
@@ -74,6 +101,12 @@
     .modal h2 { margin:0 0 6px; font-size:17px; }
     .modal label { display:block; margin:13px 0 5px; font-size:12px; color:var(--muted); }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+    .modal { width:min(680px,100%); }
+    .matriz { display:grid; grid-template-columns:auto 1fr 110px; gap:7px 9px; align-items:center; margin-top:8px; }
+    .matriz .et { font-size:12px; color:var(--muted); white-space:nowrap; }
+    .matriz .et b { display:block; color:var(--fg); font-size:13px; }
+    .matriz select:disabled { opacity:.45; }
+    .divisor { margin:20px 0 4px; padding-top:14px; border-top:1px solid var(--border); font-size:13px; }
     details.tecnico summary { cursor:pointer; font-size:13px; color:var(--muted); }
     details.tecnico .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; margin-top:12px; }
     details.tecnico .grid div { padding:9px; border:1px solid var(--border); border-radius:8px; background:var(--panel2); }
@@ -97,8 +130,13 @@
   </header>
   <main>
     <div>
-      <section class="card"><h2>Esteira F1 → F7</h2><div class="esteira" id="esteira"></div></section>
+      <section class="card">
+        <h2>Esteira F1 → F7</h2>
+        <div class="muted">Cada etapa pode rodar com um agente diferente — clique no chip para escolher.</div>
+        <div class="esteira" id="esteira"></div>
+      </section>
       <section class="card hero" id="proximo"><div class="empty">Calculando o próximo passo…</div></section>
+      <section class="card" id="aovivo"></section>
       <section class="card" id="fase"></section>
       <section class="card" id="pendencias"></section>
       <details class="tecnico card">
@@ -125,10 +163,27 @@
       acao_do_operador:{ pill:'accent',rotulo:'sua vez' },
       informativo:    { pill:'info',   rotulo:'aviso' },
     };
-    // Ações longas mandam o agente/esforço escolhido junto (o runtime propaga na esteira).
-    const COM_EXECUTOR = ['/run-phase','/autopilot','/analyze-folder','/docs-heal'];
-    let estado = { orch:null, step:null, cards:[], projeto:null, eventos:[], metrics:null, execs:[] };
+    // Etapas configuráveis (ADR-0014): as sete fases da esteira + o nomeador, que não
+    // é fase — ele só batiza branches e commits, e pode ser trocado a qualquer momento.
+    const NAMING = 'naming';
+    const ETAPAS = [
+      { key:'F1', titulo:'F1', legenda:'discovery' },
+      { key:'F2', titulo:'F2', legenda:'arquitetura' },
+      { key:'F3', titulo:'F3', legenda:'dados e contratos' },
+      { key:'F4', titulo:'F4', legenda:'UX e planejamento' },
+      { key:'F5', titulo:'F5', legenda:'desenvolvimento' },
+      { key:'F6', titulo:'F6', legenda:'qualidade e docs' },
+      { key:'F7', titulo:'F7', legenda:'operação' },
+      { key:NAMING, titulo:'Nomeador', legenda:'branches e commits' },
+    ];
+    let estado = {
+      orch:null, step:null, cards:[], projeto:null, eventos:[], metrics:null, execs:[],
+      fases:[], log:{ lines:[], next:0, running:false, sessions:[] },
+    };
     let fonteEventos = null, recarregando = false;
+    // Polling do log do agente: só roda enquanto há execução, e nunca em duplicidade.
+    let timerLog = null, buscandoLog = false, rolagemPresa = true;
+    const ICONE_KIND = { texto:'💬', ferramenta:'🔧', resultado:'✓', marco:'·', bruto:'·' };
 
     function token() { return localStorage.getItem('aso_token') || ''; }
     async function api(path, options) {
@@ -172,7 +227,9 @@
           api('/v1/orchestrations/' + encodeURIComponent(ID)),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/next-step'),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards'),
-          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/timeline?page_size=14').catch(function() { return {items:[]}; }),
+          // `newest_first`: sem isto a API devolve os eventos MAIS ANTIGOS da
+          // orquestração — o painel mostrava o começo da história, nunca o agora.
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/timeline?page_size=14&newest_first=true').catch(function() { return {items:[]}; }),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/metrics').catch(function() { return null; }),
         ]);
         estado.orch = orch; estado.step = step; estado.cards = cards;
@@ -180,8 +237,16 @@
         if (orch.project_id && (!estado.projeto || estado.projeto.id !== orch.project_id)) {
           estado.projeto = await api('/v1/projects/' + encodeURIComponent(orch.project_id)).catch(function() { return null; });
         }
+        // Catálogo de fases e de executores: estáticos o bastante para buscar uma vez.
+        if (!estado.fases.length) {
+          estado.fases = await api('/v1/phases').catch(function() { return []; });
+        }
+        if (!estado.execs.length) {
+          estado.execs = await api('/v1/executors').catch(function() { return []; });
+        }
         renderizar();
         assinarEventos();
+        acompanharAgente();
       } catch (erro) {
         document.getElementById('titulo').textContent = 'Não foi possível carregar: ' + erro.message;
       } finally { recarregando = false; }
@@ -196,7 +261,7 @@
     }
 
     function renderizar() {
-      renderCabecalho(); renderEsteira(); renderProximoPasso();
+      renderCabecalho(); renderEsteira(); renderProximoPasso(); renderAoVivo();
       renderFase(); renderPendencias(); renderAtividade(); renderTecnico();
     }
 
@@ -225,16 +290,139 @@
 
     // ------------------------------------------------------------- esteira
     function renderEsteira() {
-      const alvo = secao('esteira');
-      const fases = ['F1','F2','F3','F4','F5','F6','F7'];
-      const atual = fases.indexOf(estado.step.phase);
+      const alvo = document.getElementById('esteira');
+      alvo.replaceChildren();
+      const fases = estado.fases.length ? estado.fases : ETAPAS.filter(function(e) { return e.key !== NAMING; })
+        .map(function(e) { return { id:e.key, nome:e.legenda, resumo:'', entrega:'' }; });
+      const ordem = fases.map(function(f) { return f.id; });
+      const atual = ordem.indexOf(estado.step.phase);
+      const atribuicoes = estado.orch.agent_assignments || {};
+
       fases.forEach(function(fase, indice) {
-        const classe = indice < atual ? 'fase feita' : indice === atual ? 'fase atual' : 'fase';
-        const node = el('div', classe);
-        node.appendChild(el('b', '', (indice < atual ? '✓ ' : indice === atual ? '● ' : '○ ') + fase));
-        node.appendChild(el('span', '', indice === atual ? estado.step.phase_label : ''));
+        const passou = atual >= 0 && indice < atual;
+        const eAtual = indice === atual;
+        const node = el('div', 'fase ' + (passou ? 'feita' : eAtual ? 'atual' : 'futura'));
+        const topo = el('div', 'topo');
+        topo.appendChild(el('b', '', (passou ? '✓ ' : eAtual ? '● ' : '○ ') + fase.id));
+        topo.appendChild(el('span', 'nome', fase.nome));
+        node.appendChild(topo);
+        // A explicação didática: "F5" sozinho não diz nada a quem abre a tela.
+        if (fase.resumo) node.appendChild(el('div', 'resumo', fase.resumo));
+        if (fase.entrega) node.appendChild(el('div', 'entrega', '→ ' + fase.entrega));
+        node.appendChild(chipAgente(fase.id, atribuicoes[fase.id], passou));
         alvo.appendChild(node);
       });
+    }
+
+    // Chip clicável com o agente da etapa (ADR-0014). Vazio = herda o padrão.
+    function chipAgente(key, atribuido, passou) {
+      const rotulo = atribuido ? '🤖 ' + atribuido.executor
+                              : '↳ padrão: ' + (estado.orch.selected_executor || 'do catálogo');
+      const chip = el('button', 'chip' + (atribuido ? '' : ' herdado'), rotulo);
+      chip.type = 'button';
+      chip.title = passou ? 'Etapa concluída: trocar o agente não refaria o trabalho.'
+                          : 'Escolher o agente desta etapa';
+      if (passou) { chip.disabled = true; return chip; }
+      chip.addEventListener('click', function() { abrirSeletor(chip, key, atribuido); });
+      return chip;
+    }
+
+    function abrirSeletor(chip, key, atribuido) {
+      const select = el('select');
+      preencherAgentes(select, atribuido && atribuido.executor, '— padrão —');
+      chip.replaceWith(select);
+      select.focus();
+      select.addEventListener('change', async function() {
+        const url = '/v1/orchestrations/' + encodeURIComponent(ID) + '/agents/' + encodeURIComponent(key);
+        select.disabled = true;
+        try {
+          if (select.value) {
+            await api(url, { method:'PUT', headers:{ 'content-type':'application/json' },
+                             body: JSON.stringify({ executor: select.value, effort: null }) });
+          } else if (atribuido) {
+            await api(url, { method:'DELETE' });
+          }
+          await carregar();
+        } catch (erro) {
+          select.replaceWith(chipAgente(key, atribuido, false));
+          const aviso = document.getElementById('avisoAcao');
+          if (aviso) aviso.textContent = 'Não foi possível trocar o agente de ' + key + ': ' + erro.message;
+        }
+      });
+      select.addEventListener('blur', function() {
+        if (select.isConnected) select.replaceWith(chipAgente(key, atribuido, false));
+      });
+    }
+
+    // ------------------------------------------------------------- ao vivo
+    function renderAoVivo() {
+      const log = estado.log;
+      const sessoes = log.sessions || [];
+      const atual = sessoes.length ? sessoes[sessoes.length - 1] : null;
+      const alvo = secao('aovivo', 'O que o agente está fazendo');
+      if (!atual && !log.lines.length) {
+        alvo.appendChild(el('div', 'empty', 'Nenhuma execução ainda. Ao rodar um card ou uma fase, a saída do agente aparece aqui em tempo real.'));
+        return;
+      }
+      const topo = el('div', 'aovivo-topo');
+      if (atual) {
+        topo.appendChild(pill(
+          atual.running ? '● rodando' : atual.ok ? '✓ concluído' : '✗ falhou',
+          atual.running ? 'accent' : atual.ok ? 'ok' : 'err'));
+        topo.appendChild(el('span', 'muted', atual.agent + ' · ' + atual.executor));
+        if (atual.branch) topo.appendChild(el('span', 'muted', atual.branch));
+        topo.appendChild(el('span', 'muted', (atual.elapsed_ms / 1000).toFixed(1) + 's · ' + atual.lines + ' linhas'));
+      }
+      alvo.appendChild(topo);
+
+      const feed = el('div', 'feed');
+      feed.id = 'feedAgente';
+      log.lines.forEach(function(linha) { feed.appendChild(linhaFeed(linha)); });
+      // Rolagem automática, mas respeitando o operador: se ele subiu para ler algo,
+      // não arrastamos a tela de volta a cada linha nova.
+      feed.addEventListener('scroll', function() {
+        rolagemPresa = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+      });
+      alvo.appendChild(feed);
+      if (rolagemPresa) feed.scrollTop = feed.scrollHeight;
+
+      if (sessoes.length > 1) {
+        alvo.appendChild(el('div', 'muted', sessoes.length + ' execuções nesta orquestração (o log guarda as últimas ' + (log.retained || 0) + ' linhas).'));
+      }
+    }
+
+    function linhaFeed(linha) {
+      const erro = linha.stream === 'stderr';
+      const node = el('div', 'l ' + linha.kind + (erro ? ' err' : ''));
+      node.appendChild(el('span', 'ic', ICONE_KIND[linha.kind] || '·'));
+      const texto = el('span', 'tx', linha.text);
+      if (linha.detail) {
+        texto.appendChild(document.createTextNode(' '));
+        texto.appendChild(el('span', 'dt', linha.detail));
+      }
+      node.appendChild(texto);
+      return node;
+    }
+
+    async function acompanharAgente() {
+      if (buscandoLog) return;
+      buscandoLog = true;
+      try {
+        const parte = await api('/v1/orchestrations/' + encodeURIComponent(ID)
+          + '/agent-log?after=' + encodeURIComponent(estado.log.next));
+        estado.log = {
+          lines: estado.log.lines.concat(parte.lines || []).slice(-800),
+          next: parte.next, running: parte.running,
+          sessions: parte.sessions || [], retained: parte.retained,
+        };
+        renderAoVivo();
+      } catch (_) {
+        // Falha de rede no polling não pode derrubar a tela; a próxima volta tenta.
+      } finally { buscandoLog = false; }
+      if (timerLog) clearTimeout(timerLog);
+      // Enquanto roda, ~900ms; parado, uma sondagem esparsa para pegar o início da
+      // próxima execução sem manter a aba consultando sem parar.
+      timerLog = setTimeout(acompanharAgente, estado.log.running ? 900 : 5000);
     }
 
     // ------------------------------------------------------------- próximo passo
@@ -292,10 +480,9 @@
       if (acao.method === 'PATCH' && acao.path.endsWith('/execution-settings')) { abrirConfig(); return; }
       const aviso = document.getElementById('avisoAcao');
       const corpo = Object.assign({}, acao.body || {});
-      if (COM_EXECUTOR.some(function(sufixo) { return acao.path.endsWith(sufixo); })) {
-        corpo.executor = estado.orch.selected_executor || null;
-        corpo.effort = estado.orch.selected_effort || null;
-      }
+      // Nada de mandar executor/esforço no corpo: um valor explícito vence a escolha
+      // por etapa (ADR-0014) e a fase rodaria sempre com o padrão global. O runtime já
+      // resolve sozinho — etapa → padrão da orquestração → default do catálogo.
       if (node) node.disabled = true;
       if (aviso) aviso.textContent = 'Executando "' + acao.label + '" — isso pode levar alguns minutos…';
       try {
@@ -382,7 +569,9 @@
       const alvo = document.getElementById('atividade');
       alvo.replaceChildren();
       if (!estado.eventos.length) { alvo.appendChild(el('div', 'empty', 'Sem eventos ainda.')); return; }
-      estado.eventos.slice().reverse().forEach(function(evento) {
+      // A API já devolve do mais recente para o mais antigo (`newest_first`); inverter
+      // aqui, como antes, era o que fazia o painel exibir o começo da história.
+      estado.eventos.forEach(function(evento) {
         const linha = el('div', 'evt');
         linha.appendChild(el('span', '', (evento.created_at || '').slice(11, 19)));
         linha.appendChild(el('b', '', evento.type));
@@ -426,24 +615,20 @@
       const erro = el('div', 'muted'); erro.style.color = 'var(--err)'; modal.appendChild(erro);
 
       try { estado.execs = await api('/v1/executors'); } catch (_) { estado.execs = []; }
-      const padrao = el('option', '', 'default'); padrao.value = ''; agente.appendChild(padrao);
-      estado.execs.forEach(function(perfil) {
-        const item = el('option', '', perfil.name + (perfil.model ? ' · ' + perfil.model : '') + (perfil.available ? '' : ' · indisponível'));
-        item.value = perfil.name; item.disabled = !perfil.available;
-        item.selected = perfil.name === estado.orch.selected_executor;
-        agente.appendChild(item);
-      });
+      preencherAgentes(agente, estado.orch.selected_executor, 'default');
       function atualizarEsforcos() {
-        const perfil = estado.execs.find(function(p) { return p.name === agente.value; });
-        const opcoes = (perfil && perfil.supported_efforts && perfil.supported_efforts.length) ? perfil.supported_efforts : ['low','medium','high'];
-        esforco.replaceChildren();
-        opcoes.forEach(function(valor) {
-          const item = el('option', '', valor); item.value = valor;
-          item.selected = valor === (estado.orch.selected_effort || (perfil && perfil.effort));
-          esforco.appendChild(item);
-        });
+        preencherEsforcos(esforco, agente.value, estado.orch.selected_effort);
       }
       agente.addEventListener('change', atualizarEsforcos); atualizarEsforcos();
+
+      // ---- agente por etapa (ADR-0014): cada fase pode rodar com um modelo diferente
+      modal.appendChild(el('div', 'divisor', 'Agente por etapa'));
+      modal.appendChild(el('div', 'muted', 'Vazio = herda o padrão acima. Etapas já concluídas não aceitam troca — o trabalho delas não seria refeito.'));
+      const matriz = el('div', 'matriz');
+      const linhas = ETAPAS.map(function(etapa) {
+        return linhaEtapa(matriz, etapa);
+      });
+      modal.appendChild(matriz);
 
       const acoes = el('div', 'modal-actions');
       acoes.appendChild(botao('Cancelar', 'ghost', function() { overlay.remove(); }));
@@ -454,11 +639,79 @@
             method:'PATCH', headers:{ 'content-type':'application/json' },
             body: JSON.stringify({ executor: agente.value || null, effort: esforco.value || null, validation_command: validacao.value.trim() || null }),
           });
+          await salvarEtapas(linhas);
           overlay.remove(); await carregar();
         } catch (causa) { erro.textContent = causa.message; node.disabled = false; }
       }));
       modal.appendChild(acoes);
       overlay.appendChild(modal); document.body.appendChild(overlay);
+    }
+
+    function preencherAgentes(select, selecionado, rotuloVazio) {
+      select.replaceChildren();
+      const vazio = el('option', '', rotuloVazio); vazio.value = ''; select.appendChild(vazio);
+      estado.execs.forEach(function(perfil) {
+        const item = el('option', '', perfil.name + (perfil.model ? ' · ' + perfil.model : '') + (perfil.available ? '' : ' · indisponível'));
+        item.value = perfil.name; item.disabled = !perfil.available;
+        item.selected = perfil.name === selecionado;
+        select.appendChild(item);
+      });
+    }
+
+    function preencherEsforcos(select, nomeAgente, selecionado) {
+      const perfil = estado.execs.find(function(p) { return p.name === nomeAgente; });
+      const opcoes = (perfil && perfil.supported_efforts && perfil.supported_efforts.length) ? perfil.supported_efforts : ['low','medium','high'];
+      select.replaceChildren();
+      // Sem agente escolhido, o esforço também herda: não faz sentido fixar "high"
+      // para um modelo que ainda nem foi decidido.
+      if (!nomeAgente) { const v = el('option', '', '—'); v.value = ''; select.appendChild(v); }
+      opcoes.forEach(function(valor) {
+        const item = el('option', '', valor); item.value = valor;
+        item.selected = valor === (selecionado || (perfil && perfil.effort));
+        select.appendChild(item);
+      });
+      select.disabled = !nomeAgente;
+    }
+
+    function linhaEtapa(matriz, etapa) {
+      const atual = ETAPAS.findIndex(function(e) { return e.key === estado.step.phase; });
+      const indice = ETAPAS.findIndex(function(e) { return e.key === etapa.key; });
+      // O nomeador (indice === 0 na lista? não: key NAMING) nunca "passa": não é fase.
+      const passou = etapa.key !== NAMING && atual >= 0 && indice < atual;
+      const atribuido = (estado.orch.agent_assignments || {})[etapa.key] || null;
+
+      const rotulo = el('div', 'et');
+      rotulo.appendChild(el('b', '', etapa.titulo));
+      rotulo.appendChild(el('span', '', passou ? 'concluída' : etapa.legenda));
+      matriz.appendChild(rotulo);
+
+      const agente = el('select'); matriz.appendChild(agente);
+      const esforco = el('select'); matriz.appendChild(esforco);
+      preencherAgentes(agente, atribuido && atribuido.executor, '— padrão —');
+      preencherEsforcos(esforco, agente.value, atribuido && atribuido.effort);
+      agente.addEventListener('change', function() {
+        preencherEsforcos(esforco, agente.value, null);
+      });
+      if (passou) { agente.disabled = true; esforco.disabled = true; }
+      return { key: etapa.key, agente: agente, esforco: esforco, antes: atribuido, passou: passou };
+    }
+
+    async function salvarEtapas(linhas) {
+      for (const linha of linhas) {
+        if (linha.passou) continue;
+        const antesNome = linha.antes ? linha.antes.executor : '';
+        const antesEsforco = linha.antes ? (linha.antes.effort || '') : '';
+        if (linha.agente.value === antesNome && linha.esforco.value === antesEsforco) continue;
+        const url = '/v1/orchestrations/' + encodeURIComponent(ID) + '/agents/' + encodeURIComponent(linha.key);
+        if (!linha.agente.value) {
+          if (antesNome) await api(url, { method:'DELETE' });
+          continue;
+        }
+        await api(url, {
+          method:'PUT', headers:{ 'content-type':'application/json' },
+          body: JSON.stringify({ executor: linha.agente.value, effort: linha.esforco.value || null }),
+        });
+      }
     }
 
     // ------------------------------------------------------------- boot

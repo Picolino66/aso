@@ -67,12 +67,13 @@ class InMemoryOrchestrationRepository:
         }
 
     def events_page(
-        self, orchestration_id: str, *, limit: int, offset: int
+        self, orchestration_id: str, *, limit: int, offset: int, newest_first: bool = False
     ) -> tuple[list[dict[str, Any]], int]:
         state = self.load(orchestration_id)
         if state is None:
             return [], 0
-        return state.events[offset : offset + limit], len(state.events)
+        eventos = list(reversed(state.events)) if newest_first else state.events
+        return eventos[offset : offset + limit], len(state.events)
 
     # --- consultas (computadas sobre o estado carregado) ---
     def cards_by_status(self, orchestration_id: str, status: str) -> list[str]:

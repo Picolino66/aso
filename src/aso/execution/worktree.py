@@ -10,6 +10,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from aso.execution.branch_naming import worktree_dir_name
+
 # Operações de metadados do git (worktree add/remove, merge) tomam locks internos
 # do repositório; serializamos aqui para permitir execução concorrente de candidatos.
 _GIT_META_LOCK = threading.Lock()
@@ -34,10 +36,15 @@ class WorktreeManager:
             raise WorktreeError(f"git {' '.join(args)} falhou: {result.stderr.strip()}")
         return result
 
-    def create(self, name: str) -> tuple[Path, str]:
-        """Cria um worktree em `.aso/worktrees/<name>` numa branch `aso/<name>`."""
-        branch = f"aso/{name}"
-        path = self.base / ".aso" / "worktrees" / name
+    def create(self, name: str, *, branch: str | None = None) -> tuple[Path, str]:
+        """Cria um worktree em `.aso/worktrees/<dir>` na branch indicada.
+
+        Sem `branch`, mantém o comportamento legado `aso/<name>`. Com `branch`, o nome
+        vem do card (`feat/calculadora-basica-a1b2c3d4`, ADR-0014) e o diretório usa a
+        versão achatada — barras criariam subdiretórios e um `remove` mais frágil.
+        """
+        branch = branch or f"aso/{name}"
+        path = self.base / ".aso" / "worktrees" / worktree_dir_name(name)
         path.parent.mkdir(parents=True, exist_ok=True)
         with _GIT_META_LOCK:
             self._git("worktree", "add", "-b", branch, str(path), "HEAD")
@@ -82,8 +89,7 @@ class WorktreeManager:
         self, branch: str, command: list[str], *, timeout: float = 300.0
     ) -> tuple[bool, str]:
         """Executa a validação numa cópia temporária da branch da PR."""
-        name = f"ci-{branch.rsplit('/', 1)[-1]}"
-        path = self.base / ".aso" / "worktrees" / name
+        path = self.base / ".aso" / "worktrees" / worktree_dir_name(f"ci-{branch}")
         with _GIT_META_LOCK:
             self._git("worktree", "add", "--detach", str(path), branch)
         try:

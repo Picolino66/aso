@@ -34,6 +34,26 @@ docker compose up -d postgres   # sobe o Postgres local
 alembic upgrade head            # aplica o schema
 ```
 
+### Recomeçar do zero
+
+```bash
+./scripts/reset.sh              # pergunta antes; --sim pula a confirmação
+./scripts/reset.sh --executores # e também apaga o catálogo .aso/executors.json
+```
+
+Apaga o volume do Postgres (schema recriado por Alembic), os worktrees órfãos de
+`.aso/worktrees` (sempre via `git worktree remove` — `rm -rf` deixaria refs órfãs em
+`.git/worktrees`), `.aso/run` e o `aso.db` — resíduo do fallback `sqlite:///aso.db` em
+[migrations/env.py](../migrations/env.py), criado por qualquer `alembic` rodado sem
+`ASO_DATABASE_URL`.
+
+**Não apaga** a governança versionada do próprio ASO (`.aso/context`, `.aso/kanban`,
+`.aso/quality-gates`, `.aso/snapshots`, `.aso/reviews`) nem `.aso/executors.json` — o
+catálogo de executores vive em arquivo, fora do banco, então seus perfis Claude/Codex
+sobrevivem a qualquer reset. Os repositórios-alvo também ficam intactos: o script lista os
+`target_path` **antes** do drop (eles só existem no banco) e imprime o comando de limpeza
+de cada um, deixando a decisão com você — essas branches guardam trabalho real.
+
 ## Migrations (Alembic)
 
 ```bash
@@ -84,9 +104,31 @@ export ASO_TARGET_REPO=/caminho/do/repositorio-git      # repo onde os agentes t
 export ASO_CLI_COMMAND="claude -p"                       # comando do agente CLI
 ```
 
-Cada card roda numa branch/worktree `aso/<agente>-<id>`; o diff é coletado antes de qualquer
-merge e a branch principal permanece intacta (§26A.6). Sem essas variáveis, usa-se o provider
-mock (determinístico).
+Cada card roda numa branch/worktree própria; o diff é coletado antes de qualquer merge e a
+branch principal permanece intacta (§26A.6). Sem essas variáveis, usa-se o provider mock
+(determinístico).
+
+### Branches criadas pelo runtime
+
+A branch sai do **título do card**
+([ADR-0014](adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md)):
+`feat/calculadora-basica-a1b2c3d4` — prefixo Conventional Commits pelo tipo do card, slug
+do título e sufixo curto de unicidade (obrigatório: `retry` e candidatos concorrentes
+criam branches simultâneas para o mesmo card). O diretório do worktree fica em
+`.aso/worktrees/<nome-achatado>` dentro do repositório-alvo.
+
+Não há mais o prefixo `aso/`: as branches do runtime **não são distinguíveis por glob**
+das branches humanas. Para saber quais são dele, consulte `card.branch` no banco:
+
+```sql
+select id, title, branch from kanban_cards where branch is not null;
+```
+
+Quem escolhe o agente de cada etapa é `agent_assignments` (F1..F7 + `naming`), na tela de
+detalhe → ⚙ Config → "Agente por etapa", ou via
+`PUT /v1/orchestrations/{id}/agents/{key}`. Sem escolha por etapa, vale o padrão da
+orquestração. O agente `naming` é opcional — sem ele o nome sai do título do card, sem
+custo; com ele, qualquer falha cai no nome determinístico e registra `NamingFallback`.
 
 ### Permissão de escrita do agente CLI (causa nº 1 de "diff vazio")
 
@@ -110,6 +152,39 @@ Para corrigir um catálogo já existente: [`scripts/fix-executor-permissions.sh`
 (aceita `ASO_CLAUDE_PERMISSION_FLAG` para escolher a flag). Quando o card falha assim, o
 motivo registrado passa a incluir **a última fala do agente** e o "Próximo passo" mostra o
 bloqueio `executor_sem_permissao` com a orientação.
+
+### Ver o que o agente está fazendo (streaming)
+
+A tela de detalhe tem um painel "O que o agente está fazendo" que preenche em tempo real
+([ADR-0015](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)). O ASO lê os pipes do
+agente linha a linha, mas **a riqueza do que aparece depende do CLI**: em modo
+não-interativo, `claude -p` imprime apenas a resposta final. Para ver ferramenta por
+ferramenta, o CLI precisa emitir NDJSON:
+
+| Agente | Flag que produz narração |
+|---|---|
+| Claude Code | `--output-format stream-json --verbose` |
+| Codex | `--json` |
+
+```bash
+./scripts/enable-agent-stream.sh        # acrescenta as flags ao catálogo (idempotente)
+./scripts/enable-agent-stream.sh --off  # remove
+./scripts/manager.sh reiniciar          # necessário: o catálogo é lido no boot
+```
+
+O script usa a API quando ela está no ar e edita `.aso/executors.json` quando não está.
+Sem as flags nada quebra — o painel cai no modo bruto e mostra as linhas como vierem.
+
+Limites a conhecer:
+
+- O log fica **em memória**: 2 000 linhas por orquestração, e **não sobrevive a restart da
+  API**. É telemetria de acompanhamento; o que precisa durar (falha, motivo, diff) fica no
+  event log e no `block_reason` do card.
+- `ASO_AGENT_TIMEOUT` (default `1800`, em segundos) encerra um agente travado. Antes não
+  havia limite nenhum: um CLI parado esperando permissão prendia uma thread do servidor e
+  um worktree para sempre.
+- Sem TTY, alguns CLIs bufferizam a saída em blocos de 4-8 KB por decisão própria. O NDJSON
+  resolve isso para Claude e Codex; para outros agentes o "ao vivo" pode sair em rajadas.
 
 ### Catálogo Codex compatível com a conta
 

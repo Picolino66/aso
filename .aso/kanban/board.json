@@ -2853,6 +2853,257 @@
         "TASK-89"
       ],
       "evidence": "305 testes verdes (8 novos em tests/integration/test_worktree_diff.py, com git real), cobertura 90.99%; ruff/format/mypy OK"
+    },
+    {
+      "id": "TASK-91",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Executor selecionável por etapa da esteira (F1..F7 + nomeador)",
+      "description": "Orchestration.selected_executor era único e valia de F1 a F7, propagado entre fases pelo payload da aprovação de gate — não dava para usar um modelo barato em F1 (discovery) e o mais forte em F5 (código). Adiciona agent_assignments (coluna JSONB, chaves F1..F7 + naming) com PUT/DELETE /v1/orchestrations/{id}/agents/{key} e evento AgentAssignmentUpdated. A resolução vira: chamada explícita → etapa → padrão da orquestração → default do catálogo → provider global. Uma etapa com executor próprio não herda selected_effort (esforço casa com o modelo). No autopilot, a escolha da próxima etapa vence a herdada do payload.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md",
+      "acceptance_criteria": [
+        "F1 e F5 rodam com executores diferentes na mesma orquestração",
+        "etapa sem escolha própria herda selected_executor; sem ele, o default do catálogo",
+        "etapa com executor próprio usa o esforço do perfil, não o selected_effort global",
+        "fase que já ficou para trás recusa a troca (409); naming é sempre editável",
+        "executor fora do catálogo é recusado antes de criar worktree",
+        "toda troca gera AgentAssignmentUpdated com before/after/actor",
+        "run_card usa a fase DO CARD (retry em F5 com a esteira em F6 mantém o agente de F5)"
+      ],
+      "linked_requirements": [
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0014"
+      ],
+      "dependencies": [
+        "TASK-90"
+      ],
+      "evidence": "355 testes verdes (15 em tests/unit/test_agent_assignments.py, 9 em tests/integration/test_agent_assignments_api.py), cobertura 91.19%; migration a7f5c2b91d40; alembic check sem diffs"
+    },
+    {
+      "id": "TASK-92",
+      "epic": "EPIC-5",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Branch e commit derivados do card, com nomeador opcional",
+      "description": "_build_task mandava ao agente só o user_request da orquestração inteira e um card_id opaco: título, descrição e critérios de aceite nunca saíam do board — por isso a branch só podia ser aso/<papel>-<executor>-<uuid>. Agora o card vai na tarefa e no prompt do wrapper, e a branch sai do título: feat/calculadora-basica-a1b2c3d4 (execution/branch_naming.py, funções puras). A raiz (branch_stem) é do card e o sufixo é aplicado por quem cria o worktree, senão retry e candidatos concorrentes colidiriam em git worktree add. control/naming.py permite delegar o nome a um agente escolhido, sempre com fallback determinístico.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md",
+      "acceptance_criteria": [
+        "branch do card contém o slug do título e o prefixo do CardType",
+        "título com acento, emoji, vazio ou gigante ainda gera nome de branch válido",
+        "retry do mesmo card gera branch nova com a mesma raiz semântica, sem colidir",
+        "o agente recebe card_title, card_description, card_type e acceptance_criteria",
+        "nomeador ausente → nome determinístico, sem chamada nem custo",
+        "falha do nomeador (timeout, JSON inválido, exit != 0, executor removido) cai no determinístico e registra NamingFallback — nunca derruba o card",
+        "o agente só influencia o miolo do slug: prefixo e sufixo são impostos pelo runtime",
+        "merge governado cita branch e título em vez de 'aso: merge governado' fixo"
+      ],
+      "linked_requirements": [
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0014",
+        "ADR-0009"
+      ],
+      "dependencies": [
+        "TASK-91"
+      ],
+      "evidence": "355 testes verdes (11 em tests/unit/test_branch_naming.py, 15 em tests/unit/test_naming_service.py), cobertura 91.19%"
+    },
+    {
+      "id": "TASK-93",
+      "epic": "EPIC-8",
+      "type": "Task",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "scripts/reset.sh — recomeçar do zero sem perder governança",
+      "description": "Não existia caminho de reset: manager.sh preserva dados de propósito e o CLI não tem comando destrutivo. O script zera o volume do Postgres (schema recriado por Alembic), o aso.db residual do fallback sqlite em migrations/env.py, os worktrees órfãos de .aso/worktrees (via git worktree remove, nunca rm -rf, que deixaria refs órfãs) e .aso/run. Preserva a governança versionada do próprio ASO e .aso/executors.json, que vive em arquivo e sobrevive a qualquer reset do banco. Lista os target_path antes do drop — eles só existem no banco — e não toca nos repositórios-alvo.",
+      "assignee_type": "agent",
+      "assignee": "devops",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "exige confirmação explícita (RESETAR) ou --sim",
+        "lista os repositórios-alvo antes de derrubar o banco",
+        "não apaga .aso/context, .aso/kanban, .aso/quality-gates, .aso/snapshots, .aso/reviews",
+        "preserva .aso/executors.json salvo com --executores",
+        "remove worktrees pela porta do git e roda prune",
+        "sobe o Postgres limpo e aplica alembic upgrade head"
+      ],
+      "linked_requirements": [
+        "§35"
+      ],
+      "linked_adrs": [
+        "ADR-0014"
+      ],
+      "dependencies": [],
+      "evidence": "bash -n OK; documentado em docs/operations.md (seção 'Recomeçar do zero')"
+    },
+    {
+      "id": "TASK-94",
+      "epic": "EPIC-1",
+      "type": "TechDebt",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Tirar estado de runtime do versionamento",
+      "description": "aso.db (356 KB, SQLite binário) estava rastreado desde o commit inicial, com 6 commits de churn, guardando uma orquestração de teste esquecida. Ele nasce do fallback sqlite:///aso.db em migrations/env.py, disparado por qualquer alembic sem ASO_DATABASE_URL. Saiu do índice via git rm --cached (mantido em disco) e entrou no .gitignore com *.sqlite/*.sqlite3. Junto entrou .aso/worktrees/, que o runtime já injeta no .gitignore dos repositórios-alvo (WorkspaceService.ensure_git) mas faltava no próprio ASO — que também já foi alvo de orquestração (23 MB de worktree órfão em ?? no git status). Auditoria confirmou que nenhum outro resíduo de runtime está rastreado: os .aso/{context,kanban,quality-gates,snapshots,reviews} são governança versionada de propósito.",
+      "assignee_type": "agent",
+      "assignee": "devops",
+      "spec": "docs/operations.md",
+      "acceptance_criteria": [
+        "aso.db fora do índice do git e presente no .gitignore",
+        "aso.db preservado em disco (git rm --cached, não rm)",
+        ".aso/worktrees/ ignorado no próprio repositório do ASO",
+        "governança versionada (.aso/context, kanban, quality-gates, snapshots, reviews) intacta",
+        "reset.sh volta a simplesmente apagar o aso.db, sem tratar arquivo rastreado",
+        "nenhum outro binário/log/cache rastreado (varredura por extensão)"
+      ],
+      "linked_requirements": [
+        "§35"
+      ],
+      "linked_adrs": [],
+      "dependencies": [
+        "TASK-93"
+      ],
+      "evidence": "git check-ignore confirma aso.db e .aso/worktrees/; git ls-files sem binários residuais; 355 testes verdes / 91.19%; ruff+format+mypy OK; alembic check sem diffs"
+    },
+    {
+      "id": "TASK-95",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Saída do agente CLI ao vivo (streaming + ring + cursor)",
+      "description": "subprocess.run(capture_output=True) lê os pipes só em communicate(), depois que o processo morre: o operador ficava minutos diante de uma tela parada sem saber se o agente produzia, estava travado pedindo permissão, ou morto. O que sobrava era artifacts['stdout'][:2000] (os PRIMEIROS caracteres) e stderr descartado no caminho de sucesso, nada persistido. Agora Popen + uma thread de bombeamento por pipe (duas threads em vez de selectors: mantém stdout/stderr separados e evita deadlock de pipe cheio), cada linha indo para um OutputSink. shared/agent_output.py declara a porta (vocabulário + Protocols OutputSink/OutputBus) porque o module_map proíbe execution -> observability; observability/agent_log.py é o adapter (deque de 2000 por orquestração, cursor monotônico, threading.Lock). Leitura por polling com cursor em vez de estender o EventBroker, que é asyncio sem lock e descarta em QueueFull — coalescer ticks é correto, perder linha de log não é; o cursor ainda dá replay ao recarregar a página no meio da execução.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md",
+      "acceptance_criteria": [
+        "consultar agent-log DURANTE a execução devolve linhas parciais e running=true",
+        "as linhas não chegam todas de uma vez (prova de que há streaming, não buffer)",
+        "cursor after devolve só o novo, sem repetir, e não regride",
+        "ring descarta o mais antigo no limite sem reiniciar o seq",
+        "escrita de 4 threads concorrentes não perde nem duplica linha",
+        "sessão que termina em exceção fecha como erro (sem running:true órfão)",
+        "cada tentativa do supervisor é uma sessão própria (2 tentativas = 2 sessões)",
+        "stderr é marcado como tal e aparece no log"
+      ],
+      "linked_requirements": [
+        "§30"
+      ],
+      "linked_adrs": [
+        "ADR-0015"
+      ],
+      "dependencies": [
+        "TASK-92"
+      ],
+      "evidence": "404 testes verdes (13 em tests/unit/test_agent_log_bus.py, 10 em tests/integration/test_agent_log_api.py com subprocess real), cobertura 91.43%"
+    },
+    {
+      "id": "TASK-96",
+      "epic": "EPIC-8",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Feed interpretado do NDJSON dos agentes",
+      "description": "Achado que muda a expectativa: claude -p imprime só a RESPOSTA FINAL — streaming do lado do ASO não cria narração. Quem emite evento por evento é o CLI, com --output-format stream-json --verbose (Claude) ou --json (Codex). execution/agent_stream.py (função pura) traduz cada linha: text/thinking viram fala, tool_use vira '🔧 Write src/app.js', result vira desfecho. Ajustado contra a saída REAL capturada de uma execução do Claude Code, não contra suposição: o envelope inclui system e rate_limit_event, que sem lista de ruído apareciam como JSON cru na tela, e o thinking sai longo e em inglês (cortado em 140 chars para não empurrar as ações fora do painel). Schema desconhecido degrada para bruto com o texto preservado — nunca linha perdida nem exceção. O mesmo parser destila o block_reason do card, excluindo o raciocínio interno, que não explica a falha ao operador.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md",
+      "acceptance_criteria": [
+        "envelope real do Claude (system, rate_limit_event, thinking, text, result) não vaza bruto",
+        "tool_use com file_path e com command viram linha de ferramenta com alvo",
+        "tool_result normal é suprimido; com is_error aparece",
+        "pensamento é cortado mais curto que a fala",
+        "JSON de schema desconhecido, JSON malformado e texto puro viram bruto sem perder texto",
+        "extrair_texto destila a fala ignorando ruído estrutural e raciocínio",
+        "enable-agent-stream.sh é idempotente, tem --off e funciona via API ou arquivo"
+      ],
+      "linked_requirements": [
+        "§26A"
+      ],
+      "linked_adrs": [
+        "ADR-0015"
+      ],
+      "dependencies": [
+        "TASK-95"
+      ],
+      "evidence": "25 testes em tests/unit/test_agent_stream.py com fixture capturada de execução real; 16 perfis ajustados pelo script (9 claude-* + 7 codex-*)"
+    },
+    {
+      "id": "TASK-97",
+      "epic": "EPIC-7",
+      "type": "Improvement",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Esteira didática com agente por etapa na tela de detalhe",
+      "description": "A esteira exibia 'F1 F2 F3 F4 F5 F6 F7' com o rótulo só da fase corrente, em inglês — não dizia a ninguém o que cada etapa faz. E a escolha de agente por etapa (ADR-0014) estava atrás de um clique no modal ⚙ Config, invisível na prática. PHASE_INFO + GET /v1/phases dão nome, resumo e entrega em pt-BR, genéricos para qualquer projeto (os docs/phases/*.md documentam o desenvolvimento do próprio ASO, não o significado das etapas). Cada fase virou cartão com chip de agente clicável que faz PUT/DELETE .../agents/{key}; fase concluída fica desabilitada, antecipando o 409 que a governança já aplicava. O painel ao vivo entrou logo abaixo do 'Próximo passo'.",
+      "assignee_type": "agent",
+      "assignee": "frontend",
+      "spec": "docs/adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md",
+      "acceptance_criteria": [
+        "toda fase tem nome, resumo e entrega não vazios e diferentes do id",
+        "GET /v1/phases devolve F1..F7 na ordem",
+        "chip mostra o agente da etapa ou o padrão herdado",
+        "clicar no chip troca o agente sem sair da tela",
+        "fase concluída não aceita troca pela UI",
+        "feed com rolagem automática que pausa quando o operador sobe para ler"
+      ],
+      "linked_requirements": [
+        "§28"
+      ],
+      "linked_adrs": [
+        "ADR-0015",
+        "ADR-0014",
+        "ADR-0013"
+      ],
+      "dependencies": [
+        "TASK-95",
+        "TASK-91"
+      ],
+      "evidence": "node --check no JS extraído; 3 testes de /v1/phases e agent-log na API"
+    },
+    {
+      "id": "TASK-98",
+      "epic": "EPIC-5",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Painel de atividade mostrava o começo da história; agente sem tempo limite",
+      "description": "Dois bugs achados ao investigar o painel ao vivo. (1) O painel pedia timeline?page_size=14 e events_page ordena seq ASC com offset=0: recebia os 14 eventos MAIS ANTIGOS da orquestração e os invertia no render, recarregando a mesma fatia errada a cada tick do SSE — nunca mostrava o que acabou de acontecer. Corrigido com newest_first aplicado na consulta ao banco (reordenar depois só embaralha a fatia errada). (2) O subprocess do agente era o ÚNICO do repositório sem timeout (compare gate_command 300s, worktree 300s, naming 30s): um claude -p travado esperando permissão interativa prendia uma thread do AnyIO e um worktree para sempre — foi assim que a primeira execução real de F5 morreu. Agora ASO_AGENT_TIMEOUT (default 1800s) mata o processo e reporta a cauda.",
+      "assignee_type": "agent",
+      "assignee": "backend",
+      "spec": "docs/adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md",
+      "acceptance_criteria": [
+        "newest_first=true devolve os eventos mais recentes; default segue histórico",
+        "agente que dorme além do timeout é encerrado e o worktree removido",
+        "o motivo do timeout inclui a última saída capturada",
+        "artifacts['stdout'] guarda a cauda (últimos 4000) em vez dos primeiros 2000"
+      ],
+      "linked_requirements": [
+        "§26A",
+        "§28"
+      ],
+      "linked_adrs": [
+        "ADR-0015"
+      ],
+      "dependencies": [],
+      "evidence": "test_timeline_newest_first + test_agente_travado_e_encerrado_no_timeout"
     }
   ]
 }

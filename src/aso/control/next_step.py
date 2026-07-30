@@ -53,6 +53,82 @@ PHASE_LABELS: dict[Phase, str] = {
     Phase.F7: "Operate & Evolve",
 }
 
+
+class PhaseInfo(BaseModel):
+    """O que uma etapa da esteira significa, em linguagem de operador.
+
+    `PHASE_LABELS` guarda o nome técnico em inglês (usado nos docs e no relatório); isto
+    aqui é a explicação didática que a tela mostra: "F5" sozinho não diz nada a quem abre
+    o console pela primeira vez.
+    """
+
+    id: str
+    label: str  # nome técnico (docs/phases/)
+    nome: str  # nome curto em pt-BR
+    resumo: str  # o que se faz nesta etapa
+    entrega: str  # o artefato que ela produz
+
+
+# Descrições genéricas — valem para qualquer projeto orquestrado, não para o
+# desenvolvimento do próprio ASO (que é o que os `docs/phases/*.md` documentam).
+PHASE_INFO: dict[Phase, PhaseInfo] = {
+    Phase.F1: PhaseInfo(
+        id="F1",
+        label=PHASE_LABELS[Phase.F1],
+        nome="Descoberta e estratégia",
+        resumo="Entender o problema, quem usa e o que conta como sucesso.",
+        entrega="Requisitos, hipóteses e critérios de valor.",
+    ),
+    Phase.F2: PhaseInfo(
+        id="F2",
+        label=PHASE_LABELS[Phase.F2],
+        nome="Arquitetura e design",
+        resumo="Escolher a estrutura do sistema e registrar o porquê de cada decisão.",
+        entrega="ADRs, módulos e seus limites.",
+    ),
+    Phase.F3: PhaseInfo(
+        id="F3",
+        label=PHASE_LABELS[Phase.F3],
+        nome="Dados e contratos",
+        resumo="Definir entidades, schemas e a API pela qual as partes conversam.",
+        entrega="Modelo de dados e contratos de API.",
+    ),
+    Phase.F4: PhaseInfo(
+        id="F4",
+        label=PHASE_LABELS[Phase.F4],
+        nome="UX e planejamento",
+        resumo="Desenhar as jornadas e quebrar o trabalho em cards executáveis.",
+        entrega="Fluxos de tela e backlog priorizado.",
+    ),
+    Phase.F5: PhaseInfo(
+        id="F5",
+        label=PHASE_LABELS[Phase.F5],
+        nome="Execução de engenharia",
+        resumo="Escrever o código: um worktree git isolado por card, diff coletado antes do merge.",
+        entrega="Branches, PRs e testes verdes.",
+    ),
+    Phase.F6: PhaseInfo(
+        id="F6",
+        label=PHASE_LABELS[Phase.F6],
+        nome="Qualidade, docs e deploy",
+        resumo="Testar, revisar, sincronizar a documentação e passar pelo pipeline.",
+        entrega="Quality gate aprovado e docs em dia.",
+    ),
+    Phase.F7: PhaseInfo(
+        id="F7",
+        label=PHASE_LABELS[Phase.F7],
+        nome="Operação e evolução",
+        resumo="Observar o que está em produção e realimentar o backlog com o que aparecer.",
+        entrega="Métricas, SLOs e novos cards.",
+    ),
+}
+
+
+def phase_catalog() -> list[dict[str, Any]]:
+    """A esteira inteira, para a UI montar os passos sem duplicar texto."""
+    return [PHASE_INFO[fase].model_dump() for fase in Phase]
+
+
 # Marca do erro que o CliAgentExecutionProvider registra quando o agente roda sem
 # permissão de escrita (worktree intacto) — vira uma dica dedicada no próximo passo.
 _EMPTY_DIFF_MARK = "diff vazio"

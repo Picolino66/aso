@@ -169,10 +169,22 @@ GET  /metrics                                    # exposição Prometheus
 Console em `/ui/`: catálogo de projetos ativos/arquivados e Kanban agrupado. Clicar num
 card abre `/ui/detalhe?id=…`, a **sala de controle** daquela orquestração: esteira F1→F7,
 card **"Próximo passo"** (o que falta e qual é o clique, vindo de
-`GET .../next-step`), funil só da fase corrente, pendências de governança acionáveis e
-atividade ao vivo por SSE. O console técnico completo — timeline, ADRs, aprovações,
+`GET .../next-step`), painel **"o que o agente está fazendo"** com a saída do CLI em tempo
+real, funil só da fase corrente, pendências de governança acionáveis e atividade ao vivo
+por SSE. Cada etapa da esteira mostra o que é, o que entrega e **qual agente a executa** —
+clicar no chip troca o agente daquela fase, então F1 pode rodar num modelo barato e F5 no
+mais forte, na mesma orquestração. O console técnico completo — timeline, ADRs, aprovações,
 snapshots (diff), patches, conflitos, corridas de candidatos, custos e PRs — continua em
 `/ui/console`.
+
+Para o painel mostrar ferramenta por ferramenta (e não só a resposta final do agente), rode
+`./scripts/enable-agent-stream.sh` uma vez: ele acrescenta `--output-format stream-json` aos
+perfis Claude e `--json` aos Codex.
+
+As branches criadas pelo runtime saem do **título do card**:
+`feat/calculadora-basica-a1b2c3d4` (ADR-0014). Para recomeçar do zero,
+`./scripts/reset.sh` zera o banco e os worktrees preservando a governança versionada e o
+catálogo de executores.
 
 ### Autenticação / RBAC
 
