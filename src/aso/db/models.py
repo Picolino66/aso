@@ -82,7 +82,30 @@ class OrchestrationRow(Base):
     # Executor por etapa ("F1".."F7" + "naming"); mapa pequeno e sempre lido junto da
     # orquestração, então JSONB em vez de tabela filha (evita ordem de INSERT/FK).
     agent_assignments: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    # Ficha estruturada da demanda (ADR-0016); mesmo motivo de agent_assignments: mapa
+    # pequeno, sempre lido junto da orquestração, então JSONB em vez de tabela filha.
+    demand_brief: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    # Ring de até 5 versões do discovery (§3/§4, ADR-0020; versionado pela ADR-0021
+    # §4.2) — lista vazia = discovery nunca rodado (não regride o gate de F1). Mesmo
+    # motivo de demand_brief: mapa pequeno, sempre lido junto da orquestração.
+    discovery_reports: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    # Ring de até 5 versões da especificação da solução (§5/§6, ADR-0021) — lista
+    # vazia = especificação nunca gerada.
+    spec_documents: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
     validation_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Bateria nomeada do §12 (ADR-0022) — lista vazia = só o `validation_command`
+    # legado (compatibilidade é requisito: `checks_efetivos` resolve os dois).
+    validation_checks: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    # Implantação governada (§18-22, ADR-0023) — comando configurável, sem
+    # provisionamento real (mesma disciplina de validation_command/checks).
+    deploy_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deploy_environment: Mapped[str] = mapped_column(String, default="producao")
+    deploy_health_checks: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    deploy_rollback_command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Ring de até 5 tentativas de implantação — lista vazia = nunca implantou.
+    deploy_runs: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    # Orçamento com freio (§1.2/§3.2, ADR-0026) — NULL = sem teto (opt-in).
+    orcamento_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     workspace_prepared: Mapped[bool] = mapped_column(Boolean, default=False)
     execution_mode: Mapped[str] = mapped_column(String)
     current_phase: Mapped[str] = mapped_column(String)
@@ -188,9 +211,28 @@ class CardRow(Base):
     priority: Mapped[str] = mapped_column(String)
     assignee_type: Mapped[str] = mapped_column(String)
     assignee: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Perfil de executor que de fato rodou o card (ADR-0017) — distinto de `assignee`
+    # (papel planejado). NULL = card ainda não executado ou executado antes da ADR-0017.
+    executor: Mapped[str | None] = mapped_column(String, nullable=True)
     worktree: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
     block_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Ring das últimas 5 falhas (§13 do fluxo.md, ADR-0019) — lista de FailureRecord
+    # serializados. JSONB no Postgres: a linha inteira é reescrita a cada `save` (mesmo
+    # raciocínio das ADR-0014/0016/0017), então o ring fica pequeno de propósito.
+    failures: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    # Ring das últimas 10 verificações de QA manual (§16/§17, ADR-0025).
+    qa_checks: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
+    # Hierarquia épico → história → subtarefa (§7, ADR-0025) — NULL = card sem pai
+    # (todo card anterior a esta ADR, e a maioria depois dela: hierarquia é opcional).
+    # Sem FK: `add_card`/profundidade/ciclo já validam contra o estado em memória, e
+    # uma FK auto-referenciada em `kanban_cards` complicaria a ordem de INSERT em
+    # lote sem benefício — a mesma razão de `assignee`/`executor` não terem FK aqui.
+    parent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Ficha de encerramento (§23, ADR-0021) — vazio = card ainda não encerrado.
+    closure: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    # Consumo real acumulado do agente (§1.1, ADR-0026) — vazio = nunca informado.
+    uso: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
 
@@ -222,6 +264,12 @@ class CardEventRow(Base):
     from_status: Mapped[str | None] = mapped_column(String, nullable=True)
     to_status: Mapped[str | None] = mapped_column(String, nullable=True)
     actor: Mapped[str] = mapped_column(String, default="system")
+    # Auditoria de movimentação (§8 do fluxo.md, ADR-0019): motivo, resultado e
+    # próxima ação a cada movimentação — não só data e ator.
+    reason: Mapped[str] = mapped_column(Text, default="")
+    result: Mapped[str] = mapped_column(Text, default="")
+    evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    next_action: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[str] = mapped_column(String)
 
 
@@ -394,6 +442,11 @@ class PullRequestRow(Base):
     status: Mapped[str] = mapped_column(String)
     ci_status: Mapped[str] = mapped_column(String)
     review_status: Mapped[str] = mapped_column(String)
+    # Veredito da revisão independente (ADR-0017); mesmo motivo de demand_brief:
+    # mapa pequeno, sempre lido junto da PR, então JSONB em vez de tabela filha.
+    review_verdict: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    reviewed_by: Mapped[str] = mapped_column(String, default="")
+    review_rounds: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String)
     merged_at: Mapped[str | None] = mapped_column(String, nullable=True)
 

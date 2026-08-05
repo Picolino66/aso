@@ -48,7 +48,241 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   sandbox do `config.toml` pessoal) e `scripts/fix-executor-permissions.sh` corrige um
   catálogo já existente. Documentado em `docs/operations.md` e no README.
 
+### Corrigido
+- **Corrida de candidatos perdia candidato de forma intermitente (ADR-0024):**
+  `CliAgentExecutionProvider._rodar` escrevia a tarefa no stdin do processo
+  depois de já iniciar as threads leitoras — um comando que não lê stdin (ou
+  já terminou) fecha o pipe antes da escrita, e `BrokenPipeError` era tratado
+  como falha do executor sem sequer checar o `returncode` real. Reproduzido
+  com um teste de estresse (`tests/integration/test_race_stress.py`, N
+  repetições) antes de corrigir — reprovava logo na 1ª rodada. Corrigido com
+  o mesmo padrão que `subprocess.communicate()` da stdlib usa para o mesmo
+  motivo: ignora `BrokenPipeError` na escrita, deixa o `returncode` decidir.
+  Independente da causa, o runtime parou de engolir candidato perdido:
+  `compare()` devolve `falhas`, evento `CandidateFailed` por candidato, e
+  `next_step` cobra `corrida_degradada` enquanto o card não chegou a `Done`.
+  Suíte completa rodada 5× seguidas após a correção: 781 passed em todas.
+
 ### Adicionado
+- **Custo real, orçamento com freio e sobrevivência a crash (ADR-0026,
+  ADR-0027):** o runtime jogava fora o custo real que os agentes já
+  informam (`observability/metrics.py` aproximava custo por tempo de
+  execução, um proxy ruim — dois agentes de 30s podem diferir em 50× no
+  valor pago). `execution/agent_stream.extrair_uso` lê `usage`/
+  `total_cost_usd` do envelope `result` do Claude Code; a porta
+  (`UsoDoAgente`) vive em `shared/agent_usage.py` (mesma solução da
+  ADR-0015, `execution` não pode importar `observability`). `card.uso`
+  acumula reexecuções (`acumular_uso`) e chega ao `closure` (§23) e ao
+  relatório de aprendizado (`custo_total_usd`, `custo_por_entrega`,
+  `execucoes_sem_custo`) — custo desconhecido nunca é somado como custo
+  zero. `ASO_ORCAMENTO_PADRAO_USD`/`PUT /budget` (admin) definem um teto
+  opcional; estourado recusa **nova** execução (`POST .../run`/`.../race`
+  devolvem `409`) sem matar a que está rodando, e intercepta o roteamento
+  de falha (ADR-0019): antes de `aumentar_effort`/`trocar_executor`, o
+  freio vira `escalar_humano` com motivo de orçamento — é o ponto central
+  do incremento, o freio que faltava para operar com dinheiro real. Isto
+  também remove o motivo pelo qual o §9 (escolha automática de agente,
+  declinada na ADR-0025 "por falta de dado") estava congelado — `custo_por_
+  entrega` é exatamente o dado que faltava; a ADR-0025 foi emendada
+  registrando a decisão como reavaliável, não mais bloqueada.
+  Sobrevivência a crash (ADR-0027): card `InProgress` parado além de
+  `ASO_AGENT_TIMEOUT` vira bloqueio `card_orfao` em `next_step`, roteado
+  por `POST .../cards/{id}/route` (sem caminho novo de recuperação);
+  `GET/POST .../worktrees` (`/prune`, admin) lista e remove worktrees
+  órfãos via `git worktree remove` + `prune` (nunca `rm -rf`) sem tocar o
+  banco — complementa `scripts/reset.sh`, que resolve o mesmo problema
+  apagando tudo. 815 testes (34 novos), 92%+ cobertura, validado em
+  Docker/Postgres (custo real capturado do envelope fake até o relatório
+  de aprendizado, orçamento estourado bloqueando `run_card` e liberado ao
+  elevar o teto, worktree órfão detectado e removido pelo `prune` sem
+  tocar o banco).
+- **QA humano, hierarquia de cards e aprendizado da esteira (ADR-0025):**
+  fecha `fluxo.md` §7, §16, §17 e §24 — as últimas lacunas nomeadas nos
+  planos anteriores. QA manual (§16/§17): `POST /cards/{id}/qa` registra uma
+  verificação (cenário, passos, ambiente, resultado esperado/obtido,
+  evidências, gravidade), exigida por `exige_qa_manual` (domínio `frontend`,
+  complexidade `complexa`/`estrategica`, ou card `Epic`/`Feature`) e
+  informada em `next_step` (`qa_pendente`/`qa_reprovado`); `POST
+  /qa/{i}/fail` cria um card `Bug` vinculado (`dependencies` + `parent_id`
+  quando a hierarquia permitir) e registra a falha no roteamento existente
+  (`control/failure.py`, novo diagnóstico `falha_de_qa`, sem taxonomia
+  nova). Hierarquia (§7): `KanbanCard.parent_id` — profundidade máxima 3,
+  ciclo é erro, pai não fecha antes dos filhos, cancelar o pai cancela os
+  filhos; produzida por `SpecWorkItem.itens_filhos` e `BacklogItem.type`.
+  Pendência nomeada três vezes desde `plano4.md`, fechada. Aprendizado
+  (§24): `observability/aprendizado.py` (puro — não importa `control`) agrega
+  por executor (execuções, falhas, retrabalho, tempo, rodadas de revisão,
+  erros recorrentes) a partir do que já estava persistido; `GET
+  /orchestrations/{id}/learning` e `GET /learning` (consolidado).
+  Informativo por decisão: não realimenta nenhuma decisão automaticamente —
+  por isso o §9 (escolha de agente/modelo) é declarado formalmente como
+  decisão manual, não pendência, reavaliável quando o relatório tiver massa
+  de demandas reais. 781 testes, 92%+ cobertura, validado em Docker/Postgres
+  (QA pendente→registrado→reprovado→bug criado→card bloqueado; profundidade/
+  ciclo/fechamento de hierarquia; relatório de aprendizado consolidado).
+
+- **Implantação governada (ADR-0023, "Incremento F"):** fecha `fluxo.md`
+  §18-22 dentro do escopo real do MVP — o runtime não provisiona
+  infraestrutura (deploy automático/provisionamento cloud continuam excluídos
+  por `requerimentos.md`), mas governa um comando de implantação configurável
+  pelo operador, exatamente como a bateria de validações (ADR-0022) já governa
+  testes/lint. **Não confundir com `docs/deploy.md`**, que é sobre implantar
+  o ASO Runtime em si — este incremento é sobre o runtime rastrear
+  implantações dos projetos que ele orquestra. `PUT /deploy/config`
+  (comando/ambiente/health checks/rollback, cada comando validado por
+  `validate_gate_command`); `POST /deploy/run` exige o comando configurado e o
+  último quality gate `PASSED` (§18) e sempre executa — a decisão humana é
+  sobre aceitar o resultado, não sobre autorizar a tentativa (mesmo raciocínio
+  do discovery, ADR-0020): falha vai direto a `reprovado`; sucesso aplica
+  risco alto/crítico, impacto sensível ou validação reprovada →
+  `aguardando_aprovacao` (`POST /deploy/approve`, admin), senão aceite
+  automático. `POST /deploy/validate` roda as verificações pós-implantação
+  (§20, reaproveita `ValidationCheck` da ADR-0022). `POST /deploy/rollback`
+  (admin) marca a implantação como revertida e sempre abre um
+  `KanbanCard(type="Incident")` em `Backlog` — a tarefa de causa raiz do §21.
+  Implantações versionadas em ring de até 5 (`control/documentos.py`,
+  reaproveitado pela terceira vez). Gate de F6 ganha o critério
+  `deploy_aprovado` só quando alguma implantação já rodou — nenhuma
+  orquestração existente muda de comportamento. Fecha as três referências
+  pendentes a "Incremento F" (`board_service.py`, `docs/kanban.md`,
+  ADR-0018). `required_role` não precisou de nenhuma mudança: `/approve` e
+  `/rollback` já resolviam para admin por sufixo. 730 testes (39 novos),
+  92%+ cobertura, validado em Docker/Postgres com o fluxo completo (risco
+  baixo aceita automático, risco alto aguarda aprovação e reprova o gate até
+  ser decidido, rollback cria o incidente).
+- **Bateria de validações e escolha automática de esforço (ADR-0022):** fecha
+  `fluxo.md` §12 e §9. `PUT /validation-checks` substitui o `validation_command`
+  único por uma bateria nomeada (`ValidationCheck`: nome, comando, categoria,
+  bloqueante), com cada comando validado por `validate_gate_command`;
+  `validation_command` continua funcionando (inclusive na CI da PR) —
+  `checks_efetivos` converte o legado numa verificação sintética `"testes"` sem
+  mudar comportamento de nenhuma orquestração existente. `run_quality_gate` roda
+  **um `Criterion` por verificação**, todos até o fim (sem parar no primeiro
+  erro) — uma verificação `bloqueante: false` que falha vira aviso, não
+  reprovação. `GET /validation-checks/suggest` sugere uma bateria determinística
+  por stack (Python/Node/Go/Rust) sem gravar nada e sem inventar script
+  inexistente. O roteamento de falha (ADR-0019) ganha `FailureRecord.check`/
+  `categoria` e passa a preferir o fato à heurística: `formatacao`/`lint` →
+  `falha_trivial` (nunca sobe effort); `seguranca`/`dependencias` → `risco_alto`
+  (escala já na primeira falha); a escalada por reprovação de gate é gravada por
+  FASE (`agent_assignments`), não por card isolado. `DemandBrief.complexidade`
+  (coletada desde a ADR-0016 e nunca lida) passa a decidir o esforço efetivo via
+  `sugerir_effort(complexidade, risco)` — penúltimo degrau da resolução, abaixo de
+  toda escolha humana; cada resolução automática emite `EffortSugerido` no
+  timeline. `ASO_EFFORT_AUTOMATICO=0` restaura o comportamento anterior. **Sem
+  re-execução seletiva de checks** — decisão deliberada (§13 do fluxo.md: "não
+  apenas o teste que falhou"). Dois vestígios fecham junto: `SPEC_KEY` importado
+  (não mais literal solto) em `review.py`/`orchestration_service.py`; card
+  `Cancelled`/`Archived` agora bloqueia o dependente com motivo explícito em vez
+  de deixá-lo pendurado para sempre (`BoardService._refresh_dependents`).
+- **Especificação e revisão documental (ADR-0021):** fecha `fluxo.md` §5/§6 — a
+  ponta documental do runtime (demanda → ficha → discovery → **spec → revisão
+  documental** → cards). `POST /spec/run` gera a especificação (o que será
+  construído, fora de escopo, critérios de aceite, regras de negócio,
+  componentes/alterações, estratégia de testes, plano de rollback,
+  `itens_de_trabalho`) a partir do discovery **aprovado** (409 sem ele); fallback
+  heurístico nunca falha e nunca sai `aprovado`. `POST /spec/review` roda a revisão
+  documental (`ReviewService.revisar_documento`, quatro desfechos do §6 — não os
+  cinco do §14): dois eixos são checados deterministicamente **antes de qualquer
+  agente** — `estrategia_de_testes`/`plano_de_rollback` vazios reprovam sem gastar
+  revisor. `ASO_MAX_RODADAS_DOC` (default 3) limita o ciclo reprovado→regenerado;
+  esgotado, `necessita_humano` e só `POST /spec/approve` (admin) decide.
+  Especificação aprovada materializa `itens_de_trabalho` em cards com dependências.
+  `POST /run-phase` recusa (409) rodar F5 sem spec aprovada em `full-pipeline`
+  **quando o discovery já está em uso** — não-regressivo para quem nunca chama
+  `/discovery/run` (confirmado revertendo a checagem e vendo 9 testes
+  pré-existentes falharem). Discovery e spec passam a ser **versionados** (ring de
+  até 5, `control/documentos.py`) em vez de sobrescritos — `discovery_report`
+  (dict) virou `discovery_reports`/`spec_documents` (listas), com migração de
+  dados do formato antigo. `KanbanCard.closure` (§23) é preenchida no merge com o
+  que o runtime tem à mão. `populate_from_plan` (backlog do LLM, caminho que
+  `full-pipeline` usa de verdade) e os itens de trabalho da spec agora populam
+  `dependencies`; `blocked_by` ganhou observador ativo (libera `Blocked → Ready`
+  quando a última dependência chega a `Done`). `run_gate_command` corta
+  `stdout`/`stderr` separadamente (antes colava e cortava, podendo perder o stack
+  trace). O bloco `_perguntar`/`_rodar_cli`, duplicado em
+  naming/triage/review/discovery, foi extraído para `control/agent_ask.py` antes
+  de ganhar uma quinta e sexta cópia — refatoração pura, suíte dos quatro serviços
+  existentes passou sem alteração.
+- **Discovery e aprovação (ADR-0020):** `POST /discovery/run` roda o discovery
+  (§3 do fluxo.md) — analisa o workspace (`WorkspaceAnalyzer`) e a ficha já triada,
+  produz um `DiscoveryReport` (situação atual, problema, componentes afetados,
+  riscos, alternativas, recomendação técnica, pontos de decisão); sem agente
+  configurado (ou com falha), cai num resumo heurístico determinístico com
+  `confianca: "baixa"` — nunca falha, mesmo princípio de `TriageService`
+  (ADR-0016). `exige_aprovacao_discovery` (§4) decide entre aprovação automática e
+  humana, reaproveitando o vocabulário de impactos sensíveis do motor de decisão;
+  `POST /discovery/decide` (`{approved, comentario?}`) é ação crítica, exige
+  `admin`, e segue o padrão auto-contido de `PullRequest.review_status`
+  (ADR-0017) em vez do `HumanApproval` genérico. O gate de F1 passa a exigir
+  `discovery_aprovado` **só quando um relatório foi de fato gerado** — dict vazio
+  (discovery nunca rodado) não muda o comportamento de nenhuma orquestração
+  existente, confirmado pela suíte completa (zero regressão) e por um roteiro
+  manual em Postgres. `GET /discovery` traz o relatório atual; `next_step` ganha
+  o item de checklist `discovery` (só em F1, quando já iniciado) e os bloqueios
+  `discovery_reprovado`/`discovery_aguardando_aprovacao`. Sem migração de tabela —
+  `discovery_report` é JSONB direto em `orchestrations`, mesmo padrão de
+  `demand_brief`. Cobre só §3/§4 do fluxo.md; especificação e revisão documental
+  (§5/§6) ficam para uma entrega seguinte.
+- **Roteamento de falha (ADR-0019):** o §13 do `fluxo.md` deixa de ser letra morta —
+  toda falha de execução é diagnosticada (`sem_permissao`/`timeout`/`teste_falhou`/
+  `diff_vazio`/`agente_indisponivel`/`desconhecido`, `control/failure.py`, puro e
+  determinístico) e roteada por uma política determinada: mesmo agente com nudge,
+  effort maior, outro executor, bloquear, ou escalar para humano —
+  `ASO_MAX_ESCALONAMENTOS` (default 3) é o limite duro. `POST /cards/{id}/run` tenta de
+  novo internamente quando a decisão permite; `GET .../cards/{id}/failures` traz o
+  histórico (ring de 5, novo `KanbanCard.failures`, JSONB); `POST .../cards/{id}/route`
+  aciona o roteamento manualmente. `Failed` passa a significar só "a política escalou
+  para humano" — CI reprovada agora vai para `NeedsFix` (corrigível), não `Failed`. O
+  `retry()` global deixa de reexecutar tudo às cegas: gate reprovado roteia só os cards
+  da fase que não chegaram a `Done`. `CardEvent` ganha `reason`/`result`/`evidence`/
+  `next_action` (auditoria de movimentação do §8, pendência da ADR-0018 fechada aqui).
+  Corrigido também um gate de risco contornável (ADR-0017): `report_review("approved")`
+  exige justificativa mesmo com veredito aprovado quando o risco da demanda exige
+  confirmação humana — antes o clique do agente bastava mesmo em risco alto.
+- **Kanban fiel: colunas restantes + dependencies/blocked_by (ADR-0018):** três
+  colunas novas — `Deploying`, `Validating` (selecionáveis via `POST /cards/{id}/move`
+  genérico; sem gatilho automático, isso é trabalho do Incremento F) e `Cancelled`
+  (novo `POST /cards/{id}/cancel`, espelhando `block`/`unblock`) — sem migration
+  (`status` já era `String` puro). `KanbanCard.dependencies`/`blocked_by`, campos
+  mortos desde sempre, passam a ser populados a partir de `PlannedAgent.depends_on` na
+  criação e verificados em `POST /cards/{id}/run`: dependência pendente move o card
+  para `Blocked` e recusa (`409`); nova tentativa depois que ela resolve executa
+  normalmente. `docs/api.md` já afirmava (incorretamente) esse comportamento — passa a
+  ser verdade. `run_plan` (execução multiagente automática) não é afetado — já ordenava
+  por `depends_on` nas suas próprias ondas; a checagem nova vale só para `run_card`
+  manual. Corrigidos de quebra `aso run` (CLI) e um teste de integração que rodavam
+  cards manualmente sem respeitar ordem — passaram a usar `run_plan`.
+- **Revisão independente de código (ADR-0017):** `report_review` deixa de gravar uma
+  string sem checar quem revisou. `ReviewService` (`control/review.py`) roda um agente
+  sobre o **diff real** de uma PR (`POST .../pulls/{pr}/review/run`) e produz um
+  `ReviewVerdict` (aprovado/aprovado_com_sugestoes/alteracoes_obrigatorias/reprovado/
+  necessita_humano, ações objetivas por severidade, pontos verificados); diferente de
+  naming/triagem, o fallback de indisponibilidade é **sempre** `necessita_humano` —
+  nunca aprova sozinho. O revisor é sempre diferente do executor que implementou o card
+  (`KanbanCard.executor`, novo campo); `report_review("approved")` só aceita com
+  veredito aprovado já registrado ou justificativa humana (papel admin). Risco alto ou
+  impacto sensível na ficha da demanda (ADR-0016) impede a aprovação automática mesmo
+  com o agente aprovando. Card reprovado vai para a nova coluna `NeedsFix` com as ações
+  obrigatórias chegando ao agente na re-execução. `next_step` ganha os bloqueios
+  `pr_review_nao_executada`/`pr_alteracoes_obrigatorias`/`pr_review_humana`; o antigo
+  `pr_review_pendente` de um clique sem revisão não existe mais. Agente selecionável via
+  `PUT/DELETE /v1/orchestrations/{id}/agents/revisao`. Corrigidos também dois pontos
+  herdados da ADR-0016: a CLI (`aso run`) passa a triar a demanda como a API
+  (`create_with_triage`, ponto único de entrada), e `POST .../brief` (re-triagem)
+  recomputa o plano de execução enquanto nenhum card saiu de `Ready`.
+- **Ficha da demanda / triagem (ADR-0016):** `POST /v1/orchestrations` agora tria a
+  demanda antes de criar a orquestração — `TriageService` (`control/triage.py`)
+  interpreta `user_request` numa `DemandBrief` (tipo, domínios, impactos, risco,
+  complexidade, perguntas em aberto) que alimenta o `MultiAgentDecisionEngine`, hoje
+  decidindo sempre sobre a constante `domains=["backend"]`/`risk_level=LOW`. Sem agente
+  configurado (ou com falha), cai numa heurística determinística que preserva o
+  comportamento atual. Agente selecionável via `PUT/DELETE
+  /v1/orchestrations/{id}/agents/triagem` (mesmo mecanismo da ADR-0014); ficha
+  persistida em `demand_brief` (JSONB) e exposta por `GET/POST
+  /v1/orchestrations/{id}/brief`; `card.priority` passa a refletir o risco da ficha
+  (antes sempre `MEDIUM`); `perguntas_abertas` aparece no "Próximo passo" sem travar a
+  esteira. Painel "Ficha da demanda" na tela de detalhe.
 - **Painel "o que o agente está fazendo" (ADR-0015):** a saída do agente CLI passa a ser
   lida **linha a linha enquanto ele trabalha** — `subprocess.run(capture_output=True)` só
   entregava os pipes depois que o processo morria, então a tela ficava parada por minutos.

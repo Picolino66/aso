@@ -15,6 +15,23 @@ Cada fase F1–F7 tem um **quality gate** que valida critérios verificáveis an
 
 Cada resultado (`QualityGateResult`) registra: `phase`, `status` (`PASSED`/`FAILED`/`WARNING`), lista de `criteria` (com `evidence` e `failure_reason`), `blocking_issues`, `warnings`, `required_actions`, `approved_by` e se exigiu aprovação humana.
 
+### Bateria de validações nomeada (§12, ADR-0022)
+
+Nas fases F5/F6, o critério que roda os testes/lint do repositório deixou de ser um
+comando único (`tests_pass`): `Orchestration.validation_checks` guarda uma lista de
+`ValidationCheck` (`nome`, `comando`, `categoria`, `bloqueante`), e
+`run_quality_gate` cria **um `Criterion` por verificação** — todas rodam até o fim,
+sem parar na primeira falha, cada uma com sua própria evidência. Uma verificação
+`bloqueante: false` que falha entra em `warnings`, não em `blocking_issues` (mesmo
+tratamento que `docs_in_sync` já tinha). Sem bateria configurada,
+`checks_efetivos` faz o `validation_command` legado (um comando só) virar uma
+verificação sintética `"testes"` — compatibilidade total com orquestrações
+anteriores a este incremento. Gerencie a bateria em
+`GET/PUT /v1/orchestrations/{id}/validation-checks` e peça uma sugestão
+determinística por stack em `GET .../validation-checks/suggest`
+([`docs/api.md`](api.md)). Ver
+[ADR-0022](adrs/ADR-0022-bateria-de-validacoes-e-effort-automatico.md).
+
 ## 2. Gates por fase e estado atual
 
 | Fase | Gate | Estado | Snapshot gerado | Evidência |

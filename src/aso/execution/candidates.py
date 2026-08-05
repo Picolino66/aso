@@ -60,7 +60,13 @@ class CandidateRunner:
 
     @staticmethod
     def compare(candidates: list[Candidate]) -> dict[str, Any]:
-        """Compara candidatos e recomenda um (heurística: menor diff válido)."""
+        """Compara candidatos e recomenda um (heurística: menor diff válido).
+
+        `falhas` nunca fica implícito dentro de `candidates`: uma corrida que perdeu
+        candidato precisa dizer isso, não parecer uma comparação completa com menos
+        concorrentes (plano6 §0/ADR-0024) — o mesmo princípio do fallback do
+        `ReviewService` (ADR-0017): quando o runtime não sabe/não conseguiu, ele diz.
+        """
         valid = [c for c in candidates if c.error is None and c.branch]
         recommended = min(valid, key=lambda c: c.diff_lines).branch if valid else None
         return {
@@ -76,4 +82,5 @@ class CandidateRunner:
                 for c in candidates
             ],
             "recommended_branch": recommended,
+            "falhas": [{"executor": c.executor_id, "erro": c.error} for c in candidates if c.error],
         }

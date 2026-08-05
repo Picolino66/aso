@@ -69,6 +69,10 @@ def required_role(method: str, path: str) -> str:
             "/race",
             "/restore-section",
             "/recover-execution",
+            "/discovery/decide",
+            "/spec/approve",
+            "/budget",
+            "/worktrees/prune",
         )
     ):
         return "admin"

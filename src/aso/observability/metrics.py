@@ -74,10 +74,14 @@ class MetricsService:
         }
 
     def execution_timeline(self, orchestration_id: str) -> dict[str, Any]:
-        """Timeline de custo por card (F7): execuções, tempo acumulado, falhas por card.
+        """Timeline de execução por card (F7): execuções, tempo acumulado, falhas e
+        custo real por card.
 
-        O custo é aproximado pelo tempo de execução (ms) agregado a partir dos eventos
-        `AgentExecuted`, permitindo ver onde o esforço dos agentes se concentra.
+        Tempo (ms) é **fallback declarado**, não custo: dois agentes de 30s podem
+        diferir em 50x no valor pago (§1.1, ADR-0026). Quando o agente informa
+        `total_cost_usd` no envelope de saída, `total_custo_usd` reflete o gasto real;
+        sem isso (`uso_origem != "agente"`), o tempo continua sendo a única pista de
+        onde o esforço se concentrou — não confunda um com o outro.
         """
         events = self.svc.timeline(orchestration_id)
         by_card: dict[str, dict[str, Any]] = {}
@@ -87,16 +91,33 @@ class MetricsService:
             cid = str(e.payload.get("card_id") or "—")
             entry = by_card.setdefault(
                 cid,
-                {"card_id": cid, "executions": 0, "total_ms": 0.0, "failures": 0, "runs": []},
+                {
+                    "card_id": cid,
+                    "executions": 0,
+                    "total_ms": 0.0,
+                    "total_custo_usd": 0.0,
+                    "failures": 0,
+                    "runs": [],
+                },
             )
             ms = float(e.payload.get("ms", 0))
             ok = bool(e.payload.get("ok", True))
+            custo = float(e.payload.get("custo_usd", 0.0) or 0.0)
+            uso_origem = str(e.payload.get("uso_origem") or "indisponivel")
             entry["executions"] += 1
             entry["total_ms"] = round(entry["total_ms"] + ms, 1)
+            entry["total_custo_usd"] = round(entry["total_custo_usd"] + custo, 6)
             if not ok:
                 entry["failures"] += 1
             entry["runs"].append(
-                {"agent": e.payload.get("agent"), "ms": ms, "ok": ok, "at": e.created_at}
+                {
+                    "agent": e.payload.get("agent"),
+                    "ms": ms,
+                    "ok": ok,
+                    "custo_usd": custo,
+                    "uso_origem": uso_origem,
+                    "at": e.created_at,
+                }
             )
         cards = sorted(by_card.values(), key=lambda c: -c["total_ms"])
         for c in cards:
@@ -105,6 +126,7 @@ class MetricsService:
             "orchestration_id": orchestration_id,
             "cards": cards,
             "total_ms": round(sum(c["total_ms"] for c in cards), 1),
+            "total_custo_usd": round(sum(c["total_custo_usd"] for c in cards), 6),
             "executions_total": sum(c["executions"] for c in cards),
         }
 

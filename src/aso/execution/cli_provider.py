@@ -20,15 +20,17 @@ import json
 import os
 import subprocess
 import threading
+from dataclasses import asdict
 from typing import IO, Any
 
 from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentOutput, AgentSpec
-from aso.execution.agent_stream import extrair_texto, interpretar
+from aso.execution.agent_stream import extrair_texto, extrair_uso, interpretar
 from aso.execution.branch_naming import unique_branch
 from aso.execution.worktree import WorktreeManager
 from aso.governance.models import ContextPatch
 from aso.shared.agent_output import STREAM_STDERR, STREAM_STDOUT, OutputBus, OutputSink
+from aso.shared.agent_usage import UsoDoAgente
 from aso.shared.ids import gen_id
 from aso.shared.types import PatchType, Phase
 
@@ -112,7 +114,12 @@ class CliAgentExecutionProvider:
             summary=f"[cli] {agent.role} rodou em {branch} (diff: {diff_lines} linhas)",
             patches=[patch],
             # A cauda, não o início: o desfecho do agente é o que interessa depois.
-            artifacts={"branch": branch, "diff": diff, "stdout": saida.stdout[-4000:]},
+            artifacts={
+                "branch": branch,
+                "diff": diff,
+                "stdout": saida.stdout[-4000:],
+                "uso": asdict(saida.uso),
+            },
         )
 
     def _abrir_sink(self, agent: AgentSpec, task: dict[str, Any], branch: str) -> OutputSink | None:
@@ -159,10 +166,8 @@ class CliAgentExecutionProvider:
         ]
         for bomba in bombas:
             bomba.start()
+        self._enviar_tarefa(proc, task)
         try:
-            if proc.stdin is not None:
-                proc.stdin.write(json.dumps(task, ensure_ascii=False))
-                proc.stdin.close()
             proc.wait(timeout=self.timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
@@ -175,13 +180,34 @@ class CliAgentExecutionProvider:
                 f"Executor CLI não terminou em {self.timeout:.0f}s e foi encerrado. "
                 f"Última saída: {extrair_texto(''.join(out) or ''.join(err)) or 'nenhuma'}"
             ) from None
-        except OSError as exc:  # pipe fechado pelo agente antes de ler a tarefa
-            proc.kill()
-            proc.wait()
-            raise AgentExecutionError(f"Falha ao enviar a tarefa ao executor CLI: {exc}") from exc
         for bomba in bombas:
             bomba.join(timeout=5.0)
-        return _Saida(returncode=proc.returncode, stdout="".join(out), stderr="".join(err))
+        uso = _extrair_uso_da_saida(out)
+        return _Saida(returncode=proc.returncode, stdout="".join(out), stderr="".join(err), uso=uso)
+
+    @staticmethod
+    def _enviar_tarefa(proc: subprocess.Popen[str], task: dict[str, Any]) -> None:
+        """Escreve a tarefa no stdin do processo — sem presumir que ele vai lê-la.
+
+        Causa raiz da corrida de candidatos intermitente (plano6 §0, ADR-0024): um
+        comando rápido e determinístico que não lê stdin (ou já terminou) fecha o
+        pipe antes desta escrita, e `proc.stdin.write` levanta `BrokenPipeError`.
+        O código antigo tratava isso como falha do executor e abortava — mas o
+        processo pode ter rodado e terminado com sucesso sem nunca precisar da
+        tarefa via stdin. O próprio `subprocess.communicate()` da stdlib ignora o
+        mesmo erro pelo mesmo motivo; aqui deixamos `proc.wait()` decidir pelo
+        código de saída real, não pelo sucesso da escrita.
+        """
+        if proc.stdin is None:
+            return
+        try:
+            proc.stdin.write(json.dumps(task, ensure_ascii=False))
+        except BrokenPipeError:
+            pass
+        try:
+            proc.stdin.close()
+        except BrokenPipeError:
+            pass
 
     @staticmethod
     def _bombear(
@@ -204,14 +230,29 @@ class CliAgentExecutionProvider:
 
 
 class _Saida:
-    """Resultado de uma execução — o mesmo trio que o `subprocess.run` devolvia."""
+    """Resultado de uma execução — o mesmo trio que o `subprocess.run` devolvia, mais
+    o consumo relatado pelo agente (§26A.11, ADR-0026)."""
 
-    __slots__ = ("returncode", "stdout", "stderr")
+    __slots__ = ("returncode", "stdout", "stderr", "uso")
 
-    def __init__(self, *, returncode: int, stdout: str, stderr: str) -> None:
+    def __init__(
+        self, *, returncode: int, stdout: str, stderr: str, uso: UsoDoAgente | None = None
+    ) -> None:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
+        self.uso = uso or UsoDoAgente()
+
+
+def _extrair_uso_da_saida(linhas: list[str]) -> UsoDoAgente:
+    """Última linha com uso reconhecido vence — o envelope `result` do Claude Code
+    é a última linha do stream, mas não custa varrer tudo em vez de presumir posição."""
+    uso = UsoDoAgente()
+    for linha in linhas:
+        encontrado = extrair_uso(linha)
+        if encontrado is not None:
+            uso = encontrado
+    return uso
 
 
 def _empty_diff_detail(stdout: str, stderr: str) -> str:

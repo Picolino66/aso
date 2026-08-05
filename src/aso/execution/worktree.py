@@ -112,3 +112,42 @@ class WorktreeManager:
                 capture_output=True,
                 text=True,
             )
+
+    def list_worktrees(self) -> list[dict[str, str]]:
+        """Worktrees registrados sob `.aso/worktrees/` deste repositório (§3.3 do
+        plano7.md, ADR-0027) — via `git worktree list --porcelain`, a mesma fonte de
+        verdade que `scripts/reset.sh` usa, não uma varredura de diretório (que veria
+        pasta órfã sem entrada git, ou entrada git sem pasta)."""
+        raiz = str((self.base / ".aso" / "worktrees").resolve())
+        with _GIT_META_LOCK:
+            result = subprocess.run(
+                ["git", "worktree", "list", "--porcelain"],
+                cwd=str(self.base),
+                capture_output=True,
+                text=True,
+            )
+        if result.returncode != 0:
+            return []
+        achados: list[dict[str, str]] = []
+        atual: dict[str, str] = {}
+        for linha in result.stdout.splitlines():
+            if linha.startswith("worktree "):
+                if atual:
+                    achados.append(atual)
+                atual = {"path": linha.removeprefix("worktree ").strip()}
+            elif linha.startswith("branch "):
+                atual["branch"] = linha.removeprefix("branch ").removeprefix("refs/heads/").strip()
+        if atual:
+            achados.append(atual)
+        return [w for w in achados if w.get("path", "").startswith(raiz)]
+
+    def prune(self, paths: list[Path]) -> None:
+        """Remove os worktrees dados e limpa referências penduradas em
+        `.git/worktrees` — nunca `rm -rf` (deixaria refs órfãs; o motivo pelo qual
+        `scripts/reset.sh` também sempre passa pela porta do git)."""
+        for path in paths:
+            self.remove(path)
+        with _GIT_META_LOCK:
+            subprocess.run(
+                ["git", "worktree", "prune"], cwd=str(self.base), capture_output=True, text=True
+            )

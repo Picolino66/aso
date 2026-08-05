@@ -138,10 +138,14 @@ class ColumnKey(StrEnum):
     WAITING_AGENT = "WaitingAgent"
     WAITING_HUMAN = "WaitingHuman"
     REVIEW = "Review"
+    NEEDS_FIX = "NeedsFix"
     TESTING = "Testing"
+    DEPLOYING = "Deploying"
+    VALIDATING = "Validating"
     BLOCKED = "Blocked"
     FAILED = "Failed"
     DONE = "Done"
+    CANCELLED = "Cancelled"
     ARCHIVED = "Archived"
 
 

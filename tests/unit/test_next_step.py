@@ -6,6 +6,8 @@ só renderiza o resultado, então cada uma precisa de teste próprio.
 
 from __future__ import annotations
 
+from aso.control.deploy import DeployRun
+from aso.control.discovery import DiscoveryReport
 from aso.control.models import Orchestration
 from aso.control.next_step import (
     NextStepInput,
@@ -13,7 +15,13 @@ from aso.control.next_step import (
     next_phase_of,
 )
 from aso.execution.docs_drift import DocsDriftReport
-from aso.governance.models import Conflict, HumanApproval, PullRequest, QualityGateResult
+from aso.governance.models import (
+    CandidateRun,
+    Conflict,
+    HumanApproval,
+    PullRequest,
+    QualityGateResult,
+)
 from aso.kanban.models import KanbanCard
 from aso.shared.types import (
     CardType,
@@ -235,11 +243,49 @@ def test_pr_sem_ci_pede_rodar_ci() -> None:
     assert bloqueio.action is not None and bloqueio.action.path.endswith(f"/pulls/{pr.id}/ci/run")
 
 
-def test_pr_com_ci_verde_pede_revisao() -> None:
+def test_pr_com_ci_verde_e_sem_veredito_pede_rodar_revisao() -> None:
+    """Regressão (ADR-0017): o antigo `pr_review_pendente` de um clique — que oferecia
+    `{"status": "approved"}` sem ninguém ter revisado — não existe mais."""
     pr = PullRequest(orchestration_id=ORCH_ID, branch="aso/card-1", ci_status="passed")
     rel = compute_next_step(NextStepInput(orchestration=_orch(), pulls=[pr]))
-    bloqueio = next(b for b in rel.blockers if b.code == "pr_review_pendente")
-    assert bloqueio.action is not None and bloqueio.action.body == {"status": "approved"}
+    assert "pr_review_pendente" not in _codes(rel)
+    bloqueio = next(b for b in rel.blockers if b.code == "pr_review_nao_executada")
+    assert bloqueio.action is not None
+    assert bloqueio.action.path.endswith(f"/pulls/{pr.id}/review/run")
+    assert bloqueio.action.body == {}
+
+
+def test_pr_com_alteracoes_obrigatorias_bloqueia_com_as_acoes() -> None:
+    pr = PullRequest(
+        orchestration_id=ORCH_ID,
+        branch="aso/card-1",
+        card_id="card-1",
+        ci_status="passed",
+        review_verdict={
+            "veredito": "alteracoes_obrigatorias",
+            "acoes": [{"descricao": "Adicionar teste para o cenário de erro"}],
+        },
+    )
+    rel = compute_next_step(NextStepInput(orchestration=_orch(), pulls=[pr]))
+    bloqueio = next(b for b in rel.blockers if b.code == "pr_alteracoes_obrigatorias")
+    assert bloqueio.severity == "bloqueia"
+    assert "Adicionar teste para o cenário de erro" in bloqueio.detail
+    assert bloqueio.action is not None and bloqueio.action.path.endswith("/cards/card-1/run")
+
+
+def test_pr_aprovada_pelo_agente_mas_pendente_pede_confirmacao_humana() -> None:
+    """Veredito aprovado, mas `review_status` continua pending (risco exige humano, §4.3)."""
+    pr = PullRequest(
+        orchestration_id=ORCH_ID,
+        branch="aso/card-1",
+        ci_status="passed",
+        review_verdict={"veredito": "aprovado"},
+        review_status="pending",
+    )
+    rel = compute_next_step(NextStepInput(orchestration=_orch(), pulls=[pr]))
+    bloqueio = next(b for b in rel.blockers if b.code == "pr_review_humana")
+    assert bloqueio.severity == "aguardando_humano"
+    assert bloqueio.action is not None and bloqueio.action.role == "admin"
 
 
 def test_pr_com_ci_e_revisao_libera_merge_admin() -> None:
@@ -248,6 +294,7 @@ def test_pr_com_ci_e_revisao_libera_merge_admin() -> None:
         branch="aso/card-1",
         ci_status="passed",
         review_status="approved",
+        review_verdict={"veredito": "aprovado"},
     )
     rel = compute_next_step(NextStepInput(orchestration=_orch(), pulls=[pr]))
     bloqueio = next(b for b in rel.blockers if b.code == "pr_pronto_merge")
@@ -401,3 +448,345 @@ def test_rotulo_e_proxima_fase_acompanham_a_esteira() -> None:
     assert rel.next_phase is None
     assert next_phase_of(Phase.F1) == Phase.F2
     assert next_phase_of(Phase.F7) is None
+
+
+# ------------------------------------------------------------------------ discovery
+
+
+def test_discovery_nunca_rodado_nao_bloqueia_nem_aparece_no_checklist() -> None:
+    rel = compute_next_step(NextStepInput(orchestration=_orch(current_phase=Phase.F1)))
+    assert "discovery_reprovado" not in _codes(rel)
+    assert "discovery_aguardando_aprovacao" not in _codes(rel)
+    assert all(item.code != "discovery" for item in rel.checklist)
+
+
+def test_discovery_reprovado_bloqueia_com_acao_de_operador() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F1),
+            discovery_report=DiscoveryReport(status="reprovado", revisao_comentarios="ajustar X"),
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "discovery_reprovado")
+    assert bloqueio.severity == "acao_do_operador"
+    assert bloqueio.detail == "ajustar X"
+    assert bloqueio.action is not None and bloqueio.action.path.endswith("/discovery/run")
+    estados = {item.code: item.state for item in rel.checklist}
+    assert estados["discovery"] == "pendente"
+
+
+def test_discovery_aguardando_aprovacao_exige_humano() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F1),
+            discovery_report=DiscoveryReport(status="aguardando_aprovacao"),
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "discovery_aguardando_aprovacao")
+    assert bloqueio.severity == "aguardando_humano"
+    assert bloqueio.action is not None and bloqueio.action.role == "admin"
+    assert bloqueio.action.path.endswith("/discovery/decide")
+
+
+def test_discovery_aprovado_nao_bloqueia_e_marca_checklist_ok() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F1),
+            discovery_report=DiscoveryReport(status="aprovado"),
+        )
+    )
+    assert "discovery_reprovado" not in _codes(rel)
+    assert "discovery_aguardando_aprovacao" not in _codes(rel)
+    estados = {item.code: item.state for item in rel.checklist}
+    assert estados["discovery"] == "ok"
+
+
+def test_discovery_fora_da_fase_f1_nao_bloqueia() -> None:
+    """O relatório persiste na orquestração mesmo depois de avançar de fase — o
+    bloqueio só faz sentido enquanto a esteira ainda está em F1."""
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F2),
+            discovery_report=DiscoveryReport(status="aguardando_aprovacao"),
+        )
+    )
+    assert "discovery_aguardando_aprovacao" not in _codes(rel)
+
+
+# ------------------------------------------------------------- implantação (§18-22)
+
+
+def test_deploy_nunca_rodado_nao_bloqueia() -> None:
+    """`status` pendente (default) = nunca implantou — não-regressivo."""
+    rel = compute_next_step(
+        NextStepInput(orchestration=_orch(current_phase=Phase.F6), deploy=DeployRun())
+    )
+    assert "deploy_falhou" not in _codes(rel)
+    assert "deploy_aguardando_aceite" not in _codes(rel)
+    assert "deploy_reprovada" not in _codes(rel)
+
+
+def test_deploy_falhou_oferece_rodar_de_novo() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F6),
+            deploy=DeployRun(status="falhou", aceite_status="reprovado", resultado="exit=1"),
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "deploy_falhou")
+    assert bloqueio.severity == "acao_do_operador"
+    assert bloqueio.action is not None and bloqueio.action.path.endswith("/deploy/run")
+
+
+def test_deploy_aguardando_aceite_exige_humano() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F6),
+            deploy=DeployRun(status="sucesso", aceite_status="aguardando_aprovacao"),
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "deploy_aguardando_aceite")
+    assert bloqueio.severity == "aguardando_humano"
+    assert bloqueio.action is not None and bloqueio.action.role == "admin"
+    assert bloqueio.action.path.endswith("/deploy/approve")
+
+
+def test_deploy_reprovado_no_aceite_oferece_rodar_de_novo() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F6),
+            deploy=DeployRun(status="sucesso", aceite_status="reprovado"),
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "deploy_reprovada")
+    assert bloqueio.severity == "acao_do_operador"
+
+
+def test_deploy_aprovado_nao_bloqueia_e_marca_checklist_ok() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F6),
+            deploy=DeployRun(status="sucesso", aceite_status="aprovado"),
+        )
+    )
+    assert "deploy_aguardando_aceite" not in _codes(rel)
+    assert "deploy_reprovada" not in _codes(rel)
+    estados = {item.code: item.state for item in rel.checklist}
+    assert estados["implantacao"] == "ok"
+
+
+def test_deploy_fora_da_fase_f6_nao_bloqueia() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            deploy=DeployRun(status="sucesso", aceite_status="aguardando_aprovacao"),
+        )
+    )
+    assert "deploy_aguardando_aceite" not in _codes(rel)
+
+
+# ------------------------------------------------------- corrida de candidatos (plano6 §0)
+
+
+def _race(*, card_id: str, falhou: bool) -> CandidateRun:
+    candidates: list[dict[str, object]] = [
+        {"executor": "a", "branch": "aso/a", "diff_lines": 3, "files": ["a.py"], "error": None},
+    ]
+    if falhou:
+        candidates.append(
+            {"executor": "b", "branch": "", "diff_lines": 0, "files": [], "error": "broken pipe"}
+        )
+    return CandidateRun(
+        orchestration_id=ORCH_ID, card_id=card_id, recommended_branch="aso/a", candidates=candidates
+    )
+
+
+def test_corrida_sem_falha_nao_bloqueia() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.IN_PROGRESS, board_id=BOARD_ID, id="c1")],
+            candidate_runs=[_race(card_id="c1", falhou=False)],
+        )
+    )
+    assert "corrida_degradada" not in _codes(rel)
+
+
+def test_corrida_degradada_bloqueia_com_acao_de_operador() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.IN_PROGRESS, board_id=BOARD_ID, id="c1")],
+            candidate_runs=[_race(card_id="c1", falhou=True)],
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "corrida_degradada")
+    assert bloqueio.severity == "acao_do_operador"
+    assert bloqueio.title == "Corrida de candidatos concluiu 1 de 2"
+    assert bloqueio.action is not None and bloqueio.action.path.endswith("/cards/c1/race")
+
+
+def test_corrida_degradada_em_card_ja_done_nao_bloqueia() -> None:
+    """Corrida degradada num card mesclado é histórico, não bloqueio (plano6 §0)."""
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.DONE, board_id=BOARD_ID, id="c1")],
+            candidate_runs=[_race(card_id="c1", falhou=True)],
+        )
+    )
+    assert "corrida_degradada" not in _codes(rel)
+
+
+# ------------------------------------------------------------------- QA (§16/§17)
+
+
+def test_qa_pendente_quando_card_exige_qa_e_ninguem_registrou() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.TESTING, board_id=BOARD_ID, id="c1", type=CardType.FEATURE)],
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "qa_pendente")
+    assert bloqueio.severity == "aguardando_humano"
+    assert bloqueio.action is not None and bloqueio.action.path.endswith("/cards/c1/qa")
+
+
+def test_qa_pendente_nao_aparece_para_card_que_nao_exige_qa() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.TESTING, board_id=BOARD_ID, id="c1", type=CardType.TASK)],
+        )
+    )
+    assert "qa_pendente" not in _codes(rel)
+
+
+def test_qa_pendente_nao_aparece_antes_do_card_chegar_em_testing() -> None:
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.IN_PROGRESS, board_id=BOARD_ID, id="c1", type=CardType.FEATURE)],
+        )
+    )
+    assert "qa_pendente" not in _codes(rel)
+
+
+def test_qa_reprovado_bloqueia() -> None:
+    check = {"cenario": "login", "status": "falhou"}
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[
+                _card(
+                    ColumnKey.TESTING, board_id=BOARD_ID, id="c1", title="login", qa_checks=[check]
+                )
+            ],
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "qa_reprovado")
+    assert bloqueio.severity == "bloqueia"
+    assert "login" in bloqueio.title
+
+
+def test_qa_check_mais_recente_aprovado_libera_o_bloqueio() -> None:
+    checks = [{"cenario": "login", "status": "falhou"}, {"cenario": "login", "status": "passou"}]
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.TESTING, board_id=BOARD_ID, id="c1", qa_checks=checks)],
+        )
+    )
+    assert "qa_reprovado" not in _codes(rel)
+    assert "qa_pendente" not in _codes(rel)
+
+
+# --------------------------------------------------------- orçamento (§1.2/§3.2, ADR-0026)
+
+
+def test_sem_teto_configurado_nao_gera_bloqueio_de_orcamento() -> None:
+    rel = compute_next_step(NextStepInput(orchestration=_orch(orcamento_usd=None), gasto_usd=999.0))
+    assert "orcamento_estourado" not in _codes(rel)
+    assert "orcamento_em_alerta" not in _codes(rel)
+
+
+def test_orcamento_estourado_bloqueia_com_acao_admin() -> None:
+    rel = compute_next_step(NextStepInput(orchestration=_orch(orcamento_usd=10.0), gasto_usd=15.0))
+    bloqueio = next(b for b in rel.blockers if b.code == "orcamento_estourado")
+    assert bloqueio.severity == "bloqueia"
+    assert bloqueio.action is not None
+    assert bloqueio.action.role == "admin"
+
+
+def test_orcamento_em_alerta_e_informativo_nao_bloqueia() -> None:
+    rel = compute_next_step(NextStepInput(orchestration=_orch(orcamento_usd=10.0), gasto_usd=8.5))
+    bloqueio = next(b for b in rel.blockers if b.code == "orcamento_em_alerta")
+    assert bloqueio.severity == "informativo"
+
+
+def test_orcamento_dentro_do_teto_nao_gera_bloqueio() -> None:
+    rel = compute_next_step(NextStepInput(orchestration=_orch(orcamento_usd=10.0), gasto_usd=1.0))
+    assert "orcamento_estourado" not in _codes(rel)
+    assert "orcamento_em_alerta" not in _codes(rel)
+
+
+# ---------------------------------------------------------- card órfão (§1.4/§3.3, ADR-0027)
+
+
+def test_card_in_progress_alem_do_timeout_vira_card_orfao() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    parado_ha_1h = (datetime.now(UTC) - timedelta(seconds=3700)).isoformat()
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[
+                _card(
+                    ColumnKey.IN_PROGRESS,
+                    board_id=BOARD_ID,
+                    id="c1",
+                    updated_at=parado_ha_1h,
+                )
+            ],
+            agent_timeout_seconds=1800.0,
+        )
+    )
+    bloqueio = next(b for b in rel.blockers if b.code == "card_orfao")
+    assert bloqueio.severity == "acao_do_operador"
+    assert bloqueio.action is not None
+    assert bloqueio.action.path.endswith("/cards/c1/route")
+
+
+def test_card_in_progress_dentro_do_timeout_nao_acusa() -> None:
+    from datetime import UTC, datetime
+
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[
+                _card(
+                    ColumnKey.IN_PROGRESS,
+                    board_id=BOARD_ID,
+                    id="c1",
+                    updated_at=datetime.now(UTC).isoformat(),
+                )
+            ],
+            agent_timeout_seconds=1800.0,
+        )
+    )
+    assert "card_orfao" not in _codes(rel)
+
+
+def test_card_fora_de_in_progress_nunca_vira_orfao() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    parado_ha_1h = (datetime.now(UTC) - timedelta(seconds=3700)).isoformat()
+    rel = compute_next_step(
+        NextStepInput(
+            orchestration=_orch(current_phase=Phase.F5),
+            cards=[_card(ColumnKey.BLOCKED, board_id=BOARD_ID, id="c1", updated_at=parado_ha_1h)],
+            agent_timeout_seconds=1800.0,
+        )
+    )
+    assert "card_orfao" not in _codes(rel)

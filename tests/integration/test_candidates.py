@@ -44,7 +44,9 @@ def test_race_candidates_and_merge_recommended(tmp_path: Path) -> None:
     svc._provider = claude  # noqa: SLF001 — provider com WorktreeManager para o merge
     pr = svc.open_pr(orch.id, card.id, branch=str(comparison["recommended_branch"]))
     svc.report_ci(orch.id, pr.id, "passed")
-    svc.report_review(orch.id, pr.id, "approved")
+    # Aprovação governada (ADR-0017) sem revisor de agente configurado neste teste:
+    # exige justificativa humana explícita — o clique sem revisão não existe mais.
+    svc.report_review(orch.id, pr.id, "approved", justificativa="revisão manual do teste")
     svc.merge_pr(orch.id, pr.id)
     # o recomendado (menor diff = sol_claude.py) foi mesclado na base
     assert (repo / "sol_claude.py").exists()
@@ -64,3 +66,8 @@ def test_candidate_failure_is_isolated(tmp_path: Path) -> None:
     oks = [c for c in comparison["candidates"] if not c["error"]]
     assert len(errs) == 1 and len(oks) == 1  # falha de um não derruba o outro
     assert comparison["recommended_branch"] == oks[0]["branch"]
+    # candidato perdido nunca é silencioso: aparece em `falhas` e no event log (plano6 §0)
+    assert comparison["falhas"] == [{"executor": errs[0]["executor"], "erro": errs[0]["error"]}]
+    falhas_no_log = [e for e in svc.timeline(orch.id) if e.type == "CandidateFailed"]
+    assert len(falhas_no_log) == 1
+    assert falhas_no_log[0].payload["executor"] == errs[0]["executor"]

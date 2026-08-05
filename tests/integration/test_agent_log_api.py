@@ -124,12 +124,15 @@ def test_falha_do_agente_fecha_a_sessao_como_erro(tmp_path: Path) -> None:
 
     estado = _log(svc, oid)
     assert estado["running"] is False
-    # O AgentSupervisor tenta 2x: cada tentativa é um processo CLI, logo uma sessão
-    # própria — e o painel mostra as duas, que é o que o operador precisa ver.
-    assert len(estado["sessions"]) == 2
+    # O AgentSupervisor tenta 2x internamente (cada tentativa é um processo CLI, logo
+    # uma sessão própria) e o roteamento de falha (ADR-0019) ainda manda repetir o
+    # mesmo agente uma vez (diagnóstico `diff_vazio`, 1ª falha) antes de escalar sem
+    # catálogo configurado (2ª falha, sem outro executor para trocar) — 2 rodadas
+    # externas × 2 tentativas internas = 4 sessões, todas visíveis no painel.
+    assert len(estado["sessions"]) == 4
     assert all(sessao["ok"] is False for sessao in estado["sessions"])
     assert all("diff vazio" in sessao["detail"] for sessao in estado["sessions"])
-    assert [linha["text"] for linha in estado["lines"]].count("so-converso") == 2
+    assert [linha["text"] for linha in estado["lines"]].count("so-converso") == 4
 
 
 def test_stderr_e_marcado_como_tal(tmp_path: Path) -> None:

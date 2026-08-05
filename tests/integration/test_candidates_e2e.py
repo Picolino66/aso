@@ -75,7 +75,12 @@ def test_candidates_to_governed_merge_via_api(
 
     # 4) CI passed + review approved → merge governado (git real na base)
     client.post(f"/v1/orchestrations/{oid}/pulls/{pr['id']}/ci", json={"status": "passed"})
-    client.post(f"/v1/orchestrations/{oid}/pulls/{pr['id']}/review", json={"status": "approved"})
+    # Aprovação governada (ADR-0017) sem revisor de agente configurado neste teste:
+    # exige justificativa humana explícita — o clique sem revisão não existe mais.
+    client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr['id']}/review",
+        json={"status": "approved", "justificativa": "revisão manual do teste"},
+    )
     merged = client.post(f"/v1/orchestrations/{oid}/pulls/{pr['id']}/merge")
     assert merged.status_code == 200
     assert merged.json()["status"] == "merged"

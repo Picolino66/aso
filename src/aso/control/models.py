@@ -40,6 +40,57 @@ class ProjectEvent(BaseModel):
 # momento, inclusive com a orquestração já em andamento.
 NAMING_KEY = "naming"
 
+# Chave reservada para o agente de triagem da demanda (§1/§2 do fluxo.md). Mesmo
+# regime do NAMING_KEY: não é fase da esteira, sempre editável.
+TRIAGE_KEY = "triagem"
+
+# Chave reservada para o agente de revisão independente de código (§14, ADR-0017).
+# Mesmo regime do NAMING_KEY: não é fase da esteira, sempre editável.
+REVIEW_KEY = "revisao"
+
+# Chave reservada para o agente de discovery (§3, ADR-0020). Mesmo regime do
+# NAMING_KEY: não é fase da esteira, sempre editável.
+DISCOVERY_KEY = "discovery"
+
+# Chave reservada para o agente de especificação (§5, ADR-0021). Mesmo regime do
+# NAMING_KEY: não é fase da esteira, sempre editável.
+SPEC_KEY = "especificacao"
+
+
+# Categorias válidas de uma verificação da bateria (§12 do fluxo.md) — vocabulário
+# fechado para o diagnóstico de falha (ADR-0019/ADR-0022) poder mapear categoria ->
+# causa sem depender de heurística por palavra-chave.
+CATEGORIAS_VALIDACAO = frozenset(
+    {
+        "formatacao",
+        "lint",
+        "compilacao",
+        "tipos",
+        "testes",
+        "integracao",
+        "contrato",
+        "e2e",
+        "estatica",
+        "dependencias",
+        "seguranca",
+        "migrations",
+        "documentacao",
+        "cobertura",
+        "desempenho",
+    }
+)
+
+
+class ValidationCheck(BaseModel):
+    """Uma verificação nomeada da bateria do §12 (ADR-0022) — não mais um único
+    comando indiferenciado: o gate sabe QUAL verificação falhou, não só que "o
+    comando falhou"."""
+
+    nome: str
+    comando: str
+    categoria: str = "testes"
+    bloqueante: bool = True
+
 
 class AgentAssignment(BaseModel):
     """Executor escolhido para uma etapa específica da esteira (ADR-0014).
@@ -68,7 +119,44 @@ class Orchestration(BaseModel):
     # Chaves: "F1".."F7" (etapas da esteira) e NAMING_KEY ("naming", o agente que batiza
     # branches e commits). Etapa sem entrada aqui herda `selected_*`.
     agent_assignments: dict[str, AgentAssignment] = Field(default_factory=dict)
+    # Ficha estruturada da demanda (§1/§2 do fluxo.md), produzida na criação pelo agente
+    # de triagem ou pela heurística. É o que alimenta o DecisionInput — sem ela o motor
+    # de decisão roda sobre uma constante. Guardada como dict (não como DemandBrief) para
+    # espelhar agent_assignments e manter a serialização do repositório simples.
+    demand_brief: dict[str, Any] = Field(default_factory=dict)
+    # Ring de até 5 versões do relatório de discovery (§3/§4, ADR-0020, versionado
+    # pela ADR-0021 §4.2) — a última é a versão corrente. Lista vazia = discovery
+    # nunca rodado — não regride o gate de F1 de nenhuma orquestração que não passar
+    # por `POST .../discovery/run`.
+    discovery_reports: list[dict[str, Any]] = Field(default_factory=list)
+    # Ring de até 5 versões da especificação da solução (§5/§6, ADR-0021) — mesmo
+    # raciocínio de `discovery_reports`. Lista vazia = especificação nunca gerada.
+    spec_documents: list[dict[str, Any]] = Field(default_factory=list)
     validation_command: str | None = None
+    # Bateria nomeada do §12 (ADR-0022). Vazia = a orquestração ainda usa só o
+    # `validation_command` legado — `checks_efetivos` (control/validation.py)
+    # resolve os dois num único formato, sem mudar comportamento de nenhuma
+    # orquestração existente.
+    validation_checks: list[ValidationCheck] = Field(default_factory=list)
+    # Implantação governada (§18-22, ADR-0023): comando configurável pelo
+    # operador — o runtime não provisiona infraestrutura, só orquestra o
+    # comando (mesma disciplina de `validation_command`/`validation_checks`).
+    deploy_command: str | None = None
+    deploy_environment: str = "producao"
+    # Verificações pós-implantação (§20) — reaproveita ValidationCheck: um
+    # health check é "nome + comando + categoria + bloqueante", igual a uma
+    # verificação da bateria.
+    deploy_health_checks: list[ValidationCheck] = Field(default_factory=list)
+    deploy_rollback_command: str | None = None
+    # Ring de até 5 tentativas de implantação (control/documentos.py) — mesmo
+    # raciocínio de discovery_reports/spec_documents. Lista vazia = nunca
+    # implantou — não regride o gate de F6 de nenhuma orquestração existente.
+    deploy_runs: list[dict[str, Any]] = Field(default_factory=list)
+    # Orçamento com freio (§1.2/§3.2 do plano7.md, ADR-0026): `None` = sem teto,
+    # comportamento idêntico a toda orquestração anterior a este incremento — o
+    # teto é opt-in. `ASO_ORCAMENTO_PADRAO_USD` preenche o default de orquestrações
+    # novas em `create_orchestration`, não aqui (Pydantic não lê env em default).
+    orcamento_usd: float | None = None
     workspace_prepared: bool = False
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE
     # A esteira começa em F1 (discovery) e avança até F7 sob o autopilot.

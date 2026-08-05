@@ -137,7 +137,7 @@
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const statusPill = (s) => {
       const m = { applied:'ok', PASSED:'ok', approved:'ok', Done:'ok', rejected:'err', FAILED:'err', Failed:'err', Blocked:'err',
-                  pending:'warn', WARNING:'warn', WaitingHuman:'warn', Testing:'info', Review:'info', InProgress:'info' };
+                  pending:'warn', WARNING:'warn', WaitingHuman:'warn', NeedsFix:'warn', Testing:'info', Review:'info', InProgress:'info' };
       return `<span class="pill ${m[s]||''}">${esc(s)}</span>`;
     };
     let current = null, currentTab = 'kanban';
@@ -416,7 +416,7 @@
       const SLO_LABELS = { sem_conflitos_abertos:'sem conflitos', sem_cards_bloqueados:'cards bloqueados', snapshot_da_fase_gerado:'snapshot ausente', taxa_de_falhas_de_execucao:'taxa de falhas alta' };
       const sloText = sloOk ? 'OK' : slo.breaches.map(b=>SLO_LABELS[b]||b).join(', ');
       const pending = approvals.filter(a => a.status === 'pending').length;
-      const tabs = ['kanban','pulls','races','costs','slo','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
+      const tabs = ['kanban','pulls','races','costs','worktrees','slo','learning','adrs','approvals','conflicts','snapshots','patches','audit','timeline'];
       document.getElementById('detail').innerHTML = `
         <div class="card">
           <div class="row between">
@@ -555,7 +555,9 @@
         if (currentTab==='pulls') return renderPulls(id, c);
         if (currentTab==='races') return renderRaces(id, c);
         if (currentTab==='costs') return renderCosts(id, c);
+        if (currentTab==='worktrees') return renderWorktrees(id, c);
         if (currentTab==='slo') return renderSlo(id, c);
+        if (currentTab==='learning') return renderLearning(id, c);
         if (currentTab==='conflicts') return renderConflicts(id, c);
         if (currentTab==='snapshots') return renderSnapshots(id, c);
         if (currentTab==='patches') return renderPatches(id, c);
@@ -566,7 +568,8 @@
 
     async function renderKanban(id, c) {
       const cards = await api(`/v1/orchestrations/${id}/cards`);
-      const cols = ['Backlog','Ready','Planning','InProgress','WaitingAgent','WaitingHuman','Review','Testing','Blocked','Failed','Done','Archived'];
+      const cardsPorId = {}; cards.forEach(card => { cardsPorId[card.id] = card; });
+      const cols = ['Backlog','Ready','Planning','InProgress','WaitingAgent','WaitingHuman','Review','NeedsFix','Testing','Deploying','Validating','Blocked','Failed','Done','Cancelled','Archived'];
       const by = {}; cards.forEach(k => (by[k.status]=by[k.status]||[]).push(k));
       c.replaceChildren();
       const hint = document.createElement('div'); hint.className = 'row'; hint.style.marginBottom = '8px';
@@ -586,7 +589,15 @@
           node.appendChild(meta);
           const title = document.createElement('div'); title.className = 'title'; title.style.margin = '4px 0'; title.textContent = card.title;
           node.appendChild(title);
+          // Hierarquia épico → história → subtarefa (§7, ADR-0025) — só decorativo aqui;
+          // as regras (profundidade/ciclo/fechar antes dos filhos) já são do backend.
+          if (card.parent_id && cardsPorId[card.parent_id]) {
+            const pai = document.createElement('div'); pai.className = 'muted'; pai.style.fontSize = '11px';
+            pai.textContent = '↳ filho de: ' + cardsPorId[card.parent_id].title;
+            node.appendChild(pai);
+          }
           if (card.block_reason) { const reason = document.createElement('div'); reason.className = 'reason'; reason.textContent = '⚠ ' + card.block_reason; node.appendChild(reason); }
+          if ((card.blocked_by || []).length) { const dep = document.createElement('div'); dep.className = 'reason'; dep.textContent = '⛓ aguardando ' + card.blocked_by.length + ' card(s)'; node.appendChild(dep); }
           const actions = document.createElement('div'); actions.style.cssText = 'margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;align-items:center';
           function cardButton(label, className, handler, titleText) {
             const button = document.createElement('button'); button.type = 'button'; button.className = className; button.textContent = label;
@@ -595,6 +606,7 @@
           if (columnName === 'Backlog') actions.appendChild(cardButton('▶ Ready', 'btn sm ok', () => moverParaReady(id, card.id), 'Libera a IA para executar este card'));
           actions.appendChild(cardButton('PR', 'btn sm ghost', () => openPr(id, card.id)));
           actions.appendChild(cardButton('Candidatos', 'btn sm ghost', () => raceCard(id, card.id)));
+          actions.appendChild(cardButton('🧪 QA', 'btn sm ghost', () => qaCard(id, card.id), 'Verificação manual — §16/§17'));
           node.appendChild(actions); column.appendChild(node);
         });
         if (!(by[columnName] || []).length) { const empty = document.createElement('div'); empty.className = 'muted'; empty.textContent = '—'; column.appendChild(empty); }
@@ -602,6 +614,55 @@
       });
       c.appendChild(board);
       const racePanel = document.createElement('div'); racePanel.id = 'racePanel'; c.appendChild(racePanel);
+      const qaPanel = document.createElement('div'); qaPanel.id = 'qaPanel'; c.appendChild(qaPanel);
+    }
+
+    function qaStatusPill(status) {
+      const color = status === 'falhou' ? 'var(--err)' : status === 'passou' ? 'var(--ok)' : 'var(--warn)';
+      return `<span class="pill" style="background:${color}22;color:${color}">${esc(status)}</span>`;
+    }
+
+    async function qaCard(id, cardId) {
+      const panel = document.getElementById('qaPanel');
+      const checks = await api(`/v1/orchestrations/${id}/cards/${cardId}/qa`);
+      panel.innerHTML = `<h3 style="margin:16px 0 6px">QA manual — card <code>${esc(cardId)}</code> (§16/§17)</h3>
+        ${!checks.length ? '<div class="empty">Nenhuma verificação registrada ainda.</div>' :
+          `<table><tr><th>Status</th><th>Cenário</th><th>Obtido</th><th></th></tr>
+            ${checks.map((chk, i) => `<tr>
+              <td>${qaStatusPill(chk.status)}</td>
+              <td>${esc(chk.cenario)}</td>
+              <td>${esc(chk.resultado_obtido || '—')}</td>
+              <td>${chk.status !== 'falhou' ? `<button class="btn sm" onclick="reprovarQa('${id}','${cardId}',${i})">✗ Reprovar</button>` : ''}</td>
+            </tr>`).join('')}</table>`}
+        <button class="btn sm ok" style="margin-top:8px" onclick="registrarQa('${id}','${cardId}')">+ Registrar verificação</button>`;
+    }
+
+    async function registrarQa(id, cardId) {
+      const cenario = prompt('Cenário testado (ex.: "checkout com cupom"):');
+      if (!cenario) return;
+      const passosTxto = prompt('Passos para reproduzir (separados por ";", opcional):') || '';
+      const resultado_esperado = prompt('Resultado esperado (opcional):') || '';
+      const passou = confirm('A verificação passou? OK = passou, Cancelar = pendente/registrar sem veredito ainda.');
+      try {
+        await post(`/v1/orchestrations/${id}/cards/${cardId}/qa`, {
+          cenario,
+          passos: passosTxto.split(';').map(function(s) { return s.trim(); }).filter(Boolean),
+          resultado_esperado,
+          status: passou ? 'passou' : 'pendente',
+        });
+        qaCard(id, cardId);
+      } catch (e) { alert('Erro ao registrar QA (' + e + ').'); }
+    }
+
+    async function reprovarQa(id, cardId, index) {
+      const resultado_obtido = prompt('O que foi observado (vira a descrição do bug aberto — §17):');
+      if (resultado_obtido === null) return;
+      const gravidade = prompt('Gravidade (baixa/media/alta/critica):', 'media') || 'media';
+      try {
+        await post(`/v1/orchestrations/${id}/cards/${cardId}/qa/${index}/fail`, { resultado_obtido, gravidade });
+        qaCard(id, cardId);
+        renderTab(id);
+      } catch (e) { alert('Erro ao reprovar QA (' + e + ').'); }
     }
 
     async function moverParaReady(orchId, cardId) {
@@ -621,7 +682,9 @@
         return;
       }
       const cmp = await r.json(); const rec = cmp.recommended_branch;
+      const total = cmp.candidates.length; const falhas = cmp.falhas||[]; const ok = total - falhas.length;
       panel.innerHTML = `<h3 style="margin:16px 0 6px">Candidatos — card <code>${esc(cardId)}</code></h3>
+        ${falhas.length?`<div class="empty" style="color:#b3261e;margin-bottom:8px">⚠ corrida degradada: ${ok} de ${total} candidatos concluíram — a comparação NÃO é completa.</div>`:''}
         <table><tr><th>Executor</th><th>Branch</th><th style="text-align:right">Diff</th><th>Arquivos</th><th></th></tr>
         ${cmp.candidates.map(x=>`<tr style="${x.branch===rec?'background:rgba(47,125,79,.14)':''}">
           <td>${esc(x.executor)}</td>
@@ -662,9 +725,10 @@
       c.innerHTML = runs.slice().reverse().map(run => {
         const rec = run.recommended_branch;
         const cands = (run.candidates||[]).filter(x=>!x.error);
+        const total = run.candidates.length; const falharam = total - cands.length;
         return `<div class="card" style="margin-bottom:12px">
           <div class="diffhead" style="background:transparent;border:0;padding:0 0 6px">
-            <b>card <code>${esc(run.card_id)}</code></b> · ${run.candidates.length} candidatos · recomendado <code>${esc(rec||'—')}</code>
+            <b>card <code>${esc(run.card_id)}</code></b> · ${falharam?`<span style="color:#b3261e">${cands.length} de ${total} candidatos concluíram</span>`:`${total} candidatos`} · recomendado <code>${esc(rec||'—')}</code>
             <span class="muted"> · ${esc(run.created_at||'')}</span>
           </div>
           <div class="diffgrid">
@@ -683,12 +747,34 @@
       const t = await api(`/v1/orchestrations/${id}/execution-timeline`);
       if (!t.cards.length) { c.innerHTML = '<div class="empty">sem execuções ainda</div>'; return; }
       const max = Math.max(...t.cards.map(x=>x.total_ms), 1);
-      c.innerHTML = `<div class="muted" style="margin-bottom:8px">${t.executions_total} execuções · ${t.total_ms} ms acumulados (custo aproximado por tempo de execução)</div>
-        <table><tr><th>Card</th><th>Execuções</th><th style="text-align:right">Tempo total (ms)</th><th style="text-align:right">Médio</th><th>Falhas</th><th>Custo</th></tr>
+      // Custo real (§1.1, ADR-0026) quando o agente informa; tempo (ms) é o fallback
+      // declarado quando não há — os dois nunca devem ser lidos como sinônimos.
+      c.innerHTML = `<div class="muted" style="margin-bottom:8px">${t.executions_total} execuções · ${t.total_ms} ms acumulados · US$ ${Number(t.total_custo_usd||0).toFixed(4)} de custo real informado</div>
+        <table><tr><th>Card</th><th>Execuções</th><th style="text-align:right">Tempo total (ms)</th><th style="text-align:right">Médio</th><th>Falhas</th><th>Custo (US$)</th><th>Tempo</th></tr>
         ${t.cards.map(x=>`<tr><td><code>${esc(x.card_id)}</code></td><td>${x.executions}</td>
           <td style="text-align:right">${x.total_ms}</td><td style="text-align:right">${x.avg_ms}</td>
           <td>${x.failures?`<span style="color:var(--err)">${x.failures}</span>`:'0'}</td>
+          <td>${x.total_custo_usd ? Number(x.total_custo_usd).toFixed(4) : '—'}</td>
           <td style="min-width:120px"><div style="background:var(--accent);height:8px;border-radius:4px;width:${Math.round(100*x.total_ms/max)}%"></div></td></tr>`).join('')}</table>`;
+    }
+
+    async function renderWorktrees(id, c) {
+      const w = await api(`/v1/orchestrations/${id}/worktrees`);
+      const orfaos = w.filter(x => x.orfao);
+      c.innerHTML = `
+        <div class="row" style="margin-bottom:10px">
+          <span class="muted" style="align-self:center">${w.length} worktree(s) em disco · ${orfaos.length} órfão(s)</span>
+          ${orfaos.length ? `<button class="btn sm err" onclick="pruneWorktrees('${id}')">Remover órfãos (admin)</button>` : ''}
+        </div>
+        ${w.length ? `<table><tr><th>Caminho</th><th>Branch</th><th></th></tr>
+          ${w.map(x=>`<tr><td><code>${esc(x.path)}</code></td><td>${esc(x.branch||'—')}</td>
+            <td>${x.orfao ? '<span style="color:var(--err)">órfão</span>' : '<span class="muted">ativo</span>'}</td></tr>`).join('')}</table>`
+          : '<div class="empty">Nenhum worktree em disco — o runtime remove ao final de cada execução; só sobra algo aqui depois de um crash de processo (§3.3).</div>'}`;
+    }
+    async function pruneWorktrees(id) {
+      if (!confirm('Remover os worktrees órfãos deste repositório? Isso não apaga nada do banco, só o que sobrou em disco de um processo morto.')) return;
+      await post(`/v1/orchestrations/${id}/worktrees/prune`, {});
+      renderTab(id);
     }
 
     function sevPill(s) {
@@ -730,6 +816,31 @@
           : '<div class="muted" style="margin-top:10px">Sem histórico — clique em "Avaliar agora" para registrar a 1ª amostra.</div>'}`;
     }
     async function evalSlo(id) { await post(`/v1/orchestrations/${id}/slo/evaluate`, {}); renderTab(id); }
+
+    async function renderLearning(id, c) {
+      const r = await api(`/v1/orchestrations/${id}/learning`);
+      c.innerHTML = `
+        <div class="muted" style="margin-bottom:8px">§24 do fluxo.md — informativo: não altera nenhuma decisão automaticamente (a escolha de executor continua manual, §9).</div>
+        <div class="card" style="margin-bottom:12px">
+          <div class="muted">${r.total_cards} card(s) · ${r.total_falhas} falha(s) · ${r.total_retrabalho} reexecução(ões) · ${r.intervencoes_humanas} intervenção(ões) humana(s)</div>
+          ${r.recomendacao ? `<div style="margin-top:6px">${esc(r.recomendacao)}</div>` : ''}
+        </div>
+        ${r.desempenho_por_executor.length ? `<table><tr><th>Executor</th><th>Execuções</th><th>Falhas</th><th>Retrabalho</th>
+          <th>Tempo médio</th><th>Rodadas de revisão (média)</th><th>Custo total (US$)</th><th>Custo/entrega (US$)</th><th>Sem custo informado</th><th>Erros recorrentes</th></tr>
+          ${r.desempenho_por_executor.map(d => `<tr>
+            <td>${esc(d.executor)}</td><td>${d.execucoes}</td>
+            <td>${d.falhas ? `<span style="color:var(--err)">${d.falhas}</span>` : '0'}</td>
+            <td>${d.retrabalho}</td><td>${Math.round(d.tempo_medio_ms)}ms</td>
+            <td>${d.rodadas_de_revisao_media}</td>
+            <td>${Number(d.custo_total_usd||0).toFixed(4)}</td>
+            <td>${d.custo_por_entrega ? Number(d.custo_por_entrega).toFixed(4) : '—'}</td>
+            <td>${d.execucoes_sem_custo || 0}</td>
+            <td>${esc(Object.entries(d.erros_recorrentes).map(([k,v]) => k+': '+v).join(', ') || '—')}</td>
+          </tr>`).join('')}</table>` : '<div class="empty">Sem cards nesta orquestração ainda.</div>'}
+        <div class="muted" style="margin-top:8px">Nunca compare custo total entre executores sem olhar custo/entrega: um executor caro que acerta de primeira pode sair mais barato que um barato que precisa de várias tentativas.</div>
+        ${Object.keys(r.falhas_por_etapa).length ? `<h3 style="margin:14px 0 6px">Falhas por etapa</h3>
+          <div class="muted">${Object.entries(r.falhas_por_etapa).map(([k,v]) => esc(k)+': '+v).join(' · ')}</div>` : ''}`;
+    }
 
     async function renderAdrs(id, c) {
       const adrs = await api(`/v1/orchestrations/${id}/adrs`);

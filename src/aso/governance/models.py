@@ -121,6 +121,12 @@ class PullRequest(BaseModel):
     status: str = "open"  # open | merged | closed
     ci_status: str = "pending"  # pending | passed | failed
     review_status: str = "pending"  # pending | approved | changes_requested
+    # Veredito da revisão independente (ADR-0017), serializado como dict (mesmo
+    # padrão de demand_brief): vazio = ainda não revisada. `reviewed_by` é o
+    # executor que revisou; `review_rounds` conta quantas vezes o ciclo rodou.
+    review_verdict: dict[str, Any] = Field(default_factory=dict)
+    reviewed_by: str = ""
+    review_rounds: int = 0
     created_at: str = Field(default_factory=now_iso)
     merged_at: str | None = None
 

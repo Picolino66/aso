@@ -130,12 +130,18 @@
   </header>
   <main>
     <div>
+      <section class="card" id="ficha"></section>
       <section class="card">
         <h2>Esteira F1 → F7</h2>
         <div class="muted">Cada etapa pode rodar com um agente diferente — clique no chip para escolher.</div>
         <div class="esteira" id="esteira"></div>
       </section>
       <section class="card hero" id="proximo"><div class="empty">Calculando o próximo passo…</div></section>
+      <section class="card" id="discovery" style="display:none"></section>
+      <section class="card" id="especificacao" style="display:none"></section>
+      <section class="card" id="revisao" style="display:none"></section>
+      <section class="card" id="gate" style="display:none"></section>
+      <section class="card" id="implantacao" style="display:none"></section>
       <section class="card" id="aovivo"></section>
       <section class="card" id="fase"></section>
       <section class="card" id="pendencias"></section>
@@ -155,7 +161,7 @@
 
   <script>
     const ID = new URLSearchParams(location.search).get('id');
-    const ORDEM_FUNIL = ['Blocked','Failed','WaitingHuman','Ready','Backlog','InProgress','WaitingAgent','Planning','Review','Testing','Done','Archived'];
+    const ORDEM_FUNIL = ['Blocked','Failed','WaitingHuman','NeedsFix','Ready','Backlog','InProgress','WaitingAgent','Planning','Review','Testing','Deploying','Validating','Done','Cancelled','Archived'];
     const ICONE = { ok:'✓', atual:'▸', pendente:'○', falha:'✗' };
     const SEVERIDADE = {
       bloqueia:       { pill:'err',    rotulo:'bloqueia' },
@@ -163,9 +169,13 @@
       acao_do_operador:{ pill:'accent',rotulo:'sua vez' },
       informativo:    { pill:'info',   rotulo:'aviso' },
     };
-    // Etapas configuráveis (ADR-0014): as sete fases da esteira + o nomeador, que não
-    // é fase — ele só batiza branches e commits, e pode ser trocado a qualquer momento.
+    // Etapas configuráveis (ADR-0014): as sete fases da esteira + o nomeador, a
+    // triagem (ADR-0016) e a revisão independente (ADR-0017), que não são fase — só
+    // batizam branches/commits, interpretam a demanda ou revisam o diff, e podem ser
+    // trocadas a qualquer momento.
     const NAMING = 'naming';
+    const TRIAGE = 'triagem';
+    const REVIEW = 'revisao';
     const ETAPAS = [
       { key:'F1', titulo:'F1', legenda:'discovery' },
       { key:'F2', titulo:'F2', legenda:'arquitetura' },
@@ -175,10 +185,41 @@
       { key:'F6', titulo:'F6', legenda:'qualidade e docs' },
       { key:'F7', titulo:'F7', legenda:'operação' },
       { key:NAMING, titulo:'Nomeador', legenda:'branches e commits' },
+      { key:TRIAGE, titulo:'Triagem', legenda:'ficha da demanda' },
+      { key:REVIEW, titulo:'Revisão', legenda:'revisão independente de código' },
     ];
+    // Desfechos possíveis do veredito de revisão (ADR-0017), com a cor de cada um.
+    const VEREDITO_PILL = {
+      aprovado:'ok', aprovado_com_sugestoes:'ok', alteracoes_obrigatorias:'err',
+      reprovado:'err', necessita_humano:'warn',
+    };
+    // Espelha control/selecao.py (§9, ADR-0022): complexidade + risco decidem o
+    // esforço. Desde a ADR-0022 é o esforço EFETIVO (não só informativo) quando
+    // nenhuma escolha humana o sobrepõe — `ASO_EFFORT_AUTOMATICO` liga por padrão.
+    const EFFORT_TABELA = {
+      simples: { baixo:'low', alto:'medium' },
+      intermediaria: { baixo:'medium', alto:'high' },
+      complexa: { baixo:'high', alto:'high' },
+      estrategica: { baixo:'high', alto:'high (ou o topo do perfil)' },
+    };
+    function effortSugerido(complexidade, risco) {
+      const linha = EFFORT_TABELA[complexidade] || EFFORT_TABELA.intermediaria;
+      return (risco === 'high' || risco === 'critical') ? linha.alto : linha.baixo;
+    }
     let estado = {
       orch:null, step:null, cards:[], projeto:null, eventos:[], metrics:null, execs:[],
-      fases:[], log:{ lines:[], next:0, running:false, sessions:[] },
+      fases:[], brief:null, pulls:[], discovery:null, spec:null, gates:[], checks:[], deploy:null,
+      log:{ lines:[], next:0, running:false, sessions:[] },
+    };
+    // Desfechos possíveis do status do discovery (§3/§4 do fluxo.md, ADR-0020).
+    const DISCOVERY_PILL = {
+      aprovado:'ok', aguardando_aprovacao:'warn', reprovado:'err', rascunho:'',
+    };
+    // Desfechos possíveis do status da especificação (§5/§6 do fluxo.md, ADR-0021) —
+    // os quatro vereditos da revisão documental, mais rascunho/aguardando_revisao.
+    const SPEC_PILL = {
+      aprovado:'ok', aprovado_com_observacoes:'ok', aguardando_revisao:'warn',
+      necessita_humano:'warn', reprovado:'err', rascunho:'',
     };
     let fonteEventos = null, recarregando = false;
     // Polling do log do agente: só roda enquanto há execução, e nunca em duplicidade.
@@ -223,7 +264,7 @@
       if (recarregando) return;
       recarregando = true;
       try {
-        const [orch, step, cards, timeline, metrics] = await Promise.all([
+        const [orch, step, cards, timeline, metrics, brief, pulls, discovery, spec, gates, checks, deploy] = await Promise.all([
           api('/v1/orchestrations/' + encodeURIComponent(ID)),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/next-step'),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards'),
@@ -231,9 +272,18 @@
           // orquestração — o painel mostrava o começo da história, nunca o agora.
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/timeline?page_size=14&newest_first=true').catch(function() { return {items:[]}; }),
           api('/v1/orchestrations/' + encodeURIComponent(ID) + '/metrics').catch(function() { return null; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/brief').catch(function() { return null; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls').catch(function() { return []; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery').catch(function() { return null; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec').catch(function() { return null; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/quality-gates').catch(function() { return []; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/validation-checks').catch(function() { return []; }),
+          api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy').catch(function() { return null; }),
         ]);
         estado.orch = orch; estado.step = step; estado.cards = cards;
         estado.eventos = (timeline && timeline.items) || []; estado.metrics = metrics;
+        estado.brief = brief; estado.pulls = pulls || []; estado.discovery = discovery; estado.spec = spec;
+        estado.gates = gates || []; estado.checks = checks || []; estado.deploy = deploy;
         if (orch.project_id && (!estado.projeto || estado.projeto.id !== orch.project_id)) {
           estado.projeto = await api('/v1/projects/' + encodeURIComponent(orch.project_id)).catch(function() { return null; });
         }
@@ -261,8 +311,674 @@
     }
 
     function renderizar() {
-      renderCabecalho(); renderEsteira(); renderProximoPasso(); renderAoVivo();
+      renderCabecalho(); renderFicha(); renderEsteira(); renderProximoPasso(); renderDiscovery(); renderSpec(); renderRevisao(); renderGate(); renderImplantacao(); renderAoVivo();
       renderFase(); renderPendencias(); renderAtividade(); renderTecnico();
+    }
+
+    // ------------------------------------------------------------------- discovery
+    function renderDiscovery() {
+      const alvo = document.getElementById('discovery');
+      const rel = estado.discovery;
+      if (!rel || !rel.status) { alvo.style.display = 'none'; alvo.replaceChildren(); return; }
+      alvo.style.display = '';
+      alvo.replaceChildren();
+      alvo.appendChild(el('h2', '', 'Discovery'));
+      const topo = el('div', 'facts');
+      topo.appendChild(pill(rel.status, DISCOVERY_PILL[rel.status] || ''));
+      topo.appendChild(pill('confiança: ' + rel.confianca));
+      topo.appendChild(pill('origem: ' + rel.origem, rel.origem === 'heuristica' ? 'warn' : 'accent'));
+      alvo.appendChild(topo);
+
+      if (rel.origem === 'heuristica') {
+        const aviso = el('div', 'motivo');
+        aviso.style.marginTop = '10px';
+        aviso.textContent = '⚠ Sem agente de discovery configurado — resumo heurístico a partir da ficha e do workspace' + (rel.fallback_reason ? ' (' + rel.fallback_reason + ')' : '') + '.';
+        alvo.appendChild(aviso);
+      }
+      if (rel.situacao_atual) alvo.appendChild(campoFicha('Situação atual', rel.situacao_atual));
+      if (rel.problema) alvo.appendChild(campoFicha('Problema', rel.problema));
+      if (rel.recomendacao_tecnica) alvo.appendChild(campoFicha('Recomendação técnica', rel.recomendacao_tecnica));
+      [['Componentes afetados', rel.componentes_afetados], ['Restrições', rel.restricoes],
+       ['Riscos', rel.riscos], ['Alternativas', rel.alternativas], ['Pontos que precisam de decisão', rel.pontos_decisao]]
+        .forEach(function(par) {
+          if (!par[1] || !par[1].length) return;
+          const box = el('div');
+          box.style.marginTop = '10px';
+          box.appendChild(el('div', 'muted', par[0]));
+          const lista = el('ul', 'checklist');
+          par[1].forEach(function(item) { lista.appendChild(el('li', '', item)); });
+          box.appendChild(lista);
+          alvo.appendChild(box);
+        });
+      if (rel.status === 'reprovado' && rel.revisao_comentarios) {
+        alvo.appendChild(campoFicha('Comentários da revisão', rel.revisao_comentarios));
+      }
+
+      const acoes = el('div', 'acoes');
+      acoes.appendChild(botao('🔎 Rodar discovery' + (rel.status === 'rascunho' ? '' : ' de novo'), 'ghost sm', function(node) { rodarDiscovery(node); }));
+      if (rel.status === 'aguardando_aprovacao') {
+        acoes.appendChild(botao('Aprovar (admin)', 'ok sm', function(node) { decidirDiscovery(true, node); }));
+        acoes.appendChild(botao('Reprovar (admin)', 'err sm', function(node) { decidirDiscovery(false, node); }));
+      }
+      alvo.appendChild(acoes);
+    }
+
+    async function rodarDiscovery(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery/run', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: '{}',
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao rodar o discovery: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function decidirDiscovery(aprovado, node) {
+      const comentario = prompt(aprovado ? 'Comentário da aprovação (opcional):' : 'Motivo da reprovação (o agente vai ajustar o documento a partir disto):');
+      if (!aprovado && (!comentario || !comentario.trim())) return;
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery/decide', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ approved: aprovado, comentario: (comentario || '').trim() }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao decidir o discovery: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    // -------------------------------------------------------- especificação (§5/§6)
+    function renderSpec() {
+      const alvo = document.getElementById('especificacao');
+      const doc = estado.spec;
+      if (!doc || !doc.status || doc.status === 'rascunho') { alvo.style.display = 'none'; alvo.replaceChildren(); return; }
+      alvo.style.display = '';
+      alvo.replaceChildren();
+      alvo.appendChild(el('h2', '', 'Especificação'));
+      const topo = el('div', 'facts');
+      topo.appendChild(pill(doc.status, SPEC_PILL[doc.status] || ''));
+      topo.appendChild(pill('versão ' + doc.versao));
+      topo.appendChild(pill('origem: ' + doc.origem, doc.origem === 'heuristica' ? 'warn' : 'accent'));
+      alvo.appendChild(topo);
+
+      if (doc.origem === 'heuristica') {
+        const aviso = el('div', 'motivo');
+        aviso.style.marginTop = '10px';
+        aviso.textContent = '⚠ Sem agente de especificação configurado — esqueleto heurístico a partir do discovery e da ficha' + (doc.fallback_reason ? ' (' + doc.fallback_reason + ')' : '') + '.';
+        alvo.appendChild(aviso);
+      }
+      if (doc.o_que_sera_construido) alvo.appendChild(campoFicha('O que será construído', doc.o_que_sera_construido));
+      if ((doc.fora_de_escopo || []).length) {
+        const box = el('div');
+        box.style.marginTop = '10px';
+        box.appendChild(el('div', 'muted', '🚫 Fora de escopo'));
+        const lista = el('ul', 'checklist');
+        doc.fora_de_escopo.forEach(function(item) { lista.appendChild(el('li', '', item)); });
+        box.appendChild(lista);
+        alvo.appendChild(box);
+      }
+      if (doc.como_funciona) alvo.appendChild(campoFicha('Como funciona', doc.como_funciona));
+      [['Critérios de aceite', doc.criterios_de_aceite], ['Regras de negócio', doc.regras_de_negocio],
+       ['Componentes', doc.componentes], ['Alterações de código', doc.alteracoes_codigo],
+       ['Alterações de banco', doc.alteracoes_banco], ['Alterações de infra', doc.alteracoes_infra],
+       ['Checklist de segurança', doc.checklist_seguranca]]
+        .forEach(function(par) {
+          if (!par[1] || !par[1].length) return;
+          const box = el('div');
+          box.style.marginTop = '10px';
+          box.appendChild(el('div', 'muted', par[0]));
+          const lista = el('ul', 'checklist');
+          par[1].forEach(function(item) { lista.appendChild(el('li', '', item)); });
+          box.appendChild(lista);
+          alvo.appendChild(box);
+        });
+      if (doc.estrategia_de_testes) alvo.appendChild(campoFicha('Estratégia de testes', doc.estrategia_de_testes));
+      if (doc.estrategia_de_implantacao) alvo.appendChild(campoFicha('Estratégia de implantação', doc.estrategia_de_implantacao));
+      if (doc.plano_de_rollback) alvo.appendChild(campoFicha('Plano de rollback', doc.plano_de_rollback));
+      if ((doc.itens_de_trabalho || []).length) {
+        const box = el('div');
+        box.style.marginTop = '10px';
+        box.appendChild(el('div', 'muted', 'Itens de trabalho (' + doc.itens_de_trabalho.length + ')'));
+        const lista = el('ul', 'checklist');
+        doc.itens_de_trabalho.forEach(function(item) {
+          const dep = (item.depende_de || []).length ? ' — depende de: ' + item.depende_de.join(', ') : '';
+          lista.appendChild(el('li', '', item.titulo + ' [' + item.fase + '/' + item.dominio + ']' + dep));
+        });
+        box.appendChild(lista);
+        alvo.appendChild(box);
+      }
+      if (['reprovado', 'necessita_humano'].indexOf(doc.status) >= 0 && doc.revisao_comentarios) {
+        alvo.appendChild(campoFicha('Comentários da revisão documental', doc.revisao_comentarios));
+      }
+
+      const acoes = el('div', 'acoes');
+      acoes.appendChild(botao('📐 Gerar especificação' + (doc.status === 'rascunho' ? '' : ' de novo'), 'ghost sm', function(node) { rodarSpec(node); }));
+      if (doc.status === 'aguardando_revisao') {
+        acoes.appendChild(botao('Rodar revisão documental', 'ghost sm', function(node) { revisarSpec(node); }));
+      }
+      if (doc.status === 'necessita_humano') {
+        acoes.appendChild(botao('Aprovar (admin)', 'ok sm', function(node) { decidirSpec(true, node); }));
+        acoes.appendChild(botao('Reprovar (admin)', 'err sm', function(node) { decidirSpec(false, node); }));
+      }
+      alvo.appendChild(acoes);
+    }
+
+    async function rodarSpec(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec/run', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: '{}',
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao gerar a especificação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function revisarSpec(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec/review', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: '{}',
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao rodar a revisão documental: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function decidirSpec(aprovado, node) {
+      const comentario = prompt(aprovado ? 'Comentário da aprovação (opcional):' : 'Motivo da reprovação (o agente vai ajustar o documento a partir disto):');
+      if (!aprovado && (!comentario || !comentario.trim())) return;
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec/approve', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ approved: aprovado, comentario: (comentario || '').trim() }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao decidir a especificação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    // ------------------------------------------------------- quality gate + bateria (§12, ADR-0022)
+    function renderGate() {
+      const alvo = document.getElementById('gate');
+      const gatesDaFase = (estado.gates || []).filter(function(g) { return g.phase === estado.step.phase; });
+      const ultimo = gatesDaFase.length ? gatesDaFase[gatesDaFase.length - 1] : null;
+      if (!ultimo && !(estado.checks || []).length) { alvo.style.display = 'none'; alvo.replaceChildren(); return; }
+      alvo.style.display = '';
+      alvo.replaceChildren();
+      alvo.appendChild(el('h2', '', 'Quality gate — ' + estado.step.phase));
+      if (ultimo) {
+        const topo = el('div', 'facts');
+        topo.appendChild(pill(ultimo.status, ultimo.status === 'passed' ? 'ok' : 'err'));
+        alvo.appendChild(topo);
+        const lista = el('ul', 'checklist');
+        (ultimo.criteria || []).forEach(function(c) {
+          const passou = c.status === 'passed';
+          const bloqueante = (ultimo.blocking_issues || []).indexOf(c.name) >= 0;
+          const linha = el('li', passou ? 'ok' : (bloqueante ? 'err' : 'atual'));
+          linha.textContent = (passou ? '✓ ' : '✗ ') + c.name + (bloqueante ? '' : (passou ? '' : ' (não-bloqueante)'));
+          if ((c.evidence || []).length) {
+            const details = document.createElement('details');
+            const summary = document.createElement('summary'); summary.textContent = 'evidência';
+            details.appendChild(summary);
+            c.evidence.forEach(function(e) { details.appendChild(el('div', 'muted', e)); });
+            linha.appendChild(details);
+          }
+          lista.appendChild(linha);
+        });
+        alvo.appendChild(lista);
+      } else {
+        alvo.appendChild(el('div', 'empty', 'Gate ainda não rodou para esta fase.'));
+      }
+      alvo.appendChild(renderBateria());
+      const acoes = el('div', 'acoes');
+      acoes.appendChild(botao('🚦 Rodar quality gate', 'ghost sm', function(node) { rodarGate(node); }));
+      alvo.appendChild(acoes);
+    }
+
+    async function rodarGate(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/quality-gates/run', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ phase: estado.step.phase }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao rodar o quality gate: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    // Bateria efetiva (§12): configurada, ou o `validation_command` legado como
+    // única verificação "testes" (`checks_efetivos` no backend) — compatibilidade,
+    // não regressão de nenhuma orquestração existente.
+    function renderBateria() {
+      const box = el('div');
+      box.style.marginTop = '12px';
+      box.appendChild(el('div', 'muted', 'Bateria de validações (' + (estado.checks || []).length + ')'));
+      if ((estado.checks || []).length) {
+        const lista = el('ul', 'checklist');
+        estado.checks.forEach(function(c) {
+          lista.appendChild(el('li', '', c.nome + ' [' + c.categoria + ']' + (c.bloqueante ? '' : ' (não-bloqueante)') + ' — ' + c.comando));
+        });
+        box.appendChild(lista);
+      }
+      box.appendChild(botao('✏️ Editar bateria', 'ghost sm', function() { editarBateria(); }));
+      return box;
+    }
+
+    async function editarBateria() {
+      const overlay = el('div', 'overlay');
+      const modal = el('div', 'modal');
+      modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+      modal.appendChild(el('h2', '', 'Bateria de validações (§12)'));
+      modal.appendChild(el('div', 'muted', 'Uma verificação por linha, JSON: [{"nome","comando","categoria","bloqueante"}]. Substitui a bateria inteira ao salvar.'));
+      const area = document.createElement('textarea');
+      area.rows = 10; area.style.width = '100%';
+      area.value = JSON.stringify(estado.checks || [], null, 2);
+      modal.appendChild(area);
+      const erro = el('div', 'muted'); erro.style.color = 'var(--err)'; modal.appendChild(erro);
+      const acoes = el('div', 'modal-actions');
+      acoes.appendChild(botao('Sugerir por stack', 'ghost', async function(node) {
+        node.disabled = true;
+        try {
+          const sugestao = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/validation-checks/suggest');
+          area.value = JSON.stringify(sugestao, null, 2);
+        } catch (causa) { erro.textContent = causa.message; } finally { node.disabled = false; }
+      }));
+      acoes.appendChild(botao('Cancelar', 'ghost', function() { overlay.remove(); }));
+      acoes.appendChild(botao('Salvar', 'ok', async function(node) {
+        node.disabled = true; erro.textContent = '';
+        let checks;
+        try { checks = JSON.parse(area.value); } catch (causa) { erro.textContent = 'JSON inválido: ' + causa.message; node.disabled = false; return; }
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/validation-checks', {
+            method: 'PUT', headers: { 'content-type':'application/json' },
+            body: JSON.stringify({ checks: checks }),
+          });
+          overlay.remove(); await carregar();
+        } catch (causa) { erro.textContent = causa.message; node.disabled = false; }
+      }));
+      modal.appendChild(acoes);
+      overlay.appendChild(modal); document.body.appendChild(overlay);
+    }
+
+    // ----------------------------------------------- implantação (§18-22, ADR-0023)
+    const DEPLOY_ACEITE_PILL = { aprovado:'ok', aguardando_aprovacao:'warn', reprovado:'err' };
+    const DEPLOY_STATUS_PILL = { sucesso:'ok', falhou:'err', revertido:'warn' };
+
+    function renderImplantacao() {
+      const alvo = document.getElementById('implantacao');
+      const dep = estado.deploy;
+      const jaImplantou = dep && dep.status && dep.status !== 'pendente';
+      const configurado = !!(estado.orch && estado.orch.deploy_command);
+      if (!jaImplantou && !configurado) { alvo.style.display = 'none'; alvo.replaceChildren(); return; }
+      alvo.style.display = '';
+      alvo.replaceChildren();
+      alvo.appendChild(el('h2', '', 'Implantação'));
+      if (!jaImplantou) {
+        alvo.appendChild(el('div', 'empty', 'Comando de implantação configurado — ainda não rodou.'));
+      } else {
+        const topo = el('div', 'facts');
+        topo.appendChild(pill(dep.status, DEPLOY_STATUS_PILL[dep.status] || ''));
+        topo.appendChild(pill('ambiente: ' + dep.ambiente));
+        topo.appendChild(pill('aceite: ' + dep.aceite_status, DEPLOY_ACEITE_PILL[dep.aceite_status] || ''));
+        if (dep.validacao_status && dep.validacao_status !== 'pendente') {
+          topo.appendChild(pill('validação: ' + dep.validacao_status, dep.validacao_status === 'aprovada' ? 'ok' : 'err'));
+        }
+        alvo.appendChild(topo);
+      }
+
+      if (jaImplantou) {
+        if (dep.resultado) alvo.appendChild(campoFicha('Resultado', dep.resultado));
+        if (dep.aceite_comentario) alvo.appendChild(campoFicha('Comentário do aceite', dep.aceite_comentario));
+        if (dep.rollback_motivo) alvo.appendChild(campoFicha('Motivo do rollback', dep.rollback_motivo));
+        if ((dep.validacao_resultados || []).length) {
+          const box = el('div');
+          box.style.marginTop = '10px';
+          box.appendChild(el('div', 'muted', 'Verificações pós-implantação (§20)'));
+          const lista = el('ul', 'checklist');
+          dep.validacao_resultados.forEach(function(r) {
+            lista.appendChild(el('li', r.ok ? 'ok' : 'err', (r.ok ? '✓ ' : '✗ ') + r.nome + (r.bloqueante ? '' : ' (não-bloqueante)')));
+          });
+          box.appendChild(lista);
+          alvo.appendChild(box);
+        }
+      }
+
+      const acoes = el('div', 'acoes');
+      acoes.appendChild(botao('🚀 Rodar implantação' + (jaImplantou ? ' de novo' : ''), 'ghost sm', function(node) { rodarDeploy(node); }));
+      if (jaImplantou && dep.status === 'sucesso') {
+        acoes.appendChild(botao('Validar pós-implantação', 'ghost sm', function(node) { validarDeploy(node); }));
+      }
+      if (jaImplantou && dep.aceite_status === 'aguardando_aprovacao') {
+        acoes.appendChild(botao('Aprovar (admin)', 'ok sm', function(node) { decidirDeploy(true, node); }));
+        acoes.appendChild(botao('Reprovar (admin)', 'err sm', function(node) { decidirDeploy(false, node); }));
+      }
+      if (jaImplantou && dep.status === 'sucesso') {
+        acoes.appendChild(botao('↩ Reverter (admin)', 'err sm', function(node) { reverterDeploy(node); }));
+      }
+      acoes.appendChild(botao('⚙ Configurar implantação', 'ghost sm', function() { editarDeployConfig(); }));
+      alvo.appendChild(acoes);
+    }
+
+    async function rodarDeploy(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/run', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: '{}',
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao rodar a implantação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function validarDeploy(node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/validate', { method: 'POST' });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao validar a implantação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function decidirDeploy(aprovado, node) {
+      const comentario = prompt(aprovado ? 'Comentário do aceite (opcional):' : 'Motivo da reprovação:');
+      if (!aprovado && (!comentario || !comentario.trim())) return;
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/approve', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ approved: aprovado, comentario: (comentario || '').trim() }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao decidir a implantação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function reverterDeploy(node) {
+      const reason = prompt('Motivo do rollback (abre uma tarefa de causa raiz):');
+      if (!reason || !reason.trim()) return;
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/rollback', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ reason: reason.trim() }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao reverter a implantação: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function editarDeployConfig() {
+      const overlay = el('div', 'overlay');
+      const modal = el('div', 'modal');
+      modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true');
+      modal.appendChild(el('h2', '', 'Configurar implantação (§18-22)'));
+      modal.appendChild(el('div', 'muted', 'O runtime não provisiona infraestrutura — só roda os comandos configurados aqui, do mesmo jeito que a bateria de validações.'));
+
+      modal.appendChild(el('label', '', 'Comando de implantação'));
+      const comando = el('input');
+      comando.placeholder = 'ex.: ./deploy.sh';
+      comando.value = estado.orch.deploy_command || '';
+      modal.appendChild(comando);
+
+      modal.appendChild(el('label', '', 'Ambiente'));
+      const ambiente = el('input');
+      ambiente.value = estado.orch.deploy_environment || 'producao';
+      modal.appendChild(ambiente);
+
+      modal.appendChild(el('label', '', 'Comando de rollback (opcional)'));
+      const rollback = el('input');
+      rollback.placeholder = 'ex.: ./rollback.sh';
+      rollback.value = estado.orch.deploy_rollback_command || '';
+      modal.appendChild(rollback);
+
+      modal.appendChild(el('label', '', 'Verificações pós-implantação (§20) — JSON: [{"nome","comando","categoria","bloqueante"}]'));
+      const healthChecks = document.createElement('textarea');
+      healthChecks.rows = 6; healthChecks.style.width = '100%';
+      healthChecks.value = JSON.stringify(estado.orch.deploy_health_checks || [], null, 2);
+      modal.appendChild(healthChecks);
+
+      const erro = el('div', 'muted'); erro.style.color = 'var(--err)'; modal.appendChild(erro);
+      const acoes = el('div', 'modal-actions');
+      acoes.appendChild(botao('Cancelar', 'ghost', function() { overlay.remove(); }));
+      acoes.appendChild(botao('Salvar', 'ok', async function(node) {
+        node.disabled = true; erro.textContent = '';
+        let checks;
+        try { checks = JSON.parse(healthChecks.value); } catch (causa) { erro.textContent = 'JSON inválido: ' + causa.message; node.disabled = false; return; }
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/config', {
+            method: 'PUT', headers: { 'content-type':'application/json' },
+            body: JSON.stringify({
+              command: comando.value.trim() || null,
+              environment: ambiente.value.trim() || null,
+              health_checks: checks,
+              rollback_command: rollback.value.trim() || null,
+            }),
+          });
+          overlay.remove(); await carregar();
+        } catch (causa) { erro.textContent = causa.message; node.disabled = false; }
+      }));
+      modal.appendChild(acoes);
+      overlay.appendChild(modal); document.body.appendChild(overlay);
+    }
+
+    // ------------------------------------------------------------- revisão de código
+    function renderRevisao() {
+      const alvo = document.getElementById('revisao');
+      const aberta = estado.pulls.filter(function(pr) { return pr.status === 'open'; })
+        .sort(function(a, b) { return (b.created_at || '').localeCompare(a.created_at || ''); })[0];
+      if (!aberta) { alvo.style.display = 'none'; alvo.replaceChildren(); return; }
+      alvo.style.display = '';
+      alvo.replaceChildren();
+      alvo.appendChild(el('h2', '', 'Revisão de código'));
+      const topo = el('div', 'facts');
+      topo.appendChild(pill('PR ' + aberta.branch));
+      topo.appendChild(pill('CI: ' + aberta.ci_status, aberta.ci_status === 'passed' ? 'ok' : aberta.ci_status === 'failed' ? 'err' : ''));
+      alvo.appendChild(topo);
+
+      const veredito = aberta.review_verdict;
+      if (!veredito || !veredito.veredito) {
+        alvo.appendChild(el('div', 'empty', 'Revisão ainda não executada — ninguém olhou o diff.'));
+        alvo.appendChild(botao('🔍 Rodar revisão', 'ghost sm', function(node) { rodarRevisao(aberta.id, node); }));
+        return;
+      }
+      const linha2 = el('div', 'facts');
+      linha2.style.marginTop = '8px';
+      linha2.appendChild(pill(veredito.veredito, VEREDITO_PILL[veredito.veredito] || ''));
+      linha2.appendChild(pill('rodada ' + aberta.review_rounds));
+      if (aberta.reviewed_by) linha2.appendChild(pill('revisor: ' + aberta.reviewed_by, 'accent'));
+      alvo.appendChild(linha2);
+
+      if (veredito.origem === 'indisponivel') {
+        const aviso = el('div', 'motivo');
+        aviso.style.marginTop = '10px';
+        aviso.textContent = '⚠ Ninguém revisou de fato — ' + (veredito.fallback_reason || 'agente revisor indisponível') + '.';
+        alvo.appendChild(aviso);
+      }
+      if (veredito.resumo) alvo.appendChild(campoFicha('Resumo', veredito.resumo));
+
+      const obrigatorias = (veredito.acoes || []).filter(function(a) { return a.severidade === 'obrigatoria'; });
+      const sugestoes = (veredito.acoes || []).filter(function(a) { return a.severidade !== 'obrigatoria'; });
+      if (obrigatorias.length) {
+        const box = el('div');
+        box.style.marginTop = '10px';
+        box.appendChild(el('div', 'muted', 'Ações obrigatórias'));
+        const lista = el('ul', 'checklist');
+        obrigatorias.forEach(function(a) { lista.appendChild(el('li', 'atual', a.descricao)); });
+        box.appendChild(lista);
+        alvo.appendChild(box);
+      }
+      if (sugestoes.length) {
+        const box = el('div');
+        box.style.marginTop = '10px';
+        box.appendChild(el('div', 'muted', 'Sugestões'));
+        const lista = el('ul', 'checklist');
+        sugestoes.forEach(function(a) { lista.appendChild(el('li', 'ok', a.descricao)); });
+        box.appendChild(lista);
+        alvo.appendChild(box);
+      }
+      if ((veredito.pontos_verificados || []).length) {
+        const detalhes = document.createElement('details');
+        detalhes.className = 'tecnico';
+        const sumario = document.createElement('summary');
+        sumario.textContent = 'Pontos verificados (' + veredito.pontos_verificados.length + ')';
+        detalhes.appendChild(sumario);
+        const lista = el('ul', 'checklist');
+        veredito.pontos_verificados.forEach(function(p) { lista.appendChild(el('li', 'ok', p)); });
+        detalhes.appendChild(lista);
+        alvo.appendChild(detalhes);
+      }
+
+      const acoes = el('div', 'acoes');
+      acoes.appendChild(botao('🔍 Rodar revisão de novo', 'ghost sm', function(node) { rodarRevisao(aberta.id, node); }));
+      if (aberta.review_status !== 'approved') {
+        acoes.appendChild(botao('Aprovar com justificativa (admin)', 'ok sm', function(node) { aprovarComJustificativa(aberta.id, node); }));
+      }
+      alvo.appendChild(acoes);
+    }
+
+    async function rodarRevisao(prId, node) {
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls/' + encodeURIComponent(prId) + '/review/run', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: '{}',
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao rodar a revisão: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    async function aprovarComJustificativa(prId, node) {
+      const justificativa = prompt('Justifique a aprovação sem veredito aprovado do agente (exige papel admin):');
+      if (!justificativa || !justificativa.trim()) return;
+      node.disabled = true;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls/' + encodeURIComponent(prId) + '/review', {
+          method: 'POST', headers: { 'content-type':'application/json' },
+          body: JSON.stringify({ status:'approved', justificativa: justificativa.trim() }),
+        });
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao aprovar: ' + erro.message;
+      } finally { node.disabled = false; }
+    }
+
+    // ------------------------------------------------------------- ficha da demanda
+    function renderFicha() {
+      const ficha = estado.brief;
+      const alvo = secao('ficha', 'Ficha da demanda');
+      if (!ficha) {
+        alvo.appendChild(el('div', 'empty', 'Triagem ainda não disponível para esta orquestração.'));
+        return;
+      }
+      const topo = el('div', 'facts');
+      topo.appendChild(pill(ficha.tipo, 'accent'));
+      const riscoTipo = (ficha.risco === 'high' || ficha.risco === 'critical') ? 'err'
+        : ficha.risco === 'medium' ? 'warn' : '';
+      topo.appendChild(pill('risco: ' + ficha.risco, riscoTipo));
+      topo.appendChild(pill('complexidade: ' + ficha.complexidade));
+      const sugestao = effortSugerido(ficha.complexidade, ficha.risco);
+      const etapaAtual = (estado.orch.agent_assignments || {})[estado.step.phase] || null;
+      const manual = (etapaAtual && etapaAtual.effort) || estado.orch.selected_effort;
+      if (sugestao) {
+        topo.appendChild(pill(
+          manual
+            ? 'effort efetivo: ' + manual + ' (escolha manual sobrepõe a sugestão automática: ' + sugestao + ')'
+            : 'effort efetivo (automático, §9): ' + sugestao,
+          'info'
+        ));
+      }
+      alvo.appendChild(topo);
+
+      if (ficha.objetivo) alvo.appendChild(campoFicha('Objetivo', ficha.objetivo));
+      if (ficha.problema) alvo.appendChild(campoFicha('Problema', ficha.problema));
+      if (ficha.resultado_esperado) alvo.appendChild(campoFicha('Resultado esperado', ficha.resultado_esperado));
+
+      const chips = el('div', 'facts');
+      (ficha.dominios || []).forEach(function(d) { chips.appendChild(pill('🧩 ' + d)); });
+      (ficha.impactos || []).forEach(function(i) { chips.appendChild(pill('⚠ ' + i, 'warn')); });
+      if (chips.children.length) { chips.style.marginTop = '10px'; alvo.appendChild(chips); }
+
+      if ((ficha.riscos || []).length) {
+        const lista = el('ul', 'checklist');
+        ficha.riscos.forEach(function(r) { lista.appendChild(el('li', 'ok', r)); });
+        alvo.appendChild(lista);
+      }
+
+      if ((ficha.perguntas_abertas || []).length) {
+        const box = el('div', 'motivo');
+        box.style.marginTop = '12px';
+        box.appendChild(el('strong', '', '❓ Perguntas em aberto — responda e re-trie:'));
+        const lista = el('ul', 'checklist');
+        ficha.perguntas_abertas.forEach(function(p) { lista.appendChild(el('li', 'atual', p)); });
+        box.appendChild(lista);
+        box.appendChild(botao('🔄 Re-triar a demanda', 'ghost sm', function(node) { retriarDemanda(node); }));
+        alvo.appendChild(box);
+      }
+
+      const rodape = el('div', 'muted');
+      rodape.style.marginTop = '10px';
+      rodape.textContent = 'origem: ' + ficha.origem;
+      if (ficha.fallback_reason) rodape.textContent += ' · fallback: ' + ficha.fallback_reason;
+      alvo.appendChild(rodape);
+    }
+
+    function campoFicha(rotulo, texto) {
+      const node = el('div');
+      node.style.marginTop = '8px';
+      node.appendChild(el('div', 'muted', rotulo));
+      node.appendChild(el('div', '', texto));
+      return node;
+    }
+
+    async function retriarDemanda(node) {
+      node.disabled = true;
+      try {
+        // A re-triagem replaneja a equipe quando nada executou ainda (Incremento B,
+        // Ponto 2); `replanned=false` significa que a ficha mudou mas o plano — já em
+        // andamento — foi preservado de propósito.
+        const resposta = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/brief', {
+          method: 'POST', headers: { 'content-type':'application/json' }, body: JSON.stringify({}),
+        });
+        estado.brief = resposta.demand_brief;
+        renderFicha();
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) {
+          aviso.textContent = resposta.replanned
+            ? 'Ficha re-triada e o plano de execução foi recalculado.'
+            : 'Ficha re-triada — o plano não mudou: ' + resposta.replan_reason;
+        }
+        await carregar();
+      } catch (erro) {
+        const aviso = document.getElementById('avisoAcao');
+        if (aviso) aviso.textContent = 'Falha ao re-triar a demanda: ' + erro.message;
+      } finally { node.disabled = false; }
     }
 
     // ------------------------------------------------------------- cabeçalho
@@ -480,6 +1196,14 @@
       if (acao.method === 'PATCH' && acao.path.endsWith('/execution-settings')) { abrirConfig(); return; }
       const aviso = document.getElementById('avisoAcao');
       const corpo = Object.assign({}, acao.body || {});
+      // Orçamento (§1.2/§3.2, ADR-0026): a ação genérica não tem para onde perguntar
+      // o novo teto — pede aqui, mesmo padrão de prompt() do painel de QA/Deploy.
+      if (acao.method === 'PUT' && acao.path.endsWith('/budget')) {
+        const atual = (estado.orch && estado.orch.orcamento_usd) || '';
+        const resposta = window.prompt('Novo teto de orçamento em US$ (vazio = sem teto):', atual);
+        if (resposta === null) return; // cancelado
+        corpo.teto_usd = resposta.trim() === '' ? null : Number(resposta);
+      }
       // Nada de mandar executor/esforço no corpo: um valor explícito vence a escolha
       // por etapa (ADR-0014) e a fase rodaria sempre com o padrão global. O runtime já
       // resolve sozinho — etapa → padrão da orquestração → default do catálogo.
@@ -525,6 +1249,10 @@
       node.appendChild(el('strong', '', card.title));
       if (card.description) node.appendChild(el('div', 'muted', card.description));
       if (card.block_reason) node.appendChild(el('div', 'motivo', '⚠ ' + card.block_reason));
+      if ((card.blocked_by || []).length) node.appendChild(el('div', 'muted', '⛓ aguardando ' + card.blocked_by.length + ' card(s)'));
+      node.appendChild(custoDoCard(card.uso));
+      if ((card.failures || []).length) node.appendChild(historicoFalhas(card.failures));
+      if (card.status === 'Done' && card.closure && Object.keys(card.closure).length) node.appendChild(fichaEncerramento(card.closure));
       const acoes = el('div', 'acoes');
       const base = '/v1/orchestrations/' + ID + '/cards/' + card.id;
       if (card.status === 'Backlog') {
@@ -536,11 +1264,72 @@
       if (card.status === 'Blocked') {
         acoes.appendChild(acaoBotao({ label:'Desbloquear', method:'POST', path:base + '/unblock' }));
       }
+      if (card.status === 'Failed') {
+        acoes.appendChild(acaoBotao({ label:'↻ Rodar roteamento', method:'POST', path:base + '/route' }));
+      }
       if (['Testing','Review','WaitingHuman'].indexOf(card.status) >= 0) {
         acoes.appendChild(acaoBotao({ label:'Abrir PR', method:'POST', path:base + '/open-pr' }));
       }
       if (acoes.children.length) node.appendChild(acoes);
       return node;
+    }
+
+    // §23 do fluxo.md (ADR-0021): ficha de encerramento — só o que o runtime tem à
+    // mão (executor, revisor, branch, PR, rodadas de revisão, documentos, riscos
+    // residuais); campo sem dado não aparece.
+    // Consumo real (§1.1, ADR-0026): zero execuções e "sem custo informado" não são
+    // a mesma coisa — o texto distingue os dois em vez de mostrar "US$ 0,00".
+    function custoDoCard(uso) {
+      uso = uso || {};
+      const execucoes = uso.execucoes || 0;
+      if (!execucoes) return el('div', 'muted', '');
+      const semCusto = uso.execucoes_sem_custo || 0;
+      if (semCusto >= execucoes) {
+        return el('div', 'muted', '💰 ' + execucoes + ' execução(ões) — custo não informado pelo executor');
+      }
+      const tokens = (uso.tokens_entrada || 0) + (uso.tokens_saida || 0);
+      return el('div', 'muted', '💰 US$ ' + Number(uso.custo_usd || 0).toFixed(4) +
+        ' · ' + tokens + ' tokens' + (semCusto ? ' · ' + semCusto + ' execução(ões) sem custo' : ''));
+    }
+
+    function fichaEncerramento(closure) {
+      const details = document.createElement('details');
+      details.className = 'muted';
+      const summary = document.createElement('summary');
+      summary.textContent = '📋 Ficha de encerramento';
+      details.appendChild(summary);
+      const campos = [
+        ['Resumo', closure.resumo], ['Executor', closure.executor], ['Revisor', closure.revisor],
+        ['Branch', closure.branch], ['PR', closure.pr_id],
+        ['Rodadas de revisão', closure.rodadas_revisao],
+      ];
+      campos.forEach(function(par) {
+        if (par[1] === undefined || par[1] === null || par[1] === '') return;
+        details.appendChild(el('div', '', par[0] + ': ' + par[1]));
+      });
+      if (closure.documentos && Object.keys(closure.documentos).length) {
+        details.appendChild(el('div', '', 'Documentos: ' + Object.entries(closure.documentos).map(function(e) { return e[0] + '=v' + e[1]; }).join(', ')));
+      }
+      (closure.riscos_residuais || []).forEach(function(risco) {
+        details.appendChild(el('div', '', '⚠ risco residual: ' + risco));
+      });
+      return details;
+    }
+
+    // §13 do fluxo.md (ADR-0019): "por que este card falhou X vezes?" sem abrir o banco.
+    function historicoFalhas(falhas) {
+      const details = document.createElement('details');
+      details.className = 'muted';
+      const summary = document.createElement('summary');
+      summary.textContent = 'Histórico de tentativas (' + falhas.length + ')';
+      details.appendChild(summary);
+      falhas.forEach(function(f, i) {
+        const linha = el('div', '', '#' + (i + 1) + ' [' + f.etapa + '] ' + f.mensagem +
+          (f.executor ? ' · executor=' + f.executor : '') + (f.effort ? ' · effort=' + f.effort : '') +
+          ' · ' + f.at);
+        details.appendChild(linha);
+      });
+      return details;
     }
 
     // ------------------------------------------------------------- pendências
@@ -612,6 +1401,7 @@
       validacao.placeholder = 'ex.: npm run build';
       validacao.value = estado.orch.validation_command || '';
       modal.appendChild(validacao);
+      modal.appendChild(botao('🚀 Configurar implantação (§18-22) →', 'ghost sm', function() { overlay.remove(); editarDeployConfig(); }));
       const erro = el('div', 'muted'); erro.style.color = 'var(--err)'; modal.appendChild(erro);
 
       try { estado.execs = await api('/v1/executors'); } catch (_) { estado.execs = []; }
@@ -676,8 +1466,8 @@
     function linhaEtapa(matriz, etapa) {
       const atual = ETAPAS.findIndex(function(e) { return e.key === estado.step.phase; });
       const indice = ETAPAS.findIndex(function(e) { return e.key === etapa.key; });
-      // O nomeador (indice === 0 na lista? não: key NAMING) nunca "passa": não é fase.
-      const passou = etapa.key !== NAMING && atual >= 0 && indice < atual;
+      // Nomeador e triagem nunca "passam": não são fase da esteira.
+      const passou = etapa.key !== NAMING && etapa.key !== TRIAGE && etapa.key !== REVIEW && atual >= 0 && indice < atual;
       const atribuido = (estado.orch.agent_assignments || {})[etapa.key] || null;
 
       const rotulo = el('div', 'et');

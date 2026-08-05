@@ -38,6 +38,7 @@ gate = c.get("validation_command")
 titulo = c.get("card_title") or ""
 descricao = c.get("card_description") or ""
 criterios = c.get("acceptance_criteria") or []
+correcoes = c.get("correction_actions") or []
 commit = c.get("commit_subject") or ""
 
 linhas = [
@@ -53,6 +54,11 @@ if descricao:
 if criterios:
     linhas.append("Critérios de aceite (todos devem valer ao final):")
     linhas += [f"  - {x}" for x in criterios]
+if correcoes:
+    # Re-execução depois de uma revisão reprovada (§15, ADR-0017): sem isto o
+    # agente repetia o mesmo erro, cego ao que a revisão pediu.
+    linhas.append("Correções obrigatórias apontadas pela revisão independente:")
+    linhas += [f"  - {x}" for x in correcoes]
 linhas.append(f"Seção-alvo do contexto: {d.get('target_path', '')}")
 linhas.append(
     "Implemente/produza o necessário NESTE diretório (worktree isolado do card), em "

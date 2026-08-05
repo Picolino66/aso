@@ -12,8 +12,10 @@ import os
 import shlex
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from aso.agents.executor import AgentExecutionError, ExecutionProvider, LocalMockExecutionProvider
@@ -21,21 +23,110 @@ from aso.agents.models import AgentOutput, AgentSpec
 from aso.agents.registry import AgentRegistry
 from aso.agents.supervisor import AgentSupervisor
 from aso.control.decision_engine import MultiAgentDecisionEngine
+from aso.control.deploy import (
+    ACEITE_AGUARDANDO_HUMANO,
+    ACEITE_APROVADO,
+    ACEITE_REPROVADO,
+    STATUS_FALHOU,
+    STATUS_REVERTIDO,
+    STATUS_SUCESSO,
+    VALIDACAO_APROVADA,
+    VALIDACAO_REPROVADA,
+    DeployRun,
+    executar_deploy,
+    exige_aceite_humano,
+    validar_pos_deploy,
+)
+from aso.control.discovery import (
+    STATUS_AGUARDANDO_APROVACAO,
+    STATUS_APROVADO,
+    STATUS_REPROVADO,
+    DiscoveryReport,
+    DiscoveryService,
+    exige_aprovacao_discovery,
+)
+from aso.control.documentos import acrescentar_versao, proxima_versao, versao_atual
 from aso.control.execution_planner import ExecutionPlanner
+from aso.control.failure import (
+    ACAO_AUMENTAR_EFFORT,
+    ACAO_BLOQUEAR,
+    ACAO_ESCALAR_HUMANO,
+    ACAO_MESMO_AGENTE,
+    ACAO_TROCAR_EXECUTOR,
+    ETAPA_CI,
+    ETAPA_EXECUCAO,
+    ETAPA_GATE,
+    ETAPA_QA,
+    DecisaoDeFalha,
+    FailureRecord,
+    decidir,
+    diagnosticar,
+    registrar,
+)
 from aso.control.models import (
+    DISCOVERY_KEY,
     NAMING_KEY,
+    REVIEW_KEY,
+    SPEC_KEY,
+    TRIAGE_KEY,
     AgentAssignment,
     DecisionInput,
     ExecutionPlan,
     Orchestration,
+    PlannedAgent,
     Project,
     ProjectEvent,
+    ValidationCheck,
 )
 from aso.control.naming import NamingService
 from aso.control.next_step import NextStepInput, NextStepReport, compute_next_step
+from aso.control.orcamento import SITUACAO_ESTOURADO, avaliar_orcamento
 from aso.control.project_service import ProjectService
+from aso.control.qa import (
+    STATUS_FALHOU as QA_STATUS_FALHOU,
+)
+from aso.control.qa import (
+    STATUS_PENDENTE as QA_STATUS_PENDENTE,
+)
+from aso.control.qa import (
+    QaCheck,
+)
+from aso.control.review import (
+    VEREDITO_ALTERACOES_OBRIGATORIAS,
+    VEREDITO_APROVADO,
+    VEREDITO_APROVADO_COM_SUGESTOES,
+    VEREDITO_DOC_REPROVADO,
+    VEREDITO_REPROVADO,
+    ReviewService,
+    ReviewVerdict,
+    exige_confirmacao_humana,
+)
+from aso.control.selecao import resolver_topo, sugerir_effort
+from aso.control.spec import (
+    STATUS_AGUARDANDO_REVISAO as SPEC_STATUS_AGUARDANDO_REVISAO,
+)
+from aso.control.spec import (
+    STATUS_APROVADO as SPEC_STATUS_APROVADO,
+)
+from aso.control.spec import (
+    STATUS_APROVADOS as SPEC_STATUS_APROVADOS,
+)
+from aso.control.spec import (
+    STATUS_NECESSITA_HUMANO as SPEC_STATUS_NECESSITA_HUMANO,
+)
+from aso.control.spec import (
+    STATUS_REPROVADO as SPEC_STATUS_REPROVADO,
+)
+from aso.control.spec import (
+    SpecDocument,
+    SpecService,
+    SpecWorkItem,
+)
+from aso.control.triage import DemandBrief, TriageService
+from aso.control.validation import NOME_CHECK_LEGADO, checks_efetivos, sugerir_bateria
 from aso.execution.candidates import CandidateRunner
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile, managed_codex_profiles
+from aso.execution.cli_provider import TIMEOUT_PADRAO as CLI_AGENT_TIMEOUT_PADRAO
 from aso.execution.codex_discovery import CodexDiscoveryError, discover_codex
 from aso.execution.docs_drift import DocsDriftReport, check_drift
 from aso.execution.docs_scaffold import write_scaffold
@@ -68,10 +159,17 @@ from aso.governance.snapshot_engine import SnapshotEngine
 from aso.kanban.board_service import BoardService
 from aso.kanban.models import Board, KanbanCard
 from aso.observability.agent_log import AgentLogBus
+from aso.observability.aprendizado import (
+    CardSnapshot,
+    PullRequestSnapshot,
+    RelatorioDeAprendizado,
+    consolidar,
+)
 from aso.observability.logging import get_logger
 from aso.persistence.memory import InMemoryOrchestrationRepository, InMemoryProjectRepository
 from aso.persistence.ports import OrchestrationRepository, ProjectRepository
 from aso.persistence.state import OrchestrationState
+from aso.shared.agent_usage import UsoDoAgente, acumular_uso
 from aso.shared.cache import TTLCache
 from aso.shared.events import DomainEvent, EventLog
 from aso.shared.ids import now_iso
@@ -85,6 +183,7 @@ from aso.shared.types import (
     PatchStatus,
     PatchType,
     Phase,
+    RiskLevel,
 )
 
 
@@ -123,6 +222,21 @@ def _drift_summary(rep: DocsDriftReport) -> str:
     return "; ".join(partes)
 
 
+def _check_predicate(comando: str, repo: str) -> Callable[[dict[str, Any]], tuple[bool, str]]:
+    """Fábrica do predicado de uma verificação da bateria (§12, ADR-0022).
+
+    Fecha `comando`/`repo` por parâmetro da fábrica, não por variável de laço: é a
+    forma de evitar a armadilha clássica de closure em `for` (§4.2/§5 do
+    plano5.md) sem depender de default-arg em lambda, que o `mypy --strict` não
+    consegue inferir contra o tipo `Predicate`.
+    """
+
+    def predicate(_c: dict[str, Any]) -> tuple[bool, str]:
+        return run_gate_command(shlex.split(comando), repo)
+
+    return predicate
+
+
 def _docs_sync_check(root: str) -> tuple[bool, str]:
     """Predicado (não-bloqueante) do gate F5/F6: docs-first em sincronia com o código?"""
     try:
@@ -158,6 +272,95 @@ def _phase_for_agent(agent: str) -> Phase:
     return Phase.F5  # desenvolvimento (backend/frontend/mobile) como padrão
 
 
+def _catalog_name_of(provider: ExecutionProvider | None) -> str:
+    """Nome do perfil no catálogo a partir de `provider.id` (ADR-0019).
+
+    `CliAgentExecutionProvider.id` já é o nome do perfil; `LlmExecutionProvider` usa
+    `llm:<nome>` — sem remover o prefixo, `ExecutorCatalog.get()` nunca encontraria o
+    perfil ao decidir `trocar_executor`/`aumentar_effort`.
+    """
+    if provider is None:
+        return ""
+    return str(getattr(provider, "id", "") or "").removeprefix("llm:")
+
+
+def prioridade_de(brief: DemandBrief) -> RiskLevel:
+    """A prioridade do card acompanha o risco da demanda — hoje ela é sempre MEDIUM.
+
+    `DemandBrief.risco` já usa `RiskLevel`, o mesmo tipo de `KanbanCard.priority`.
+    """
+    return brief.risco
+
+
+def _tipo_de_card(valor: str) -> CardType:
+    """Converte o `tipo`/`type` de um item de plano/spec num `CardType` (§7,
+    ADR-0025) — valor desconhecido cai em `TASK`, o mesmo comportamento que todo
+    caminho de criação de card tinha antes desta ADR."""
+    try:
+        return CardType(valor)
+    except ValueError:
+        return CardType.TASK
+
+
+# Ring de verificações de QA por card (§16, ADR-0025) — mesmo raciocínio de
+# `_max_races_per_card`/ring de discovery/spec: histórico limitado, não ilimitado.
+_QA_RING = 10
+
+_GRAVIDADE_PARA_PRIORIDADE: dict[str, RiskLevel] = {
+    "baixa": RiskLevel.LOW,
+    "media": RiskLevel.MEDIUM,
+    "alta": RiskLevel.HIGH,
+    "critica": RiskLevel.CRITICAL,
+}
+
+
+def _descricao_bug_de_qa(check: QaCheck) -> str:
+    """Monta a descrição do bug do §17 a partir do `QaCheck` reprovado — como
+    reproduzir, ambiente, evidências, resultado atual e esperado, gravidade."""
+    linhas = [f"Cenário: {check.cenario}"]
+    if check.ambiente:
+        linhas.append(f"Ambiente: {check.ambiente}")
+    if check.passos:
+        passos = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(check.passos))
+        linhas.append(f"Como reproduzir:\n{passos}")
+    if check.resultado_esperado:
+        linhas.append(f"Resultado esperado: {check.resultado_esperado}")
+    if check.resultado_obtido:
+        linhas.append(f"Resultado obtido: {check.resultado_obtido}")
+    if check.evidencias:
+        linhas.append("Evidências: " + "; ".join(check.evidencias))
+    linhas.append(f"Gravidade: {check.gravidade}")
+    return "\n".join(linhas)
+
+
+def _uso_do_output(output: AgentOutput | None) -> UsoDoAgente:
+    """Lê o consumo que `CliAgentExecutionProvider` deixou em `artifacts["uso"]`
+    (§1.1, ADR-0026) — provider mock/legado sem esta chave cai no default
+    `origem="indisponivel"`, sem quebrar nenhum executor existente."""
+    if output is None:
+        return UsoDoAgente()
+    bruto = output.artifacts.get("uso")
+    if not isinstance(bruto, dict):
+        return UsoDoAgente()
+    try:
+        return UsoDoAgente(**bruto)
+    except TypeError:
+        return UsoDoAgente()
+
+
+def _tempo_ms_por_card(events: list[DomainEvent]) -> dict[str, float]:
+    """Soma `AgentExecuted.ms` por card — insumo de "tempo gasto" do §24."""
+    tempos: dict[str, float] = {}
+    for e in events:
+        if e.type != "AgentExecuted":
+            continue
+        card_id = e.payload.get("card_id")
+        ms = e.payload.get("ms")
+        if isinstance(card_id, str) and isinstance(ms, int | float):
+            tempos[card_id] = tempos.get(card_id, 0.0) + float(ms)
+    return tempos
+
+
 @dataclass
 class OrchestrationBundle:
     """Agrega o estado e os serviços de uma orquestração."""
@@ -181,6 +384,62 @@ class OrchestrationBundle:
     slo_evaluations: list[SloEvaluation] = field(default_factory=list)
 
 
+# Domínio (ficha da demanda / spec) → agente do registro. Reaproveitado por
+# `populate_from_plan` (backlog do LLM, M2) e `_materialize_spec_cards` (itens de
+# trabalho da especificação, §5/§7/§10 do fluxo.md, ADR-0021) — mesmo vocabulário.
+_DOMAIN_AGENTS: dict[str, str] = {
+    "backend": "BackendDevelopmentAgent",
+    "frontend": "FrontendDevelopmentAgent",
+    "architecture": "ArchitectureDesignAgent",
+    "contract": "DataApiContractsAgent",
+    "database": "DatabaseAgent",
+    "tests": "TestingAgent",
+    "qa": "TestingAgent",
+    "docs": "DocumentationAgent",
+    "devops": "DevOpsAgent",
+    "security": "SecurityAgent",
+}
+
+
+def _build_card_closure(
+    b: OrchestrationBundle, card: KanbanCard, pr: PullRequest
+) -> dict[str, Any]:
+    """Ficha de encerramento do card (§23 do fluxo.md, ADR-0021) — preenchida no
+    merge, o ponto em que o card chega a Done. Só registra o que o runtime já tem à
+    mão: campo sem dado disponível (data de implantação, commits individuais) fica de
+    fora — ficha com campo inventado é pior que ficha curta."""
+    acoes = pr.review_verdict.get("acoes") if pr.review_verdict else []
+    riscos_residuais = [
+        str(a.get("descricao", "")) for a in (acoes or []) if a.get("severidade") == "sugestao"
+    ]
+    documentos: dict[str, int] = {}
+    if b.orchestration.discovery_reports:
+        documentos["discovery_versao"] = versao_atual(
+            b.orchestration.discovery_reports, DiscoveryReport
+        ).versao
+    if b.orchestration.spec_documents:
+        documentos["spec_versao"] = versao_atual(
+            b.orchestration.spec_documents, SpecDocument
+        ).versao
+    return {
+        "resumo": pr.title or card.title,
+        "executor": card.executor or "",
+        "revisor": pr.reviewed_by,
+        "branch": pr.branch,
+        "pr_id": pr.id,
+        "rodadas_revisao": pr.review_rounds,
+        "documentos": documentos,
+        "evidencias": [f"CI: {pr.ci_status}", f"Revisão: {pr.review_status}"],
+        "riscos_residuais": riscos_residuais,
+        # §23 pede "effort utilizado"; custo real (§1.1, ADR-0026) responde a mesma
+        # pergunta em dinheiro. `card.uso` vazio (executor que nunca informou uso)
+        # não aparece como zero — o campo some, ficha curta é melhor que inventada.
+        **({"custo_usd": card.uso["custo_usd"]} if card.uso.get("custo_usd") else {}),
+        **({"modelo": card.uso["modelo"]} if card.uso.get("modelo") else {}),
+        "encerrado_em": now_iso(),
+    }
+
+
 class OrchestrationService:
     """Serviço in-memory de orquestrações (MVP-1, sem persistência)."""
 
@@ -192,9 +451,16 @@ class OrchestrationService:
         *,
         max_races_per_card: int | None = None,
         max_slo_samples: int | None = None,
+        max_escalonamentos: int | None = None,
+        effort_automatico: bool | None = None,
         catalog: ExecutorCatalog | None = None,
         executor_store: ExecutorSettingsStore | None = None,
         naming: NamingService | None = None,
+        triage: TriageService | None = None,
+        review: ReviewService | None = None,
+        discovery: DiscoveryService | None = None,
+        spec: SpecService | None = None,
+        max_rodadas_doc: int | None = None,
         log_bus: AgentLogBus | None = None,
     ) -> None:
         self._bundles: dict[str, OrchestrationBundle] = {}
@@ -204,6 +470,28 @@ class OrchestrationService:
         # Batiza branches/commits a partir do card (ADR-0014); sem agente nomeador
         # configurado, resolve tudo de forma determinística e sem custo.
         self._naming = naming or NamingService(catalog)
+        # Interpreta a demanda em ficha estruturada (§1/§2 do fluxo.md); sem agente de
+        # triagem configurado, cai na heurística determinística (nunca falha).
+        self._triage = triage or TriageService(catalog)
+        # Revisão independente de código a partir do diff (§14, ADR-0017); sem agente
+        # revisor configurado (ou com falha), o fallback é SEMPRE `necessita_humano` —
+        # nunca `aprovado` (diferente de naming/triage, não existe revisão determinística).
+        self._review = review or ReviewService(catalog)
+        # Relatório de discovery (§3/§4 do fluxo.md, ADR-0020); sem agente configurado
+        # (ou com falha), cai na heurística determinística a partir do workspace e da
+        # ficha já triada — nunca falha (mesma garantia de naming/triage).
+        self._discovery = discovery or DiscoveryService(catalog)
+        # Especificação da solução (§5, ADR-0021); exige discovery aprovado — sem ele,
+        # `run_spec` recusa (§5: "Com o discovery aprovado").
+        self._spec = spec or SpecService(catalog)
+        # Limite de rodadas do ciclo de revisão documental (§6, ADR-0021): esgotado, a
+        # decisão escala para humano — sem isto, dois agentes (autor/revisor) podem
+        # girar indefinidamente queimando tokens.
+        self._max_rodadas_doc = (
+            max_rodadas_doc
+            if max_rodadas_doc is not None
+            else int(os.environ.get("ASO_MAX_RODADAS_DOC", "3"))
+        )
         # Saída ao vivo dos agentes CLI (ADR-0015): ring em memória, lido por polling.
         self._log_bus = log_bus or AgentLogBus()
         self._executor_store = executor_store  # persiste perfis (sem secrets)
@@ -224,6 +512,27 @@ class OrchestrationService:
             if max_slo_samples is not None
             else int(os.environ.get("ASO_MAX_SLO_SAMPLES", "200"))
         )
+        # Limite duro do roteamento de falha (§13, ADR-0019): esgotado, a ação é sempre
+        # escalar para humano — nunca deixa o laço de retry de `run_card` aberto.
+        self._max_escalonamentos = (
+            max_escalonamentos
+            if max_escalonamentos is not None
+            else int(os.environ.get("ASO_MAX_ESCALONAMENTOS", "3"))
+        )
+        # Escolha automática de esforço (§9 do fluxo.md, ADR-0022): liga por padrão —
+        # a sugestão só preenche o vazio abaixo de toda escolha humana (§4.6), então é
+        # seguro deixar ligado; `ASO_EFFORT_AUTOMATICO=0` restaura o comportamento
+        # anterior (effort sempre cai no default do perfil do executor).
+        self._effort_automatico = (
+            effort_automatico
+            if effort_automatico is not None
+            else os.environ.get("ASO_EFFORT_AUTOMATICO", "1") != "0"
+        )
+        # Orçamento com freio (§1.2/§3.2, ADR-0026): default de orquestrações NOVAS.
+        # Sem a env, `None` — nenhum teto, comportamento idêntico a antes deste
+        # incremento (opt-in, não uma trava nova imposta a toda orquestração).
+        env_orcamento = os.environ.get("ASO_ORCAMENTO_PADRAO_USD")
+        self._orcamento_padrao_usd = float(env_orcamento) if env_orcamento else None
         # Locks por orquestração: serializam ler-bundle → mutar → persistir sob
         # requisições concorrentes (API/CLI multithread) — evita lost-update e
         # dupla hidratação (achados de concorrência 1.1/4.1). RLock = reentrante.
@@ -252,6 +561,7 @@ class OrchestrationService:
         validation_command: str | None = None,
         seed_cards: bool = True,
         decision_input: DecisionInput | None = None,
+        demand_brief: DemandBrief | None = None,
     ) -> Orchestration:
         if executor is not None and self._catalog is not None:
             self._validate_executor(executor, effort)
@@ -259,6 +569,7 @@ class OrchestrationService:
             validation_command = validate_gate_command(validation_command)
         if project_id is not None:
             target_path = self._projects.resolve_workspace(project_id, target_path)
+        brief = demand_brief or DemandBrief()
         orchestration = Orchestration(
             project_id=project_id,
             target_path=target_path,
@@ -266,8 +577,10 @@ class OrchestrationService:
             user_request=user_request,
             selected_executor=executor,
             selected_effort=effort,
+            demand_brief=brief.model_dump(mode="json") if demand_brief is not None else {},
             validation_command=validation_command,
             current_phase=Phase.F5 if execution_mode == ExecutionMode.CODE_EXECUTION else Phase.F1,
+            orcamento_usd=self._orcamento_padrao_usd,
         )
         oid = orchestration.id
         events = EventLog()
@@ -304,6 +617,7 @@ class OrchestrationService:
 
         # Cria um card por agente planejado, na fase adequada ao papel do agente
         # (a esteira começa em F1; sem isso, cards de dev cairiam em F1).
+        planned_cards: list[tuple[PlannedAgent, KanbanCard]] = []
         for planned in plan.agents:
             if not seed_cards:
                 continue
@@ -313,11 +627,22 @@ class OrchestrationService:
                 phase=_phase_for_agent(planned.agent),
                 type=CardType.TASK,
                 title=f"{planned.agent}: {planned.reason or planned.role}",
+                priority=prioridade_de(brief),
                 assignee_type=AssigneeType.AGENT,
                 assignee=planned.agent,
                 status=ColumnKey.READY,
                 acceptance_criteria=["Output do agente aplicado via ContextBus"],
             )
+            planned_cards.append((planned, card))
+        # Segunda passada: `dependencies` (§10 do fluxo.md) referencia IDs de cards
+        # irmãos, que só existem depois que todos os cards desta onda nasceram.
+        # Dependência apontando para um agente fora do plano é ignorada — ele não
+        # participou desta estratégia (ex.: descartado pelo MultiAgentDecisionEngine).
+        id_por_agente = {planned.agent: card.id for planned, card in planned_cards}
+        for planned, card in planned_cards:
+            card.dependencies = [
+                id_por_agente[dep] for dep in planned.depends_on if dep in id_por_agente
+            ]
             board_service.add_card(card)
 
         events.append(
@@ -364,6 +689,7 @@ class OrchestrationService:
         """
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
             for adr in plan.adrs:
                 b.adr_registry.create(
                     title=adr.title,
@@ -373,37 +699,37 @@ class OrchestrationService:
                     rationale=adr.rationale,
                 )
             created: list[str] = []
+            planned_cards: list[tuple[Any, KanbanCard]] = []
             for item in plan.backlog:
                 try:
                     phase = Phase(item.phase)
                 except ValueError:
                     phase = Phase.F5
-                domain_agents = {
-                    "backend": "BackendDevelopmentAgent",
-                    "frontend": "FrontendDevelopmentAgent",
-                    "architecture": "ArchitectureDesignAgent",
-                    "contract": "DataApiContractsAgent",
-                    "database": "DatabaseAgent",
-                    "tests": "TestingAgent",
-                    "qa": "TestingAgent",
-                    "docs": "DocumentationAgent",
-                    "devops": "DevOpsAgent",
-                    "security": "SecurityAgent",
-                }
-                assignee = domain_agents.get(item.domain, item.domain)
+                assignee = _DOMAIN_AGENTS.get(item.domain, item.domain)
                 if b.agent_registry.get(assignee) is None:
                     raise ValueError(f"Domínio/agente desconhecido no plano: {item.domain}")
                 card = KanbanCard(
                     board_id=b.board.id,
                     orchestration_id=orchestration_id,
                     phase=phase,
-                    type=CardType.TASK,
+                    type=_tipo_de_card(item.type),
                     title=item.title,
+                    priority=prioridade_de(brief),
                     assignee_type=AssigneeType.AGENT,
                     assignee=assignee,
                     status=ColumnKey.READY,
                     acceptance_criteria=list(item.acceptance_criteria),
                 )
+                planned_cards.append((item, card))
+            # Segunda passada: `depends_on` (§7/§10 do fluxo.md) referencia TÍTULOS de
+            # itens irmãos deste mesmo backlog, que só viram ids depois que todos os
+            # cards nasceram — mesmo padrão de `PlannedAgent.depends_on` em
+            # `create_orchestration`. Título desconhecido é descartado, não quebra.
+            id_por_titulo = {item.title: card.id for item, card in planned_cards}
+            for item, card in planned_cards:
+                card.dependencies = [
+                    id_por_titulo[dep] for dep in item.depends_on if dep in id_por_titulo
+                ]
                 b.board_service.add_card(card)
                 created.append(card.id)
             b.event_log.append(
@@ -697,22 +1023,199 @@ class OrchestrationService:
         return pr
 
     def report_ci(self, orchestration_id: str, pr_id: str, status: str) -> PullRequest:
+        """CI reprovada é corrigível: o card volta para `NeedsFix` com o motivo no
+        nudge da próxima tentativa (§13 do fluxo.md, ADR-0019) — distinto de `Failed`,
+        reservado ao roteamento de execução que decidiu escalar para humano."""
         b = self._bundle(orchestration_id)
         pr = self._find_pr(b, pr_id)
         pr.ci_status = status
-        if status == "failed" and pr.card_id and b.board_service.get_card(pr.card_id):
-            b.board_service.apply_event(pr.card_id, "CIFailed")  # → Failed
+        if status == "failed" and pr.card_id:
+            card = b.board_service.get_card(pr.card_id)
+            if card is not None:
+                record = FailureRecord(
+                    etapa=ETAPA_CI,
+                    tentativa=len(card.failures) + 1,
+                    comando=pr.branch,
+                    mensagem=f"CI reprovada na branch {pr.branch}",
+                    executor=card.executor or "",
+                )
+                card.failures = registrar(card.failures, record)
+                card.correction_actions = [
+                    "A CI reprovou na tentativa anterior — corrija o que a validação "
+                    "apontou antes de reenviar."
+                ]
+                b.board_service.apply_event(pr.card_id, "CIFailed")  # → NeedsFix
         b.event_log.append("CIReported", {"pr_id": pr_id, "status": status})
         self._persist(b)
         return pr
 
-    def report_review(self, orchestration_id: str, pr_id: str, status: str) -> PullRequest:
+    def report_review(
+        self,
+        orchestration_id: str,
+        pr_id: str,
+        status: str,
+        *,
+        actor: str = "system",
+        justificativa: str = "",
+    ) -> PullRequest:
+        """Registra o resultado da revisão — governado (ADR-0017).
+
+        `status == "approved"` só é aceito com um veredito aprovado já registrado
+        (via `run_review`) ou com `justificativa` humana não vazia (a rota exige
+        papel admin nesse caso — a checagem fina é feita no handler da API). Sem
+        nenhum dos dois, o clique que "aprovava" sem ninguém ter revisado deixa
+        de existir.
+
+        Risco alto (ou impacto sensível — `exige_confirmacao_humana`, §4/§14) não fecha
+        com o veredito do agente sozinho, mesmo aprovado: a confirmação humana precisa
+        ser uma decisão registrada (justificativa), não um clique (ADR-0019, pendência
+        da ADR-0017 — sem isto, o gate de risco segurava em `pending` e qualquer
+        `operator` soltava em seguida sem que `required_role` percebesse).
+        """
         b = self._bundle(orchestration_id)
         pr = self._find_pr(b, pr_id)
+        if status == "approved":
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            exige_humano = exige_confirmacao_humana(brief)
+            veredito = pr.review_verdict.get("veredito") if pr.review_verdict else None
+            veredito_aprovado = veredito in (VEREDITO_APROVADO, VEREDITO_APROVADO_COM_SUGESTOES)
+            if (exige_humano or not veredito_aprovado) and not justificativa.strip():
+                if not veredito_aprovado:
+                    motivo = (
+                        "Aprovação exige um veredito de revisão aprovado ou "
+                        "justificativa humana (papel admin) — rode a revisão antes "
+                        "de aprovar."
+                    )
+                else:
+                    motivo = (
+                        "O risco da demanda exige confirmação humana registrada: "
+                        "aprove com justificativa (papel admin) mesmo com o veredito "
+                        "do agente aprovado."
+                    )
+                raise ValueError(motivo)
+            if pr.card_id:
+                card = b.board_service.get_card(pr.card_id)
+                if card is not None:
+                    card.correction_actions = []
         pr.review_status = status
         if status == "changes_requested" and pr.card_id and b.board_service.get_card(pr.card_id):
-            b.board_service.apply_event(pr.card_id, "ReviewRequestedChanges")  # → Review
-        b.event_log.append("ReviewReported", {"pr_id": pr_id, "status": status})
+            b.board_service.apply_event(pr.card_id, "ReviewRequestedChanges")  # → NeedsFix
+        b.event_log.append(
+            "ReviewReported",
+            {"pr_id": pr_id, "status": status, "actor": actor, "justificativa": justificativa},
+        )
+        self._persist(b)
+        return pr
+
+    def _resolve_reviewer(
+        self, b: OrchestrationBundle, *, origem_executor: str | None, explicit: str | None
+    ) -> tuple[str | None, str]:
+        """Resolve o executor revisor: explícito → etapa 'revisao' → default do
+        catálogo — desde que DIFERENTE do executor que produziu o que está sendo
+        revisado (código, §14; ou documento, §6, ADR-0021).
+
+        Devolve `(executor, "")` quando resolvido, ou `(None, motivo)` quando não
+        há revisor independente disponível — nunca aprova por omissão.
+        """
+        candidato = explicit
+        if candidato is None:
+            assignment = self._assignment(b, REVIEW_KEY)
+            candidato = assignment.executor if assignment is not None else None
+        if candidato is None and self._catalog is not None:
+            candidato = self._catalog.default_name()
+        if candidato is None:
+            return None, "nenhum agente revisor configurado"
+        if origem_executor is not None and candidato == origem_executor:
+            return None, "revisor seria o mesmo executor que produziu o que está sendo revisado"
+        return candidato, ""
+
+    def get_review(self, orchestration_id: str, pr_id: str) -> ReviewVerdict:
+        """Veredito completo da última revisão (vazio = ainda não revisada)."""
+        b = self._bundle(orchestration_id)
+        pr = self._find_pr(b, pr_id)
+        if pr.review_verdict:
+            return ReviewVerdict.model_validate(pr.review_verdict)
+        return ReviewVerdict()
+
+    def run_review(
+        self,
+        orchestration_id: str,
+        pr_id: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+        actor: str = "system",
+    ) -> PullRequest:
+        """Roda o agente revisor sobre o diff real da PR e aplica o veredito (ADR-0017)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            pr = self._find_pr(b, pr_id)
+            if not pr.card_id:
+                raise ValueError("PR sem card associado: a revisão exige o card de origem.")
+            card = b.board_service.get_card(pr.card_id)
+            if card is None:
+                raise KeyError(f"Card inexistente: {pr.card_id}")
+            revisor, recusa = self._resolve_reviewer(
+                b, origem_executor=card.executor, explicit=executor
+            )
+            if recusa:
+                verdito = ReviewVerdict(fallback_reason=recusa)
+            else:
+                assert revisor is not None  # noqa: S101 - garantido por _resolve_reviewer
+                assignment_ref = self._assignment(b, REVIEW_KEY)
+                efetivo_effort = effort or (assignment_ref.effort if assignment_ref else None)
+                assignment = AgentAssignment(executor=revisor, effort=efetivo_effort)
+                diff = self._workspace_for(b).branch_diff(pr.branch)
+                brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+                verdito = self._review.revisar(
+                    assignment,
+                    diff=diff,
+                    card_title=card.title,
+                    card_description=card.description,
+                    acceptance_criteria=card.acceptance_criteria,
+                    riscos=brief.riscos,
+                )
+            return self._apply_review_verdict(b, pr, card, verdito, actor=actor)
+
+    def _apply_review_verdict(
+        self,
+        b: OrchestrationBundle,
+        pr: PullRequest,
+        card: KanbanCard,
+        verdito: ReviewVerdict,
+        *,
+        actor: str,
+    ) -> PullRequest:
+        """Traduz o veredito em `review_status` (§4.3 da ADR-0017: risco decide se a
+        aprovação do agente fecha sozinha) e move o card reprovado para NeedsFix."""
+        brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+        pr.review_verdict = verdito.model_dump(mode="json")
+        pr.reviewed_by = verdito.revisor
+        pr.review_rounds += 1
+        aprovado = verdito.veredito in (VEREDITO_APROVADO, VEREDITO_APROVADO_COM_SUGESTOES)
+        reprovado = verdito.veredito in (VEREDITO_ALTERACOES_OBRIGATORIAS, VEREDITO_REPROVADO)
+        if aprovado and not exige_confirmacao_humana(brief):
+            pr.review_status = "approved"
+            card.correction_actions = []
+        elif reprovado:
+            pr.review_status = "changes_requested"
+            card.correction_actions = [
+                acao.descricao for acao in verdito.acoes if acao.severidade == "obrigatoria"
+            ]
+            b.board_service.apply_event(card.id, "ReviewRequestedChanges")  # → NeedsFix
+        else:  # aprovado que exige humano, ou necessita_humano
+            pr.review_status = "pending"
+        b.event_log.append(
+            "ReviewRunCompleted",
+            {
+                "pr_id": pr.id,
+                "actor": actor,
+                "veredito": verdito.veredito,
+                "origem": verdito.origem,
+                "revisor": verdito.revisor,
+                "review_status": pr.review_status,
+            },
+        )
         self._persist(b)
         return pr
 
@@ -739,7 +1242,9 @@ class OrchestrationService:
             )
             pr.status = "merged"
             pr.merged_at = now_iso()
-            if pr.card_id and b.board_service.get_card(pr.card_id):
+            card = b.board_service.get_card(pr.card_id) if pr.card_id else None
+            if card is not None and pr.card_id is not None:
+                card.closure = _build_card_closure(b, card, pr)
                 b.board_service.apply_event(pr.card_id, "QualityGatePassed")  # → Done
             b.event_log.append("PRMerged", {"pr_id": pr_id, "branch": pr.branch})
         self._log.info(
@@ -747,6 +1252,218 @@ class OrchestrationService:
         )
         self._persist(b)
         return pr
+
+    # ------------------------------------------------------------------- QA (§16/§17)
+
+    def register_qa_check(
+        self,
+        orchestration_id: str,
+        card_id: str,
+        *,
+        cenario: str,
+        passos: list[str] | None = None,
+        ambiente: str = "",
+        resultado_esperado: str = "",
+        resultado_obtido: str = "",
+        evidencias: list[str] | None = None,
+        gravidade: str = "media",
+        status: str = QA_STATUS_PENDENTE,
+        tipo_responsavel: str = "humano",
+        actor: str = "system",
+    ) -> QaCheck:
+        """Registra uma verificação manual de QA (§16) no ring do card (10 últimas)."""
+        b = self._bundle(orchestration_id)
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            raise KeyError(f"Card inexistente: {card_id}")
+        check = QaCheck(
+            cenario=cenario,
+            passos=list(passos or []),
+            ambiente=ambiente,
+            resultado_esperado=resultado_esperado,
+            resultado_obtido=resultado_obtido,
+            evidencias=list(evidencias or []),
+            gravidade=gravidade,
+            status=status,
+            responsavel=actor,
+            tipo_responsavel=tipo_responsavel,
+        )
+        card.qa_checks = [*card.qa_checks, check.model_dump(mode="json")][-_QA_RING:]
+        b.event_log.append(
+            "QaCheckRegistered",
+            {"card_id": card_id, "cenario": cenario, "status": status, "actor": actor},
+        )
+        self._persist(b)
+        return check
+
+    def get_qa_checks(self, orchestration_id: str, card_id: str) -> list[QaCheck]:
+        b = self._bundle(orchestration_id)
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            raise KeyError(f"Card inexistente: {card_id}")
+        return [QaCheck.model_validate(c) for c in card.qa_checks]
+
+    def fail_qa_check(
+        self,
+        orchestration_id: str,
+        card_id: str,
+        index: int,
+        *,
+        resultado_obtido: str = "",
+        evidencias: list[str] | None = None,
+        gravidade: str | None = None,
+        actor: str = "system",
+    ) -> KanbanCard:
+        """§17: reprovação de QA cria um bug vinculado ao card original e devolve o
+        card ao ponto certo do fluxo — via a mesma tabela de roteamento de falha
+        (ADR-0019, `diagnosticar`/`decidir`), sem taxonomia nova."""
+        b = self._bundle(orchestration_id)
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            raise KeyError(f"Card inexistente: {card_id}")
+        if not 0 <= index < len(card.qa_checks):
+            raise KeyError(f"Verificação de QA inexistente: índice {index}")
+        check = QaCheck.model_validate(card.qa_checks[index])
+        check.status = QA_STATUS_FALHOU
+        if resultado_obtido:
+            check.resultado_obtido = resultado_obtido
+        if evidencias:
+            check.evidencias = list(evidencias)
+        if gravidade:
+            check.gravidade = gravidade
+        card.qa_checks[index] = check.model_dump(mode="json")
+
+        bug = self._criar_bug_de_qa(b, card, check)
+
+        record = FailureRecord(
+            etapa=ETAPA_QA,
+            tentativa=len(card.failures) + 1,
+            comando="qa",
+            mensagem=f"QA reprovado: {check.cenario}",
+            saida=check.resultado_obtido,
+            categoria="qa",
+        )
+        card.failures = registrar(card.failures, record)
+        diagnostico = diagnosticar(record)
+        decisao = decidir(
+            diagnostico,
+            len(card.failures),
+            catalogo=self._catalog,
+            max_escalonamentos=self._max_escalonamentos,
+        )
+        card.correction_actions = [decisao.nudge] if decisao.nudge else []
+        detalhe = f"QA reprovado: {check.cenario} — {decisao.motivo}"
+        b.event_log.append(
+            "QaCheckFailed",
+            {
+                "card_id": card_id,
+                "cenario": check.cenario,
+                "bug_id": bug.id,
+                "diagnostico": diagnostico,
+                "acao": decisao.acao,
+                "actor": actor,
+            },
+        )
+        destino = ColumnKey.FAILED if decisao.acao == ACAO_ESCALAR_HUMANO else ColumnKey.NEEDS_FIX
+        b.board_service.move_card(
+            card_id, destino, reason=detalhe, result="falhou", next_action=decisao.acao
+        )
+        self._persist(b)
+        atualizado = b.board_service.get_card(card_id)
+        assert atualizado is not None  # noqa: S101 - card acabou de ser lido/movido acima
+        return atualizado
+
+    def _criar_bug_de_qa(
+        self, b: OrchestrationBundle, card: KanbanCard, check: QaCheck
+    ) -> KanbanCard:
+        """Cria o card `Bug` do §17, vinculado por `dependencies` (para o observador
+        de `blocked_by` da ADR-0018/0022) e por `parent_id` quando a hierarquia (§7)
+        permitir — card original já no nível mais profundo cai sem `parent_id`, a
+        dependência sozinha já vincula."""
+        bug = KanbanCard(
+            board_id=b.board.id,
+            orchestration_id=b.orchestration.id,
+            phase=card.phase,
+            type=CardType.BUG,
+            title=f"QA reprovado: {check.cenario}"[:200],
+            description=_descricao_bug_de_qa(check),
+            priority=_GRAVIDADE_PARA_PRIORIDADE.get(check.gravidade, RiskLevel.MEDIUM),
+            assignee_type=card.assignee_type,
+            assignee=card.assignee,
+            status=ColumnKey.BACKLOG,
+            dependencies=[card.id],
+            parent_id=card.id,
+        )
+        try:
+            b.board_service.add_card(bug)
+        except ValueError:
+            bug.parent_id = None
+            b.board_service.add_card(bug)
+        b.event_log.append("BugCreatedFromQa", {"card_id": card.id, "bug_id": bug.id})
+        return bug
+
+    # ------------------------------------------------------------- aprendizado (§24)
+
+    def _coletar_aprendizado(
+        self, b: OrchestrationBundle
+    ) -> tuple[list[CardSnapshot], list[PullRequestSnapshot], int]:
+        """Coleta o estado já persistido do bundle e o achata para o agregador puro
+        de `observability/aprendizado.py` — o único ponto que pode ligar `control`
+        a `observability` (mesmo arranjo de `next_step`/`Service.next_step`)."""
+        cards_do_board = b.board_service.cards_of(b.board.id)
+        tempo_por_card = _tempo_ms_por_card(b.event_log.all())
+        cards = [
+            CardSnapshot(
+                id=c.id,
+                executor=c.executor or "",
+                failures=list(c.failures),
+                tempo_ms=tempo_por_card.get(c.id, 0.0),
+                custo_usd=float(c.uso.get("custo_usd", 0.0)),
+                # Nenhuma execução informou uso ainda (inclui card nunca executado,
+                # 0 >= 0) — nunca "custou zero" por omissão (§1.1, ADR-0026).
+                uso_indisponivel=int(c.uso.get("execucoes_sem_custo", 0))
+                >= int(c.uso.get("execucoes", 0)),
+                entregue=c.status == ColumnKey.DONE,
+            )
+            for c in cards_do_board
+        ]
+        pulls = [
+            PullRequestSnapshot(
+                card_id=pr.card_id, review_rounds=pr.review_rounds, review_status=pr.review_status
+            )
+            for pr in b.pull_requests
+        ]
+        intervencoes = sum(1 for a in b.approvals if a.status in ("approved", "rejected"))
+        intervencoes += sum(
+            1
+            for c in cards_do_board
+            for check in c.qa_checks
+            if check.get("tipo_responsavel") == "humano"
+            and check.get("status") in ("passou", "falhou")
+        )
+        return cards, pulls, intervencoes
+
+    def get_learning_report(self, orchestration_id: str) -> RelatorioDeAprendizado:
+        """Relatório de aprendizado de UMA demanda (§24) — retrabalho, falhas por
+        etapa, desempenho por executor, intervenções humanas. Informativo: não
+        altera nenhuma decisão automaticamente (§3.4 do plano6)."""
+        b = self._bundle(orchestration_id)
+        cards, pulls, intervencoes = self._coletar_aprendizado(b)
+        return consolidar(orchestration_id, cards, pulls, intervencoes_humanas=intervencoes)
+
+    def get_learning_report_global(self) -> RelatorioDeAprendizado:
+        """Mesmo relatório, consolidado entre TODAS as orquestrações."""
+        orchestrations, _ = self._repo.list_orchestrations()
+        cards: list[CardSnapshot] = []
+        pulls: list[PullRequestSnapshot] = []
+        intervencoes = 0
+        for orch in orchestrations:
+            b = self._bundle(orch.id)
+            c, p, i = self._coletar_aprendizado(b)
+            cards.extend(c)
+            pulls.extend(p)
+            intervencoes += i
+        return consolidar("todas", cards, pulls, intervencoes_humanas=intervencoes)
 
     def run_pr_ci(self, orchestration_id: str, pr_id: str) -> PullRequest:
         """Executa a validação configurada na branch candidata da PR."""
@@ -769,6 +1486,7 @@ class OrchestrationService:
     ) -> dict[str, object]:
         """Roda múltiplos agentes CLI em paralelo por card e compara os diffs (§26A.6)."""
         b = self._bundle(orchestration_id)
+        self._recusar_se_orcamento_estourado(b)
         card = b.board_service.get_card(card_id)
         if card is None or card.assignee is None:
             raise KeyError(f"Card inválido: {card_id}")
@@ -795,6 +1513,14 @@ class OrchestrationService:
                 "recommended": comparison["recommended_branch"],
             },
         )
+        # Candidato perdido nunca é silencioso (plano6 §0/ADR-0024): um evento por
+        # falha, rastreável mesmo depois que o ring de corridas descartar `run`.
+        falhas = comparison["falhas"]
+        for falha in falhas:
+            b.event_log.append(
+                "CandidateFailed",
+                {"run_id": run.id, "card_id": card_id, **falha},
+            )
         self._persist(b)
         comparison["run_id"] = run.id
         return comparison
@@ -1146,13 +1872,114 @@ class OrchestrationService:
         return b.orchestration
 
     def retry(self, orchestration_id: str) -> list[str]:
-        """Reexecuta cards pendentes/falhos (§28.1). Retorna os ids reexecutados."""
+        """Reexecuta cards pendentes/falhos (§28.1), respeitando o ponto certo (§13).
+
+        Gate reprovado roteia só os cards da fase que ainda não chegaram a `Done` —
+        não reinicia a fase inteira (Princípio central do fluxo.md: "retorna
+        exatamente ao ponto responsável pelo erro"). Fora desse caso, cai na varredura
+        genérica de cards prontos/falhos/bloqueados de sempre.
+        """
         b = self._bundle(orchestration_id)
-        retryable = {ColumnKey.READY, ColumnKey.FAILED, ColumnKey.BLOCKED}
-        targets = [c.id for c in b.board_service.cards_of(b.board.id) if c.status in retryable]
+        targets = self._gate_retry_targets(b)
+        if targets is None:
+            retryable = {ColumnKey.READY, ColumnKey.FAILED, ColumnKey.BLOCKED}
+            targets = [c.id for c in b.board_service.cards_of(b.board.id) if c.status in retryable]
         for card_id in targets:
-            self.run_card(orchestration_id, card_id)
+            try:
+                self.run_card(orchestration_id, card_id)
+            except (KeyError, ValueError):
+                # Card inválido ou com dependência ainda pendente: não derruba o resto
+                # do retry — o `run_card` já registrou o motivo no próprio card.
+                continue
         return targets
+
+    def _gate_retry_targets(self, b: OrchestrationBundle) -> list[str] | None:
+        """Cards da fase do último gate reprovado (se houver e ainda for o mais
+        recente daquela fase) que ainda não chegaram a `Done`. `None` = não se aplica
+        (cai na varredura genérica de `retry`).
+
+        Desde a ADR-0022, a reprovação também passa pelo roteamento de falha (§13,
+        ADR-0019): a verificação nomeada que reprovou primeiro dá `categoria` ao
+        diagnóstico — fato, não heurística por palavra-chave (`diagnosticar` prefere
+        a categoria quando ela existe). A escalada (effort maior/outro executor) é
+        da ETAPA, não do card isolado: grava em `agent_assignments[fase]`, então a
+        próxima chamada de `run_card` de qualquer card dessa fase já nasce com o
+        degrau novo — sem isto, cada card escalaria isoladamente e do zero.
+        """
+        ultimo = b.gate_results[-1] if b.gate_results else None
+        if ultimo is None or ultimo.status != GateStatus.FAILED:
+            return None
+        pendentes = [
+            c
+            for c in b.board_service.cards_of(b.board.id)
+            if c.phase == ultimo.phase and c.status != ColumnKey.DONE
+        ]
+        if not pendentes:
+            return None
+        falhados = [
+            c.failure_reason or c.name for c in ultimo.criteria if c.status == GateStatus.FAILED
+        ]
+        detalhe = " · ".join(ultimo.required_actions or ultimo.blocking_issues or falhados)
+        categorias = {c.nome: c.categoria for c in checks_efetivos(b.orchestration)}
+        nomes_falhados = ultimo.blocking_issues or [
+            c.name for c in ultimo.criteria if c.status == GateStatus.FAILED
+        ]
+        primeiro_check = next((nome for nome in nomes_falhados if nome in categorias), "")
+        categoria = categorias.get(primeiro_check, "")
+        diagnostico = diagnosticar(FailureRecord(check=primeiro_check, categoria=categoria))
+        tentativa_fase = sum(
+            1 for g in b.gate_results if g.phase == ultimo.phase and g.status == GateStatus.FAILED
+        )
+        assignment_atual = b.orchestration.agent_assignments.get(ultimo.phase.value)
+        executor_atual = (
+            (assignment_atual.executor if assignment_atual else None)
+            or self._effective_executor(b, None, phase=ultimo.phase)
+            or ""
+        )
+        effort_atual = (assignment_atual.effort if assignment_atual else None) or ""
+        decisao = decidir(
+            diagnostico,
+            tentativa_fase,
+            executor_atual=executor_atual,
+            effort_atual=effort_atual,
+            catalogo=self._catalog,
+            max_escalonamentos=self._max_escalonamentos,
+        )
+        if decisao.acao == ACAO_AUMENTAR_EFFORT and decisao.effort:
+            b.orchestration.agent_assignments[ultimo.phase.value] = AgentAssignment(
+                executor=executor_atual, effort=decisao.effort
+            )
+        elif decisao.acao == ACAO_TROCAR_EXECUTOR and decisao.executor:
+            b.orchestration.agent_assignments[ultimo.phase.value] = AgentAssignment(
+                executor=decisao.executor, effort=effort_atual or None
+            )
+        b.event_log.append(
+            "FailureRouted",
+            {
+                "orchestration_id": b.orchestration.id,
+                "etapa": ETAPA_GATE,
+                "fase": ultimo.phase.value,
+                "diagnostico": diagnostico,
+                "acao": decisao.acao,
+                "check": primeiro_check,
+                "categoria": categoria,
+            },
+        )
+        nudge = decisao.nudge or (f"O gate reprovou: {detalhe}"[:500] if detalhe else "")
+        for card in pendentes:
+            record = FailureRecord(
+                etapa=ETAPA_GATE,
+                tentativa=len(card.failures) + 1,
+                comando="quality-gate",
+                mensagem=f"Quality gate de {ultimo.phase.value} reprovado",
+                saida=detalhe,
+                check=primeiro_check,
+                categoria=categoria,
+            )
+            card.failures = registrar(card.failures, record)
+            if nudge:
+                card.correction_actions = [nudge]
+        return [c.id for c in pendentes]
 
     def snapshot_diff(self, orchestration_id: str, from_v: str, to_v: str) -> dict[str, object]:
         b = self._bundle(orchestration_id)
@@ -1252,6 +2079,28 @@ class OrchestrationService:
         card = b.board_service.move_card(card_id, ColumnKey.READY)
         self._persist(b)
         return card
+
+    def cancel_card(self, orchestration_id: str, card_id: str, reason: str = "") -> KanbanCard:
+        """Cancela um card individualmente (§8 do fluxo.md) — distinto de `cancel`,
+        que é o kill-switch da orquestração inteira."""
+        b = self._bundle(orchestration_id)
+        card = b.board_service.move_card(card_id, ColumnKey.CANCELLED, reason=reason)
+        self._persist(b)
+        return card
+
+    @staticmethod
+    def _pending_dependencies(b: OrchestrationBundle, card: KanbanCard) -> list[KanbanCard]:
+        """Dependências (§10 do fluxo.md) que ainda não chegaram a `Done`.
+
+        Só usado no caminho manual de execução (`run_card`): o `run_plan` já ordena
+        agentes por `depends_on` nas suas próprias ondas e não precisa deste guard.
+        """
+        pendentes = []
+        for dep_id in card.dependencies:
+            dep = b.board_service.get_card(dep_id)
+            if dep is not None and dep.status != ColumnKey.DONE:
+                pendentes.append(dep)
+        return pendentes
 
     def assign_agent(self, orchestration_id: str, card_id: str, agent: str) -> KanbanCard:
         b = self._bundle(orchestration_id)
@@ -1386,6 +2235,10 @@ class OrchestrationService:
         *,
         phase: Phase | None = None,
     ) -> str | None:
+        """Ordem de resolução (§9 do fluxo.md, ADR-0022): explícito → etapa →
+        padrão da orquestração → sugestão automática da ficha → default do perfil.
+        A sugestão só preenche o vazio que, sem ela, cairia direto no perfil — toda
+        escolha humana (explícita, de etapa ou da orquestração) continua vencendo."""
         if effort:
             return effort
         escolha = self._assignment(b, phase.value if phase else None)
@@ -1397,10 +2250,45 @@ class OrchestrationService:
                 return escolha.effort
         elif b.orchestration.selected_effort:
             return b.orchestration.selected_effort
+        sugerido = self._effort_sugerido(b, executor, phase=phase)
+        if sugerido:
+            return sugerido
         if executor and self._catalog is not None:
             profile = self._catalog.get(executor)
             return profile.effort if profile is not None else None
         return None
+
+    def _effort_sugerido(
+        self, b: OrchestrationBundle, executor: str | None, *, phase: Phase | None = None
+    ) -> str | None:
+        """§9: complexidade + risco da ficha da demanda sugerem o esforço.
+
+        Só age quando a triagem de fato rodou (`demand_brief` não vazio) — ficha
+        vazia é o mesmo "nunca triou" das demais orquestrações, e não pode mudar o
+        comportamento de nenhuma delas. `ASO_EFFORT_AUTOMATICO=0` desliga por
+        completo (interruptor de emergência).
+        """
+        if not self._effort_automatico or not b.orchestration.demand_brief:
+            return None
+        brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+        sugestao = sugerir_effort(brief.complexidade, brief.risco)
+        suportados: list[str] = []
+        if executor and self._catalog is not None:
+            perfil = self._catalog.get(executor)
+            if perfil is not None:
+                suportados = list(perfil.supported_efforts)
+        resolvido = resolver_topo(sugestao, suportados)
+        b.event_log.append(
+            "EffortSugerido",
+            {
+                "orchestration_id": b.orchestration.id,
+                "fase": phase.value if phase else None,
+                "complexidade": brief.complexidade,
+                "risco": brief.risco.value,
+                "effort": resolvido,
+            },
+        )
+        return resolvido
 
     def _provider_for(
         self,
@@ -1448,6 +2336,50 @@ class OrchestrationService:
         if isinstance(legacy, WorktreeManager):
             return legacy
         raise ValueError("Orquestração sem pasta de trabalho para operação git.")
+
+    # -------------------------------------- worktrees órfãos (§1.4/§3.3, ADR-0027)
+    _STATUS_INATIVOS = (ColumnKey.DONE, ColumnKey.CANCELLED, ColumnKey.ARCHIVED)
+
+    def _branches_ativas(self, b: OrchestrationBundle) -> set[str]:
+        """Branches que ainda importam: cards não terminais referenciam por
+        `branch`/`worktree` — um worktree fora daqui é candidato a órfão."""
+        ativos: set[str] = set()
+        for card in b.board_service.cards_of(b.board.id):
+            if card.status in self._STATUS_INATIVOS:
+                continue
+            if card.branch:
+                ativos.add(card.branch)
+            if card.worktree:
+                ativos.add(card.worktree)
+        return ativos
+
+    def list_worktrees(self, orchestration_id: str) -> list[dict[str, Any]]:
+        """O que existe em disco para esta orquestração, com `orfao` marcado — sempre
+        a lista completa (com o que **seria** removido), nunca só os órfãos: o
+        operador precisa ver o que está ativo para confiar no que não está."""
+        b = self._bundle(orchestration_id)
+        ativos = self._branches_ativas(b)
+        encontrados = self._workspace_for(b).list_worktrees()
+        return [{**w, "orfao": w.get("branch", "") not in ativos} for w in encontrados]
+
+    def prune_worktrees(
+        self, orchestration_id: str, *, actor: str = "system"
+    ) -> list[dict[str, Any]]:
+        """Remove só os órfãos (`git worktree remove` + `prune`, nunca `rm -rf`) e
+        devolve o que foi removido — o banco não é tocado."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            ativos = self._branches_ativas(b)
+            workspace = self._workspace_for(b)
+            todos = workspace.list_worktrees()
+            orfaos = [w for w in todos if w.get("branch", "") not in ativos]
+            workspace.prune([Path(w["path"]) for w in orfaos if w.get("path")])
+            b.event_log.append(
+                "WorktreesPruned",
+                {"orchestration_id": orchestration_id, "actor": actor, "removidos": orfaos},
+            )
+            self._persist(b)
+            return orfaos
 
     def agent_log(
         self, orchestration_id: str, *, after: int = 0, limit: int = 500
@@ -1568,20 +2500,326 @@ class OrchestrationService:
             self._persist(b)
             return b.orchestration
 
+    def get_validation_checks(self, orchestration_id: str) -> list[ValidationCheck]:
+        """A bateria efetiva (§12, ADR-0022) — bateria configurada, ou o
+        `validation_command` legado convertido numa única verificação "testes"."""
+        b = self._bundle(orchestration_id)
+        return checks_efetivos(b.orchestration)
+
+    def set_validation_checks(
+        self, orchestration_id: str, checks: list[ValidationCheck], *, actor: str = "system"
+    ) -> Orchestration:
+        """Substitui a bateria de validações (§12). Ação de operador (`PUT`) —
+        cada comando passa por `validate_gate_command`, exatamente como o
+        `validation_command` legado: um `npm run dev` no meio da lista travaria o
+        gate para sempre, tanto quanto travaria sozinho."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            validados = [
+                check.model_copy(update={"comando": validate_gate_command(check.comando)})
+                for check in checks
+            ]
+            antes = [c.model_dump(mode="json") for c in b.orchestration.validation_checks]
+            b.orchestration.validation_checks = validados
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "ValidationChecksUpdated",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "before": antes,
+                    "after": [c.model_dump(mode="json") for c in validados],
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def suggest_validation_checks(self, orchestration_id: str) -> list[ValidationCheck]:
+        """Sugestão determinística por stack (§4.5) — não grava nada. Sem
+        `target_path`, não há workspace para inspecionar: lista vazia, não erro."""
+        b = self._bundle(orchestration_id)
+        if not b.orchestration.target_path:
+            return []
+        return sugerir_bateria(b.orchestration.target_path)
+
+    # -------------------------------------------- orçamento com freio (§1.2/§3.2)
+    def set_orcamento(
+        self, orchestration_id: str, teto_usd: float | None, *, actor: str = "system"
+    ) -> Orchestration:
+        """Eleva (ou remove) o teto de gasto (ADR-0026). `None`/`<= 0` volta ao
+        comportamento sem teto. Ação crítica (`admin`, ver `api/auth.py`): autorizar
+        mais gasto é decisão humana, mesmo espírito da regra 4 do CLAUDE.md."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            antes = b.orchestration.orcamento_usd
+            b.orchestration.orcamento_usd = teto_usd if teto_usd and teto_usd > 0 else None
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "OrcamentoAtualizado",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "antes": antes,
+                    "depois": b.orchestration.orcamento_usd,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    # ------------------------------------------ implantação governada (§18-22)
+    def set_deploy_config(
+        self,
+        orchestration_id: str,
+        *,
+        command: str | None = None,
+        environment: str | None = None,
+        health_checks: list[ValidationCheck] | None = None,
+        rollback_command: str | None = None,
+        actor: str = "system",
+    ) -> Orchestration:
+        """Configura a implantação (ADR-0023) — cada comando passa por
+        `validate_gate_command`, mesmo guard de `set_validation_checks`."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            antes = {
+                "deploy_command": b.orchestration.deploy_command,
+                "deploy_environment": b.orchestration.deploy_environment,
+                "deploy_health_checks": [
+                    c.model_dump(mode="json") for c in b.orchestration.deploy_health_checks
+                ],
+                "deploy_rollback_command": b.orchestration.deploy_rollback_command,
+            }
+            if command is not None:
+                b.orchestration.deploy_command = validate_gate_command(command) if command else None
+            if environment is not None:
+                b.orchestration.deploy_environment = environment
+            if health_checks is not None:
+                b.orchestration.deploy_health_checks = [
+                    c.model_copy(update={"comando": validate_gate_command(c.comando)})
+                    for c in health_checks
+                ]
+            if rollback_command is not None:
+                b.orchestration.deploy_rollback_command = (
+                    validate_gate_command(rollback_command) if rollback_command else None
+                )
+            depois = {
+                "deploy_command": b.orchestration.deploy_command,
+                "deploy_environment": b.orchestration.deploy_environment,
+                "deploy_health_checks": [
+                    c.model_dump(mode="json") for c in b.orchestration.deploy_health_checks
+                ],
+                "deploy_rollback_command": b.orchestration.deploy_rollback_command,
+            }
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "DeployConfigUpdated",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "before": antes,
+                    "after": depois,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def run_deploy(
+        self,
+        orchestration_id: str,
+        *,
+        environment: str | None = None,
+        versao_app: str = "",
+        commit: str = "",
+        branch: str = "",
+        actor: str = "system",
+    ) -> DeployRun:
+        """§18 (checklist) + §19 (execução). Sempre roda o comando configurado —
+        a decisão humana (§18/§22) é sobre ACEITAR o resultado, não sobre
+        autorizar a tentativa (mesmo raciocínio de `DiscoveryService.investigar`).
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.deploy_command:
+                raise ValueError(
+                    "Configure o comando de implantação antes (PUT .../deploy/config)."
+                )
+            repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
+            if not repo:
+                raise ValueError("Orquestração sem pasta de trabalho (target_path).")
+            if not b.gate_results or b.gate_results[-1].status != GateStatus.PASSED:
+                raise ValueError(
+                    "Quality gate mais recente não passou — rode-o antes de implantar (§18)."
+                )
+            ok, logs, duracao = executar_deploy(b.orchestration.deploy_command, repo)
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            deploy = DeployRun(
+                ambiente=environment or b.orchestration.deploy_environment,
+                versao_app=versao_app,
+                commit=commit,
+                branch=branch,
+                comando=b.orchestration.deploy_command,
+                responsavel=actor,
+                status=STATUS_SUCESSO if ok else STATUS_FALHOU,
+                logs=logs[:4000],
+                resultado=logs[:500],
+                duracao_segundos=duracao,
+            )
+            if not ok:
+                deploy.aceite_status = ACEITE_REPROVADO
+                deploy.aceite_comentario = "implantação falhou"
+            elif exige_aceite_humano(deploy, brief):
+                deploy.aceite_status = ACEITE_AGUARDANDO_HUMANO
+            else:
+                deploy.aceite_status = ACEITE_APROVADO
+                deploy.origem_decisao = "automatico"
+            deploy.versao = proxima_versao(b.orchestration.deploy_runs)
+            b.orchestration.deploy_runs = acrescentar_versao(b.orchestration.deploy_runs, deploy)
+            b.event_log.append(
+                "DeployRun",
+                {
+                    "orchestration_id": orchestration_id,
+                    "status": deploy.status,
+                    "ambiente": deploy.ambiente,
+                    "aceite": deploy.aceite_status,
+                },
+            )
+            self._persist(b)
+            return deploy
+
+    def get_deploy(self, orchestration_id: str) -> DeployRun:
+        b = self._bundle(orchestration_id)
+        return versao_atual(b.orchestration.deploy_runs, DeployRun)
+
+    def get_deploy_history(self, orchestration_id: str) -> list[DeployRun]:
+        b = self._bundle(orchestration_id)
+        return [DeployRun.model_validate(d) for d in b.orchestration.deploy_runs]
+
+    def validate_deploy(self, orchestration_id: str, *, actor: str = "system") -> DeployRun:
+        """§20: roda as verificações pós-implantação sobre a última tentativa."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.deploy_runs:
+                raise KeyError("Nenhuma implantação para validar.")
+            repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
+            if not repo:
+                raise ValueError("Orquestração sem pasta de trabalho (target_path).")
+            deploy = versao_atual(b.orchestration.deploy_runs, DeployRun)
+            aprovado, resultados = validar_pos_deploy(b.orchestration.deploy_health_checks, repo)
+            deploy.validacao_status = VALIDACAO_APROVADA if aprovado else VALIDACAO_REPROVADA
+            deploy.validacao_resultados = resultados
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            # Uma validação reprovada pode reverter um aceite já automático — a
+            # decisão humana reabre exatamente como no §22.
+            if deploy.aceite_status == ACEITE_APROVADO and exige_aceite_humano(deploy, brief):
+                deploy.aceite_status = ACEITE_AGUARDANDO_HUMANO
+                deploy.origem_decisao = ""
+            b.orchestration.deploy_runs = [
+                *b.orchestration.deploy_runs[:-1],
+                deploy.model_dump(mode="json"),
+            ]
+            b.event_log.append(
+                "DeployValidated",
+                {"orchestration_id": orchestration_id, "aprovado": aprovado, "actor": actor},
+            )
+            self._persist(b)
+            return deploy
+
+    def decide_deploy(
+        self, orchestration_id: str, *, approved: bool, comentario: str = "", actor: str = "system"
+    ) -> DeployRun:
+        """§22: aceite final humano, só quando o ciclo automático escalou."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.deploy_runs:
+                raise KeyError("Nenhuma implantação para decidir.")
+            deploy = versao_atual(b.orchestration.deploy_runs, DeployRun)
+            if deploy.aceite_status != ACEITE_AGUARDANDO_HUMANO:
+                raise ValueError(
+                    f"Implantação não está aguardando aceite (status={deploy.aceite_status})."
+                )
+            deploy.aceite_status = ACEITE_APROVADO if approved else ACEITE_REPROVADO
+            deploy.aceite_comentario = comentario
+            deploy.origem_decisao = "humano"
+            b.orchestration.deploy_runs = [
+                *b.orchestration.deploy_runs[:-1],
+                deploy.model_dump(mode="json"),
+            ]
+            b.event_log.append(
+                "DeployDecided",
+                {"orchestration_id": orchestration_id, "approved": approved, "actor": actor},
+            )
+            self._persist(b)
+            return deploy
+
+    def rollback_deploy(
+        self, orchestration_id: str, *, reason: str, actor: str = "system"
+    ) -> DeployRun:
+        """§21: reverte a última implantação e abre uma tarefa de análise de
+        causa raiz (CardType.INCIDENT) — o runtime não reverte infraestrutura
+        real; roda `deploy_rollback_command` quando configurado (best-effort)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.deploy_runs:
+                raise KeyError("Nenhuma implantação para reverter.")
+            deploy = versao_atual(b.orchestration.deploy_runs, DeployRun)
+            if deploy.status == STATUS_REVERTIDO:
+                raise ValueError("Implantação já revertida.")
+            detalhe = ""
+            comando_rollback = b.orchestration.deploy_rollback_command
+            repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
+            if comando_rollback and repo:
+                _ok, detalhe, _duracao = executar_deploy(comando_rollback, repo)
+            deploy.status = STATUS_REVERTIDO
+            deploy.rollback_motivo = reason
+            b.orchestration.deploy_runs = [
+                *b.orchestration.deploy_runs[:-1],
+                deploy.model_dump(mode="json"),
+            ]
+            descricao = reason
+            if detalhe:
+                descricao += f"\n\nSaída do comando de rollback: {detalhe[:1000]}"
+            card = KanbanCard(
+                board_id=b.board.id,
+                orchestration_id=orchestration_id,
+                phase=b.orchestration.current_phase,
+                type=CardType.INCIDENT,
+                title=f"Causa raiz: rollback de implantação ({deploy.ambiente})",
+                description=descricao,
+                status=ColumnKey.BACKLOG,
+                linked_requirements=["§21"],
+            )
+            b.board_service.add_card(card)
+            b.event_log.append(
+                "DeployRolledBack",
+                {
+                    "orchestration_id": orchestration_id,
+                    "ambiente": deploy.ambiente,
+                    "reason": reason,
+                    "incident_card": card.id,
+                    "actor": actor,
+                },
+            )
+            self._persist(b)
+            return deploy
+
     @staticmethod
     def _validate_assignment_key(orchestration: Orchestration, key: str) -> str:
         """Valida a chave da etapa e o momento em que ela ainda pode ser configurada.
 
-        `naming` é sempre editável (não é fase da esteira). Uma fase só aceita troca de
-        agente enquanto não ficou para trás: reconfigurar F2 com a orquestração já em F5
+        `naming`, `triagem`, `revisao`, `discovery` e `especificacao` são sempre
+        editáveis (não são fases da esteira). Uma fase só aceita troca de agente
+        enquanto não ficou para trás: reconfigurar F2 com a orquestração já em F5
         daria a falsa impressão de que o trabalho seria refeito com o novo agente.
         """
-        if key == NAMING_KEY:
+        if key in (NAMING_KEY, TRIAGE_KEY, REVIEW_KEY, DISCOVERY_KEY, SPEC_KEY):
             return key
         try:
             fase = Phase(key)
         except ValueError:
-            raise ValueError(f"Etapa inválida: '{key}'. Use F1..F7 ou '{NAMING_KEY}'.") from None
+            raise ValueError(
+                f"Etapa inválida: '{key}'. Use F1..F7, '{NAMING_KEY}', '{TRIAGE_KEY}', "
+                f"'{REVIEW_KEY}', '{DISCOVERY_KEY}' ou '{SPEC_KEY}'."
+            ) from None
         ordem = list(Phase)
         if ordem.index(fase) < ordem.index(orchestration.current_phase):
             raise ValueError(
@@ -1649,6 +2887,512 @@ class OrchestrationService:
             self._persist(b)
             return b.orchestration
 
+    # -------------------------------------------------------------- ficha da demanda
+    def _triage_executor(
+        self, explicit: str | None, assignment: AgentAssignment | None
+    ) -> str | None:
+        """Ordem de resolução do agente de triagem: parâmetro explícito → etapa
+        'triagem' configurada → default do catálogo → heurística (`None`)."""
+        if explicit:
+            return explicit
+        if assignment is not None:
+            return assignment.executor
+        if self._catalog is not None:
+            return self._catalog.default_name()
+        return None
+
+    def triage_demand(
+        self, user_request: str, *, executor: str | None = None, effort: str | None = None
+    ) -> DemandBrief:
+        """Tria a demanda (§1/§2) antes de criar a orquestração.
+
+        Ainda não existe orquestração, logo não há `agent_assignments["triagem"]`: o
+        agente vem do parâmetro explícito ou do default do catálogo, e cai na
+        heurística sem nenhum dos dois — a mesma garantia de `TriageService`, triar
+        nunca impede a criação.
+        """
+        nome = self._triage_executor(executor, None)
+        assignment = AgentAssignment(executor=nome, effort=effort) if nome else None
+        return self._triage.analisar(assignment, user_request=user_request)
+
+    def create_with_triage(
+        self,
+        user_request: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+        **kwargs: Any,
+    ) -> Orchestration:
+        """Tria a demanda e cria a orquestração — o único caminho correto de criação.
+
+        Existe porque a sequência triagem→criação estava duplicada só em `app.py`: a
+        CLI nasceu sem ela ([Ponto 1] herdado da avaliação do Incremento A) e criava
+        orquestrações com `demand_brief` vazio e `priority` sempre `MEDIUM` fixo — o
+        motor de decisão nunca via a demanda real. `create_orchestration` continua
+        existindo tal como está (usada em dezenas de testes); este método a envolve.
+        """
+        brief = self.triage_demand(user_request, executor=executor, effort=effort)
+        return self.create_orchestration(
+            user_request,
+            executor=executor,
+            effort=effort,
+            decision_input=brief.to_decision_input(user_request),
+            demand_brief=brief,
+            **kwargs,
+        )
+
+    def get_demand_brief(self, orchestration_id: str) -> DemandBrief:
+        """Ficha atual da demanda (vazia = orquestração criada antes da ADR-0016)."""
+        b = self._bundle(orchestration_id)
+        return DemandBrief.model_validate(b.orchestration.demand_brief)
+
+    def set_demand_brief(
+        self, orchestration_id: str, brief: DemandBrief, *, actor: str = "system"
+    ) -> Orchestration:
+        """Persiste a ficha da demanda, com trilha de auditoria (origem/fallback)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            b.orchestration.demand_brief = brief.model_dump(mode="json")
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "DemandTriaged",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "origem": brief.origem,
+                    "fallback_reason": brief.fallback_reason,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def retriage_demand(
+        self,
+        orchestration_id: str,
+        *,
+        executor: str | None = None,
+        effort: str | None = None,
+        actor: str = "system",
+    ) -> dict[str, object]:
+        """Re-tria a demanda (POST .../brief), depois que o operador responder as
+        `perguntas_abertas`. O agente roda fora do lock — mesmo motivo de `run_card`:
+        não travar a orquestração pelo timeout da triagem; só a persistência do
+        resultado é serializada.
+
+        [Ponto 2 herdado da avaliação do Incremento A] Antes, só a ficha era
+        atualizada: o operador respondia as `perguntas_abertas`, ganhava uma ficha
+        melhor e continuava com a mesma equipe/estratégia da triagem original — o
+        mecanismo que o Incremento A existe para ligar ficava desligado no caminho de
+        correção. Ver `_replan_if_untouched`.
+        """
+        b = self._bundle(orchestration_id)
+        assignment = self._assignment(b, TRIAGE_KEY)
+        nome = self._triage_executor(executor, assignment)
+        efetivo_effort = effort or (assignment.effort if assignment else None)
+        escolha = AgentAssignment(executor=nome, effort=efetivo_effort) if nome else None
+        brief = self._triage.analisar(escolha, user_request=b.orchestration.user_request)
+        self.set_demand_brief(orchestration_id, brief, actor=actor)
+        replanned, motivo = self._replan_if_untouched(orchestration_id, brief, actor=actor)
+        return {"demand_brief": brief, "replanned": replanned, "replan_reason": motivo}
+
+    def _replan_if_untouched(
+        self, orchestration_id: str, brief: DemandBrief, *, actor: str
+    ) -> tuple[bool, str]:
+        """Recomputa o `ExecutionPlan` a partir da ficha re-triada — só enquanto nenhum
+        card saiu de Ready. Depois de executado, replanejar mentiria sobre o trabalho
+        já feito (mesma razão de `_validate_assignment_key` recusar reconfigurar uma
+        fase que já ficou para trás). Devolve `(replanejou, motivo)`.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            cards = b.board_service.cards_of(b.board.id)
+            if any(c.status != ColumnKey.READY for c in cards):
+                motivo = (
+                    "cards já saíram de Ready: replanejar agora reescreveria trabalho em andamento"
+                )
+                b.event_log.append(
+                    "ReplanSkipped",
+                    {"orchestration_id": orchestration_id, "actor": actor, "reason": motivo},
+                )
+                self._persist(b)
+                return False, motivo
+            planner = ExecutionPlanner(MultiAgentDecisionEngine())
+            din = brief.to_decision_input(b.orchestration.user_request)
+            novo_plano = planner.plan(orchestration_id, b.orchestration.execution_mode, din)
+            b.plan = novo_plano
+            nova_prioridade = prioridade_de(brief)
+            for card in cards:
+                card.priority = nova_prioridade
+            b.event_log.append(
+                "Replanned",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "strategy": novo_plano.strategy.value,
+                    "cards_repriced": len(cards),
+                },
+            )
+            self._persist(b)
+            return True, ""
+
+    # ------------------------------------------------- discovery e aprovação (§3/§4)
+    def _discovery_executor(
+        self, explicit: str | None, assignment: AgentAssignment | None
+    ) -> str | None:
+        """Ordem de resolução do agente de discovery: parâmetro explícito → etapa
+        'discovery' configurada → default do catálogo → heurística (`None`)."""
+        if explicit:
+            return explicit
+        if assignment is not None:
+            return assignment.executor
+        if self._catalog is not None:
+            return self._catalog.default_name()
+        return None
+
+    def run_discovery(
+        self, orchestration_id: str, *, executor: str | None = None, effort: str | None = None
+    ) -> Orchestration:
+        """Roda o discovery (§3) e aplica a regra de aprovação automática/humana (§4).
+
+        Reexecutar depois de uma reprovação acrescenta uma NOVA versão ao ring (§4.2,
+        ADR-0021) — o comentário da reprovação anterior entra no pedido ao agente
+        (ADR-0020), para ele ajustar o documento e submeter de novo (mesmo mecanismo
+        do §4), e sobrevive como histórico consultável, não só no prompt seguinte.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            tp = b.orchestration.target_path
+            if not tp:
+                raise ValueError("Discovery exige uma pasta de trabalho (target_path) definida.")
+            ws = WorkspaceService()
+            root = ws.validate(tp)
+            workspace_report = WorkspaceAnalyzer(ws).analyze(root)
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            anterior = versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
+            comentarios = (
+                anterior.revisao_comentarios if anterior.status == STATUS_REPROVADO else ""
+            )
+            assignment_ref = self._assignment(b, DISCOVERY_KEY)
+            nome = self._discovery_executor(executor, assignment_ref)
+            efetivo_effort = effort or (assignment_ref.effort if assignment_ref else None)
+            assignment = AgentAssignment(executor=nome, effort=efetivo_effort) if nome else None
+            report = self._discovery.investigar(
+                assignment,
+                user_request=b.orchestration.user_request,
+                demand_brief=brief,
+                workspace_report=workspace_report,
+                comentarios_anteriores=comentarios,
+            )
+            report.status = (
+                STATUS_AGUARDANDO_APROVACAO
+                if exige_aprovacao_discovery(report, brief)
+                else STATUS_APROVADO
+            )
+            report.versao = proxima_versao(b.orchestration.discovery_reports)
+            b.orchestration.discovery_reports = acrescentar_versao(
+                b.orchestration.discovery_reports, report
+            )
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "DiscoveryRun",
+                {
+                    "orchestration_id": orchestration_id,
+                    "status": report.status,
+                    "origem": report.origem,
+                    "versao": report.versao,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def get_discovery_report(self, orchestration_id: str) -> DiscoveryReport:
+        """Versão corrente do discovery (vazio = discovery ainda não rodado)."""
+        b = self._bundle(orchestration_id)
+        return versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
+
+    def get_discovery_history(self, orchestration_id: str) -> list[DiscoveryReport]:
+        """Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5."""
+        b = self._bundle(orchestration_id)
+        return [DiscoveryReport.model_validate(d) for d in b.orchestration.discovery_reports]
+
+    def decide_discovery(
+        self,
+        orchestration_id: str,
+        *,
+        approved: bool,
+        comentario: str = "",
+        actor: str = "system",
+    ) -> Orchestration:
+        """Decide a aprovação humana do discovery (§4) — ação crítica (regra 4 do
+        CLAUDE.md), papel admin checado no handler da API (mesmo padrão de
+        `report_review`). Atualiza a versão corrente no lugar — decidir não cria uma
+        versão nova, só muda o status da que já existe."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.discovery_reports:
+                raise KeyError("Nenhum relatório de discovery para decidir.")
+            report = versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
+            if report.status != STATUS_AGUARDANDO_APROVACAO:
+                raise ValueError(
+                    f"Discovery não está aguardando aprovação (status={report.status})."
+                )
+            report.status = STATUS_APROVADO if approved else STATUS_REPROVADO
+            report.revisao_comentarios = comentario
+            b.orchestration.discovery_reports = [
+                *b.orchestration.discovery_reports[:-1],
+                report.model_dump(mode="json"),
+            ]
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "DiscoveryDecided",
+                {"orchestration_id": orchestration_id, "approved": approved, "actor": actor},
+            )
+            self._persist(b)
+            return b.orchestration
+
+    # --------------------------------------------- especificação e revisão documental (§5/§6)
+    def _spec_executor(
+        self, explicit: str | None, assignment: AgentAssignment | None
+    ) -> str | None:
+        """Ordem de resolução do agente de especificação: parâmetro explícito → etapa
+        'especificacao' configurada → default do catálogo → heurística (`None`)."""
+        if explicit:
+            return explicit
+        if assignment is not None:
+            return assignment.executor
+        if self._catalog is not None:
+            return self._catalog.default_name()
+        return None
+
+    def run_spec(
+        self, orchestration_id: str, *, executor: str | None = None, effort: str | None = None
+    ) -> Orchestration:
+        """Gera/regenera a especificação (§5) — exige discovery aprovado (`ValueError`
+        propagado por `SpecService.especificar`, viram 409 no handler da API)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            discovery = versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            anterior = versao_atual(b.orchestration.spec_documents, SpecDocument)
+            comentarios = (
+                anterior.revisao_comentarios if anterior.status == SPEC_STATUS_REPROVADO else ""
+            )
+            assignment_ref = self._assignment(b, SPEC_KEY)
+            nome = self._spec_executor(executor, assignment_ref)
+            efetivo_effort = effort or (assignment_ref.effort if assignment_ref else None)
+            assignment = AgentAssignment(executor=nome, effort=efetivo_effort) if nome else None
+            spec = self._spec.especificar(
+                assignment,
+                demand_brief=brief,
+                discovery=discovery,
+                comentarios_anteriores=comentarios,
+            )
+            spec.versao = proxima_versao(b.orchestration.spec_documents)
+            # Rodadas do ciclo de revisão (§4.4) atravessam regenerações — zeram só
+            # quando não há versão anterior (spec gerada pela primeira vez).
+            tem_versao_anterior = bool(b.orchestration.spec_documents)
+            spec.rodadas_revisao = anterior.rodadas_revisao if tem_versao_anterior else 0
+            b.orchestration.spec_documents = acrescentar_versao(
+                b.orchestration.spec_documents, spec
+            )
+            b.orchestration.updated_at = now_iso()
+            b.event_log.append(
+                "SpecRun",
+                {
+                    "orchestration_id": orchestration_id,
+                    "status": spec.status,
+                    "origem": spec.origem,
+                    "versao": spec.versao,
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def get_spec(self, orchestration_id: str) -> SpecDocument:
+        """Versão corrente da especificação (vazio = ainda não gerada)."""
+        b = self._bundle(orchestration_id)
+        return versao_atual(b.orchestration.spec_documents, SpecDocument)
+
+    def get_spec_history(self, orchestration_id: str) -> list[SpecDocument]:
+        """Histórico de versões da especificação (§4.2, ADR-0021) — ring de até 5."""
+        b = self._bundle(orchestration_id)
+        return [SpecDocument.model_validate(s) for s in b.orchestration.spec_documents]
+
+    def run_spec_review(
+        self, orchestration_id: str, *, executor: str | None = None, actor: str = "system"
+    ) -> Orchestration:
+        """Roda a revisão documental (§6) sobre a versão corrente da especificação.
+
+        O revisor precisa ser diferente de quem produziu o documento (mesmo princípio
+        do §14 aplicado a documentos). Esgotado `ASO_MAX_RODADAS_DOC`, uma reprovação
+        vira `necessita_humano` em vez de continuar o ciclo indefinidamente.
+        """
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.spec_documents:
+                raise KeyError("Nenhuma especificação para revisar.")
+            spec = versao_atual(b.orchestration.spec_documents, SpecDocument)
+            if spec.status != SPEC_STATUS_AGUARDANDO_REVISAO:
+                raise ValueError(
+                    f"Especificação não está aguardando revisão (status={spec.status})."
+                )
+            origem_executor = spec.origem if spec.origem != "heuristica" else None
+            revisor, recusa = self._resolve_reviewer(
+                b, origem_executor=origem_executor, explicit=executor
+            )
+            brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+            # A checagem determinística (§6: plano de testes/rollback) roda mesmo sem
+            # revisor disponível — ela não depende de agente. Só cai no fallback
+            # genérico de `recusa` quando o documento passa nela.
+            assignment = (
+                None if recusa else (AgentAssignment(executor=revisor) if revisor else None)
+            )
+            doc_verdito = self._review.revisar_documento(
+                assignment, documento=spec, tipo=SPEC_KEY, brief=brief
+            )
+            if recusa and doc_verdito.origem != "checagem_deterministica":
+                doc_verdito = doc_verdito.model_copy(update={"fallback_reason": recusa})
+            spec.rodadas_revisao += 1
+            veredito = doc_verdito.veredito
+            if veredito == VEREDITO_DOC_REPROVADO and spec.rodadas_revisao >= self._max_rodadas_doc:
+                veredito = SPEC_STATUS_NECESSITA_HUMANO
+            spec.status = veredito
+            spec.revisao_comentarios = doc_verdito.resumo or (
+                "; ".join(a.descricao for a in doc_verdito.acoes) if doc_verdito.acoes else ""
+            )
+            b.orchestration.spec_documents = [
+                *b.orchestration.spec_documents[:-1],
+                spec.model_dump(mode="json"),
+            ]
+            b.orchestration.updated_at = now_iso()
+            cards_criados = (
+                self._materialize_spec_cards(b, spec) if veredito in SPEC_STATUS_APROVADOS else []
+            )
+            b.event_log.append(
+                "SpecReviewed",
+                {
+                    "orchestration_id": orchestration_id,
+                    "actor": actor,
+                    "veredito": veredito,
+                    "revisor": doc_verdito.revisor,
+                    "rodadas": spec.rodadas_revisao,
+                    "cards_criados": len(cards_criados),
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def approve_spec(
+        self,
+        orchestration_id: str,
+        *,
+        approved: bool,
+        comentario: str = "",
+        actor: str = "system",
+    ) -> Orchestration:
+        """Decisão humana da especificação quando o ciclo do §6 escalou (§4.4) — ação
+        crítica, papel admin checado no handler da API (mesmo padrão de
+        `decide_discovery`)."""
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            if not b.orchestration.spec_documents:
+                raise KeyError("Nenhuma especificação para decidir.")
+            spec = versao_atual(b.orchestration.spec_documents, SpecDocument)
+            if spec.status != SPEC_STATUS_NECESSITA_HUMANO:
+                raise ValueError(
+                    f"Especificação não está aguardando decisão humana (status={spec.status})."
+                )
+            spec.status = SPEC_STATUS_APROVADO if approved else SPEC_STATUS_REPROVADO
+            spec.revisao_comentarios = comentario
+            b.orchestration.spec_documents = [
+                *b.orchestration.spec_documents[:-1],
+                spec.model_dump(mode="json"),
+            ]
+            b.orchestration.updated_at = now_iso()
+            cards_criados = self._materialize_spec_cards(b, spec) if approved else []
+            b.event_log.append(
+                "SpecDecided",
+                {
+                    "orchestration_id": orchestration_id,
+                    "approved": approved,
+                    "actor": actor,
+                    "cards_criados": len(cards_criados),
+                },
+            )
+            self._persist(b)
+            return b.orchestration
+
+    def _materialize_spec_cards(self, b: OrchestrationBundle, spec: SpecDocument) -> list[str]:
+        """Cria cards a partir de `spec.itens_de_trabalho` quando a especificação é
+        aprovada (§5/§7/§10 do fluxo.md, ADR-0021) — mesmo padrão de
+        `populate_from_plan`, com dependências resolvidas numa segunda passada.
+
+        Domínio desconhecido é descartado (não trava a aprovação da spec por isso —
+        diferente de `populate_from_plan`, que é síncrono com a criação da
+        orquestração e pode recusar sem custo já pago).
+
+        `itens_filhos` (§7, ADR-0025) vira `parent_id` — só um nível: cada item pode
+        ter filhos diretos, o runtime não desce além disso. Cards-raiz nascem antes
+        dos filhos para que `BoardService.add_card` encontre o pai já cadastrado.
+        """
+        if not spec.itens_de_trabalho:
+            return []
+        brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+        raizes: list[tuple[SpecWorkItem, KanbanCard]] = []
+        filhos: list[tuple[SpecWorkItem, KanbanCard, str]] = []  # item, card, título do pai
+        for item in spec.itens_de_trabalho:
+            card = self._card_de_spec_item(b, brief, item)
+            if card is None:
+                continue
+            raizes.append((item, card))
+            for filho in item.itens_filhos:
+                filho_card = self._card_de_spec_item(b, brief, filho)
+                if filho_card is not None:
+                    filhos.append((filho, filho_card, item.titulo))
+        id_por_titulo = {item.titulo: card.id for item, card in raizes}
+        id_por_titulo.update({item.titulo: card.id for item, card, _ in filhos})
+        criados: list[str] = []
+        for item, card in raizes:
+            card.dependencies = [
+                id_por_titulo[dep] for dep in item.depende_de if dep in id_por_titulo
+            ]
+            b.board_service.add_card(card)
+            criados.append(card.id)
+        for item, card, pai_titulo in filhos:
+            card.parent_id = id_por_titulo.get(pai_titulo)
+            card.dependencies = [
+                id_por_titulo[dep] for dep in item.depende_de if dep in id_por_titulo
+            ]
+            b.board_service.add_card(card)
+            criados.append(card.id)
+        return criados
+
+    def _card_de_spec_item(
+        self, b: OrchestrationBundle, brief: DemandBrief, item: SpecWorkItem
+    ) -> KanbanCard | None:
+        """Constrói (sem persistir) o card de um item de trabalho da spec — domínio
+        desconhecido devolve `None` (descartado pelo chamador)."""
+        try:
+            phase = Phase(item.fase)
+        except ValueError:
+            phase = Phase.F5
+        assignee = _DOMAIN_AGENTS.get(item.dominio, item.dominio)
+        if b.agent_registry.get(assignee) is None:
+            return None
+        return KanbanCard(
+            board_id=b.board.id,
+            orchestration_id=b.orchestration.id,
+            phase=phase,
+            type=_tipo_de_card(item.tipo),
+            title=item.titulo,
+            description=item.descricao,
+            priority=prioridade_de(brief),
+            assignee_type=AssigneeType.AGENT,
+            assignee=assignee,
+            status=ColumnKey.READY,
+            acceptance_criteria=list(item.criterios_de_aceite),
+        )
+
     def save_executor(self, profile: ExecutorProfile) -> list[dict[str, object]]:
         """Cria/atualiza um perfil de executor (tela de configurações) e persiste."""
         if self._catalog is None:
@@ -1709,6 +3453,9 @@ class OrchestrationService:
                 "card_description": card.description,
                 "card_type": card.type.value,
                 "acceptance_criteria": list(card.acceptance_criteria),
+                # Ações objetivas de uma revisão reprovada (§15, ADR-0017): sem isto o
+                # agente re-executava cego, sem saber O QUE especificamente corrigir.
+                "correction_actions": list(card.correction_actions),
                 "commit_subject": nomes.commit_subject,
                 "validation_command": b.orchestration.validation_command,
             },
@@ -1731,8 +3478,19 @@ class OrchestrationService:
         try:
             output = supervisor.run(agent, task)
             ms = round((time.perf_counter() - start) * 1000, 1)
+            uso = _uso_do_output(output)
             local.append(
-                "AgentExecuted", {"agent": agent.role, "card_id": card_id, "ms": ms, "ok": True}
+                "AgentExecuted",
+                {
+                    "agent": agent.role,
+                    "card_id": card_id,
+                    "ms": ms,
+                    "ok": True,
+                    "tokens": uso.tokens_entrada + uso.tokens_saida,
+                    "custo_usd": uso.custo_usd,
+                    "modelo": uso.modelo,
+                    "uso_origem": uso.origem,
+                },
             )
             return output, local.all(), None
         except AgentExecutionError as exc:
@@ -1755,6 +3513,122 @@ class OrchestrationService:
                 )
         return [self._execute_isolated(agent, task, provider) for agent, task, provider in jobs]
 
+    def _gasto_usd(self, b: OrchestrationBundle) -> float:
+        """Custo real acumulado (§1.1, ADR-0026): soma `card.uso.custo_usd` de todo
+        card do board — o mesmo número que o relatório de aprendizado usa."""
+        return sum(float(c.uso.get("custo_usd", 0.0)) for c in b.board_service.cards_of(b.board.id))
+
+    def _recusar_se_orcamento_estourado(self, b: OrchestrationBundle) -> None:
+        """§3.2 do plano7: orçamento estourado recusa **execução nova**, nunca mata a
+        que já está rodando — o freio vive na entrada de `run_card`/`race_card`, não
+        num kill no meio da chamada."""
+        situacao, motivo = avaliar_orcamento(self._gasto_usd(b), b.orchestration.orcamento_usd)
+        if situacao == SITUACAO_ESTOURADO:
+            raise ValueError(f"Orçamento estourado: {motivo}. Eleve o teto para continuar.")
+
+    def _route_failure(
+        self,
+        b: OrchestrationBundle,
+        card: KanbanCard,
+        error: Exception | None,
+        *,
+        executor_atual: str,
+        effort_atual: str | None,
+    ) -> DecisaoDeFalha:
+        """Registra a falha (§13), diagnostica e decide o roteamento (ADR-0019).
+
+        Chamada de dentro do laço de `run_card`: a decisão pode mandar re-tentar (mesmo
+        agente, effort maior, outro executor — o laço continua) ou parar (bloquear ou
+        escalar humano). `run_plan` chama isto uma vez por card e ignora a decisão: a
+        próxima onda simplesmente segue com o que sobrou.
+        """
+        mensagem = str(error) if error is not None else "execução não produziu saída"
+        record = FailureRecord(
+            etapa=ETAPA_EXECUCAO,
+            tentativa=len(card.failures) + 1,
+            comando=executor_atual,
+            mensagem=mensagem,
+            saida=mensagem,
+            executor=executor_atual,
+            effort=effort_atual or "",
+        )
+        card.failures = registrar(card.failures, record)
+        diagnostico = diagnosticar(record)
+        decisao = decidir(
+            diagnostico,
+            len(card.failures),
+            executor_atual=executor_atual,
+            effort_atual=effort_atual or "",
+            catalogo=self._catalog,
+            max_escalonamentos=self._max_escalonamentos,
+        )
+        # Freio de orçamento (§1.2/§3.2, ADR-0026): antes de gastar mais (effort maior
+        # ou outro executor), confere o teto. Estourado vira `escalar_humano` — é
+        # justamente quando as coisas já estão dando errado que a política, sem isto,
+        # escalaria para o modelo mais caro sem ninguém olhar.
+        if decisao.acao in (ACAO_AUMENTAR_EFFORT, ACAO_TROCAR_EXECUTOR):
+            situacao, motivo_orcamento = avaliar_orcamento(
+                self._gasto_usd(b), b.orchestration.orcamento_usd
+            )
+            if situacao == SITUACAO_ESTOURADO:
+                decisao = DecisaoDeFalha(
+                    acao=ACAO_ESCALAR_HUMANO, motivo=f"orçamento esgotado — {motivo_orcamento}"
+                )
+        # O motivo técnico (mensagem crua) continua visível no card — a política só
+        # acrescenta o "por quê" da decisão, não substitui o erro real do agente.
+        detalhe = f"{mensagem} — {decisao.motivo}"
+        card.block_reason = detalhe
+        # Nudge da política reaproveita o canal que `_build_task` já encaminha ao
+        # agente (ADR-0017, `correction_actions`) — instrução concreta para a próxima
+        # tentativa, seja ela dentro do mesmo `run_card` ou um retry manual depois.
+        card.correction_actions = [decisao.nudge] if decisao.nudge else []
+        b.event_log.append(
+            "FailureRouted",
+            {
+                "card_id": card.id,
+                "etapa": record.etapa,
+                "diagnostico": diagnostico,
+                "acao": decisao.acao,
+                "tentativa": record.tentativa,
+            },
+        )
+        # Mantido por compatibilidade: `aggregate_metrics` (db/repository.py) já conta
+        # "AgentFailed" para a métrica `agent_failures` — `FailureRouted` acima é o
+        # evento novo e mais rico, não uma substituição.
+        b.event_log.append("AgentFailed", {"card_id": card.id, "error": mensagem})
+        if decisao.acao == ACAO_BLOQUEAR:
+            b.board_service.move_card(
+                card.id,
+                ColumnKey.BLOCKED,
+                reason=detalhe,
+                result="falhou",
+                next_action=decisao.acao,
+            )
+        elif decisao.acao == ACAO_ESCALAR_HUMANO:
+            b.board_service.move_card(
+                card.id,
+                ColumnKey.FAILED,
+                reason=detalhe,
+                result="falhou",
+                next_action=decisao.acao,
+            )
+        else:
+            b.board_service.move_card(
+                card.id,
+                card.status,
+                reason=detalhe,
+                result="falhou, nova tentativa automática",
+                next_action=decisao.acao,
+            )
+        self._log.warning(
+            "agent_failed",
+            card_id=card.id,
+            error=mensagem,
+            diagnostico=diagnostico,
+            acao=decisao.acao,
+        )
+        return decisao
+
     def _apply_execution(
         self,
         b: OrchestrationBundle,
@@ -1762,25 +3636,42 @@ class OrchestrationService:
         output: AgentOutput | None,
         events: list[DomainEvent],
         error: Exception | None,
-    ) -> list[BusResult]:
-        """Aplica serialmente (single-writer) o resultado de uma execução e move o card."""
+        *,
+        executor_name: str | None = None,
+        catalog_executor: str | None = None,
+        effort: str | None = None,
+    ) -> tuple[list[BusResult], DecisaoDeFalha | None]:
+        """Aplica serialmente (single-writer) o resultado de uma execução e move o card.
+
+        Em falha, delega ao roteamento (ADR-0019): a `DecisaoDeFalha` devolvida diz a
+        `run_card` se vale a pena tentar de novo dentro do mesmo laço (None = sucesso).
+        `catalog_executor` é o nome do perfil no catálogo (distinto de `executor_name`,
+        que é `provider.id` e pode vir prefixado `llm:` — ver `_catalog_name_of`); sem
+        ele, cai em `executor_name`.
+        """
         b.event_log.extend(events)
         b.board_service.apply_event(card_id, "AgentStarted")
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            return [], None
         if error is not None or output is None:
-            reason = str(error) if error is not None else "execução não produziu saída"
-            b.board_service.apply_event(card_id, "CIFailed")  # → Failed
-            # Torna o motivo visível no card (não só no event log).
-            failed_card = b.board_service.get_card(card_id)
-            if failed_card is not None:
-                failed_card.block_reason = reason
-            b.event_log.append("AgentFailed", {"card_id": card_id, "error": reason})
-            self._log.warning("agent_failed", card_id=card_id, error=reason)
-            return []
+            decisao = self._route_failure(
+                b,
+                card,
+                error,
+                executor_atual=catalog_executor or executor_name or "",
+                effort_atual=effort,
+            )
+            return [], decisao
+        # Perfil de executor que de fato rodou (ADR-0017): distinto do papel
+        # (`assignee`) — sem isto não há como exigir revisor diferente do card.
+        if executor_name:
+            card.executor = executor_name
+        card.uso = acumular_uso(card.uso, _uso_do_output(output))
         branch = output.artifacts.get("branch")
         if branch:
-            card = b.board_service.get_card(card_id)
-            if card is not None:
-                card.branch = str(branch)
+            card.branch = str(branch)
+        card.correction_actions = []  # sucesso: nudge/correções pendentes não se aplicam mais
         results = [self._submit_with_approval(b, p, card_id=card_id) for p in output.patches]
         if any(r.status == PatchStatus.REJECTED for r in results):
             b.board_service.move_card(card_id, ColumnKey.BLOCKED, reason="conflito detectado")
@@ -1788,7 +3679,7 @@ class OrchestrationService:
             b.board_service.apply_event(card_id, "AgentNeedsInput")  # → Waiting Human
         else:
             b.board_service.apply_event(card_id, "TestsPassed")  # → Testing
-        return results
+        return results, None
 
     def run_card(
         self,
@@ -1800,30 +3691,99 @@ class OrchestrationService:
     ) -> list[BusResult]:
         """Executa o agente do card (supervisionado), aplica patches e move o card.
 
-        `provider`/`effort` permitem escolher o executor e o esforço por etapa.
+        `provider`/`effort` permitem escolher o executor e o esforço por etapa. Em
+        falha, o roteamento (ADR-0019) pode mandar re-tentar dentro deste mesmo laço
+        (mesmo agente, effort maior, outro executor) antes de bloquear ou escalar —
+        "retorna exatamente ao ponto responsável pelo erro" (§13 do fluxo.md).
         """
         b = self._bundle(orchestration_id)
         if b.orchestration.status == "cancelled":  # kill-switch (M6)
             raise ValueError("Orquestração cancelada: execução bloqueada.")
+        self._recusar_se_orcamento_estourado(b)
         card = b.board_service.get_card(card_id)
         if card is None or card.assignee is None:
             raise KeyError(f"Card inválido ou sem agente: {card_id}")
+        pendentes = self._pending_dependencies(b, card)
+        if pendentes:
+            card.blocked_by = [dep.id for dep in pendentes]
+            titulos = ", ".join(dep.title for dep in pendentes)
+            b.board_service.move_card(
+                card_id, ColumnKey.BLOCKED, reason=f"aguardando dependência(s): {titulos}"
+            )
+            self._persist(b)
+            raise ValueError(f"Card {card_id} tem dependência(s) pendente(s): {titulos}")
+        if card.blocked_by:
+            card.blocked_by = []  # dependências resolvidas: limpa o registro obsoleto
         agent = b.agent_registry.get(card.assignee)
         if agent is None:
             raise KeyError(f"Agente não registrado: {card.assignee}")
         # Chamada direta (ex.: /cards/{id}/run, /retry) sem provider → resolve pelo
         # executor da fase **do card** (não a fase corrente da orquestração: um retry
         # em F5 com a esteira já em F6 continua usando o agente configurado para F5).
+        executor_atual = ""
         if provider is None:
             effort = self._effective_effort(b, None, effort, phase=card.phase)
+            executor_atual = self._effective_executor(b, None, phase=card.phase) or ""
             provider = self._provider_for(b, None, effort, phase=card.phase)
-        task = self._build_task(b, card, agent, effort=effort)
-        output, events, error = self._execute_isolated(agent, task, provider)
-        results = self._apply_execution(b, card_id, output, events, error)
+        else:
+            executor_atual = _catalog_name_of(provider)
+        results: list[BusResult] = []
+        output: AgentOutput | None = None
+        error: Exception | None = None
+        while True:
+            task = self._build_task(b, card, agent, effort=effort)
+            output, events, error = self._execute_isolated(agent, task, provider)
+            executor_name = provider.id if provider is not None else None
+            results, decisao = self._apply_execution(
+                b,
+                card_id,
+                output,
+                events,
+                error,
+                executor_name=executor_name,
+                catalog_executor=executor_atual,
+                effort=effort,
+            )
+            if error is None:
+                break
+            retentavel = (ACAO_MESMO_AGENTE, ACAO_AUMENTAR_EFFORT, ACAO_TROCAR_EXECUTOR)
+            if decisao is None or decisao.acao not in retentavel:
+                break
+            if decisao.acao == ACAO_AUMENTAR_EFFORT and decisao.effort:
+                effort = decisao.effort
+            elif decisao.acao == ACAO_TROCAR_EXECUTOR and decisao.executor:
+                executor_atual = decisao.executor
+                provider = self.resolve_provider(
+                    decisao.executor, target_path=b.orchestration.target_path, effort=effort
+                )
         if error is None and output is not None and output.artifacts.get("branch"):
             self.open_pr(orchestration_id, card_id, branch=str(output.artifacts["branch"]))
         self._persist(b)
         return results
+
+    def get_card_failures(self, orchestration_id: str, card_id: str) -> list[dict[str, object]]:
+        """Histórico de falhas do card (§13, ADR-0019) — ring das últimas 5."""
+        b = self._bundle(orchestration_id)
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            raise KeyError(f"Card inexistente: {card_id}")
+        return list(card.failures)
+
+    def get_card_closure(self, orchestration_id: str, card_id: str) -> dict[str, object]:
+        """Ficha de encerramento do card (§23, ADR-0021) — vazio = card ainda não
+        encerrado (preenchida em `merge_pr`)."""
+        b = self._bundle(orchestration_id)
+        card = b.board_service.get_card(card_id)
+        if card is None:
+            raise KeyError(f"Card inexistente: {card_id}")
+        return dict(card.closure)
+
+    def route_card(self, orchestration_id: str, card_id: str) -> list[BusResult]:
+        """Aciona o roteamento de falha manualmente (ADR-0019) — para quando o
+        automático parou por limite (`bloquear`/`escalar_humano`) e o operador já
+        corrigiu a causa (ex.: ajustou o perfil do executor). Sem isto, "escalar para
+        humano" seria um beco sem saída: `run_card` reaproveita o mesmo laço."""
+        return self.run_card(orchestration_id, card_id)
 
     def _submit_with_approval(
         self, b: OrchestrationBundle, patch: ContextPatch, *, card_id: str | None = None
@@ -1878,8 +3838,11 @@ class OrchestrationService:
             outputs = self._execute_wave(
                 [(spec, task, prov) for _c, spec, task, prov in jobs], concurrent
             )
-            for (card_id, _s, _t, _p), (output, events, error) in zip(jobs, outputs, strict=True):
-                self._apply_execution(b, card_id, output, events, error)
+            for (card_id, _s, _t, prov), (output, events, error) in zip(jobs, outputs, strict=True):
+                executor_name = prov.id if prov is not None else None
+                self._apply_execution(
+                    b, card_id, output, events, error, executor_name=executor_name
+                )
                 executed.append(card_id)
             done.update(wave)
             remaining = [n for n in remaining if n not in done]
@@ -1930,16 +3893,60 @@ class OrchestrationService:
                 ),
             )
         ]
-        # Gate real (M5): nas fases de código, roda os testes/lint configurados no repo
-        # alvo — só aprova com a suíte verde (não avança com testes vermelhos, §gate).
-        gate_cmd = b.orchestration.validation_command or os.environ.get("ASO_GATE_TEST_COMMAND")
-        # Roda o gate na pasta da orquestração (workspace); env global é fallback.
-        repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
-        if gate_cmd and repo and target_phase in (Phase.F5, Phase.F6):
+        # Discovery (§3/§4, ADR-0020): só entra quando um relatório foi de fato gerado
+        # (`POST .../discovery/run`) — ring vazio (nunca rodado) não passa por aqui,
+        # então nenhuma orquestração existente muda de comportamento no gate de F1.
+        if target_phase == Phase.F1 and b.orchestration.discovery_reports:
+            discovery_status = str(b.orchestration.discovery_reports[-1].get("status", ""))
+            discovery_ok = discovery_status == STATUS_APROVADO
             criteria.append(
-                Criterion("tests_pass", lambda _c: run_gate_command(shlex.split(gate_cmd), repo))
+                Criterion(
+                    "discovery_aprovado",
+                    lambda _c: (discovery_ok, f"discovery {discovery_status or 'sem status'}"),
+                )
             )
-        if b.orchestration.validation_command and target_phase in (Phase.F5, Phase.F6):
+        # Implantação (§18-22, ADR-0023): só entra quando uma tentativa de
+        # implantação de fato existe (`POST .../deploy/run`) — ring vazio
+        # (nunca implantou) não passa por aqui, mesma prova de não-regressão
+        # do critério `discovery_aprovado` acima.
+        if target_phase == Phase.F6 and b.orchestration.deploy_runs:
+            deploy_status = str(b.orchestration.deploy_runs[-1].get("aceite_status", ""))
+            deploy_ok = deploy_status == ACEITE_APROVADO
+            criteria.append(
+                Criterion(
+                    "deploy_aprovado",
+                    lambda _c: (deploy_ok, f"implantação {deploy_status or 'sem status'}"),
+                )
+            )
+        # Gate real (M5): nas fases de código, roda a bateria nomeada do §12 (ADR-0022)
+        # — um Criterion por verificação, todos rodados até o fim (o `QualityGateEngine`
+        # não interrompe no primeiro erro), então o gate sabe QUAL verificação falhou,
+        # não só que "o comando falhou". Sem bateria configurada, `checks_efetivos` faz
+        # o `validation_command` legado (ou `ASO_GATE_TEST_COMMAND`) virar uma única
+        # verificação "testes" — nenhuma orquestração existente muda de comportamento.
+        repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
+        checks = checks_efetivos(b.orchestration)
+        if not checks:
+            gate_cmd_legado = os.environ.get("ASO_GATE_TEST_COMMAND")
+            if gate_cmd_legado:
+                checks = [ValidationCheck(nome=NOME_CHECK_LEGADO, comando=gate_cmd_legado)]
+        if checks and repo and target_phase in (Phase.F5, Phase.F6):
+            for check in checks:
+                # `_check_predicate` fecha `comando` por parâmetro de fábrica — sem
+                # isto, um `lambda` capturaria a variável do laço, e todo critério
+                # rodaria o MESMO (o último) comando — armadilha clássica de closure
+                # em `for` (§4.2/§5 do plano5.md).
+                criteria.append(
+                    Criterion(
+                        check.nome,
+                        _check_predicate(check.comando, repo),
+                        blocking=check.bloqueante,
+                    )
+                )
+        tem_validacao_configurada = bool(
+            b.orchestration.validation_checks or b.orchestration.validation_command
+        )
+        if tem_validacao_configurada and target_phase in (Phase.F5, Phase.F6):
             criteria.append(
                 Criterion(
                     "cards_entregues",
@@ -2166,6 +4173,11 @@ class OrchestrationService:
         return compute_next_step(
             NextStepInput(
                 orchestration=b.orchestration,
+                demand_brief=DemandBrief.model_validate(b.orchestration.demand_brief),
+                discovery_report=versao_atual(b.orchestration.discovery_reports, DiscoveryReport),
+                spec=versao_atual(b.orchestration.spec_documents, SpecDocument),
+                deploy=versao_atual(b.orchestration.deploy_runs, DeployRun),
+                candidate_runs=list(b.candidate_runs),
                 cards=b.board_service.cards_of(b.board.id),
                 approvals=list(b.approvals),
                 pulls=list(b.pull_requests),
@@ -2175,6 +4187,8 @@ class OrchestrationService:
                 executor_available=available,
                 executor_reason=reason,
                 slo_breaches=list(slo_breaches or []),
+                gasto_usd=self._gasto_usd(b),
+                agent_timeout_seconds=CLI_AGENT_TIMEOUT_PADRAO,
             )
         )
 
@@ -2400,6 +4414,23 @@ class OrchestrationService:
             b = self._bundle(orchestration_id)
             if b.orchestration.status == "cancelled":  # kill-switch (M6)
                 raise ValueError("Orquestração cancelada: execução bloqueada.")
+            # F5 não começa sem especificação aprovada em full-pipeline (§5/§6, ADR-0021)
+            # — só quando o fluxo de discovery foi de fato usado (mesma regra de
+            # não-regressão do critério de gate da ADR-0020 §6): orquestrações que
+            # nunca chamam /discovery/run (a maioria da suíte pré-existente, e todo
+            # CODE_EXECUTION) não mudam de comportamento em F5.
+            exige_spec = (
+                target == Phase.F5
+                and b.orchestration.execution_mode == ExecutionMode.FULL_PIPELINE
+                and bool(b.orchestration.discovery_reports)
+            )
+            if exige_spec:
+                spec_atual = versao_atual(b.orchestration.spec_documents, SpecDocument)
+                if spec_atual.status not in SPEC_STATUS_APROVADOS:
+                    raise ValueError(
+                        "F5 não começa sem especificação aprovada (§5/§6 do fluxo.md) — "
+                        f"status atual: '{spec_atual.status or 'nunca gerada'}'."
+                    )
             card_ids = [
                 c.id
                 for c in b.board_service.cards_of(b.board.id)

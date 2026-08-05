@@ -21,6 +21,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
+from aso.control.models import ValidationCheck
 from aso.control.next_step import phase_catalog
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
@@ -72,6 +73,136 @@ class AgentAssignmentBody(BaseModel):
 
     executor: str
     effort: str | None = None
+
+
+class RetriageBody(BaseModel):
+    """Re-triagem (POST .../brief): agente opcional, cai na resolução padrão sem ele."""
+
+    executor: str | None = None
+    effort: str | None = None
+
+
+class DiscoveryRunBody(BaseModel):
+    """Roda o discovery (POST .../discovery/run); tudo opcional."""
+
+    executor: str | None = None
+    effort: str | None = None
+
+
+class DiscoveryDecideBody(BaseModel):
+    """Decide a aprovação humana do discovery (ADR-0020, §4)."""
+
+    approved: bool
+    comentario: str = ""
+
+
+class SpecRunBody(BaseModel):
+    """Gera/regenera a especificação (POST .../spec/run); tudo opcional."""
+
+    executor: str | None = None
+    effort: str | None = None
+
+
+class SpecReviewBody(BaseModel):
+    """Roda a revisão documental sobre a especificação corrente (ADR-0021, §6)."""
+
+    executor: str | None = None
+
+
+class SpecApproveBody(BaseModel):
+    """Decisão humana da especificação quando o ciclo do §6 escalou (ADR-0021, §4.4)."""
+
+    approved: bool
+    comentario: str = ""
+
+
+class ValidationCheckBody(BaseModel):
+    """Uma verificação nomeada da bateria do §12 (ADR-0022)."""
+
+    nome: str
+    comando: str
+    categoria: str = "testes"
+    bloqueante: bool = True
+
+
+class ValidationChecksBody(BaseModel):
+    """Substitui a bateria inteira (PUT .../validation-checks)."""
+
+    checks: list[ValidationCheckBody]
+
+
+class DeployConfigBody(BaseModel):
+    """Configura a implantação (ADR-0023, §18-22); tudo opcional — só altera o
+    que for enviado, mesmo padrão de `ExecutionSettingsBody`."""
+
+    command: str | None = None
+    environment: str | None = None
+    health_checks: list[ValidationCheckBody] | None = None
+    rollback_command: str | None = None
+
+
+class DeployRunBody(BaseModel):
+    """Roda a implantação (POST .../deploy/run); tudo opcional."""
+
+    environment: str | None = None
+    versao_app: str = ""
+    commit: str = ""
+    branch: str = ""
+
+
+class DeployApproveBody(BaseModel):
+    """Aceite final da implantação (ADR-0023, §22) — ação crítica, exige admin."""
+
+    approved: bool
+    comentario: str = ""
+
+
+class DeployRollbackBody(BaseModel):
+    """Reverte a última implantação (ADR-0023, §21) — ação crítica, exige admin."""
+
+    reason: str
+
+
+class BudgetBody(BaseModel):
+    """Eleva (ou remove) o teto de gasto (ADR-0026) — ação crítica, exige admin."""
+
+    teto_usd: float | None = None
+
+
+class QaCheckBody(BaseModel):
+    """Registra uma verificação manual de QA (§16, ADR-0025)."""
+
+    cenario: str
+    passos: list[str] = []
+    ambiente: str = ""
+    resultado_esperado: str = ""
+    resultado_obtido: str = ""
+    evidencias: list[str] = []
+    gravidade: str = "media"
+    status: str = "pendente"
+    tipo_responsavel: str = "humano"
+
+
+class QaFailBody(BaseModel):
+    """Reprova uma verificação de QA já registrada (§17) — cria o bug vinculado."""
+
+    resultado_obtido: str = ""
+    evidencias: list[str] = []
+    gravidade: str | None = None
+
+
+class RunReviewBody(BaseModel):
+    """Roda o agente revisor sobre o diff da PR (POST .../review/run); tudo opcional."""
+
+    executor: str | None = None
+    effort: str | None = None
+
+
+class ReviewStatusBody(BaseModel):
+    """Reporta o resultado da revisão (ADR-0017): `justificativa` exige papel admin."""
+
+    status: str
+    justificativa: str = ""
 
 
 class CreateProjectBody(BaseModel):
@@ -367,8 +498,13 @@ def create_app(
             raise HTTPException(
                 status_code=400, detail="Informe o comando de validação do workspace."
             )
+        # Triagem (§1/§2 do fluxo.md) + criação passam por `create_with_triage`, o
+        # único caminho correto (Ponto 1 herdado da avaliação do Incremento A: a
+        # sequência estava duplicada só aqui, e outros pontos de entrada — a CLI —
+        # nasciam sem ela). Nunca levanta por conta da triagem em si — TriageService
+        # garante o fallback heurístico.
         try:
-            orch = svc.create_orchestration(
+            orch = svc.create_with_triage(
                 body.user_request,
                 project_id=body.project_id,
                 target_path=target_path,
@@ -650,6 +786,198 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    @app.get("/v1/orchestrations/{orchestration_id}/validation-checks")
+    def get_validation_checks(orchestration_id: str) -> Any:
+        """Bateria efetiva de validações (§12 do fluxo.md, ADR-0022)."""
+        _guard(orchestration_id)
+        return svc.get_validation_checks(orchestration_id)
+
+    @app.put("/v1/orchestrations/{orchestration_id}/validation-checks")
+    def set_validation_checks(
+        orchestration_id: str, body: ValidationChecksBody, request: Request
+    ) -> Any:
+        """Substitui a bateria — cada comando passa por `validate_gate_command`."""
+        _guard(orchestration_id)
+        try:
+            return svc.set_validation_checks(
+                orchestration_id,
+                [ValidationCheck(**c.model_dump()) for c in body.checks],
+                actor=_actor(request),
+            )
+        except GateCommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.get("/v1/orchestrations/{orchestration_id}/validation-checks/suggest")
+    def suggest_validation_checks(orchestration_id: str) -> Any:
+        """Sugestão determinística por stack (§4.5) — não grava nada."""
+        _guard(orchestration_id)
+        return svc.suggest_validation_checks(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy")
+    def get_deploy(orchestration_id: str) -> Any:
+        """Última implantação (§18-22 do fluxo.md, ADR-0023)."""
+        _guard(orchestration_id)
+        return svc.get_deploy(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy/history")
+    def get_deploy_history(orchestration_id: str) -> Any:
+        """Histórico de tentativas de implantação — ring de até 5."""
+        _guard(orchestration_id)
+        return svc.get_deploy_history(orchestration_id)
+
+    @app.put("/v1/orchestrations/{orchestration_id}/deploy/config")
+    def set_deploy_config(orchestration_id: str, body: DeployConfigBody, request: Request) -> Any:
+        """Configura comando/ambiente/health checks/rollback da implantação."""
+        _guard(orchestration_id)
+        try:
+            return svc.set_deploy_config(
+                orchestration_id,
+                command=body.command,
+                environment=body.environment,
+                health_checks=(
+                    [ValidationCheck(**c.model_dump()) for c in body.health_checks]
+                    if body.health_checks is not None
+                    else None
+                ),
+                rollback_command=body.rollback_command,
+                actor=_actor(request),
+            )
+        except GateCommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/v1/orchestrations/{orchestration_id}/deploy/run")
+    def run_deploy(orchestration_id: str, body: DeployRunBody, request: Request) -> Any:
+        """Roda a implantação — exige comando configurado e o quality gate mais
+        recente aprovado (§18); o resultado decide aceite automático ou humano."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.run_deploy(
+                orchestration_id,
+                environment=body.environment,
+                versao_app=body.versao_app,
+                commit=body.commit,
+                branch=body.branch,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/deploy/validate")
+    def validate_deploy(orchestration_id: str, request: Request) -> Any:
+        """Roda as verificações pós-implantação configuradas (§20)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.validate_deploy(orchestration_id, actor=_actor(request)),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/deploy/approve")
+    def approve_deploy(orchestration_id: str, body: DeployApproveBody, request: Request) -> Any:
+        """Aceite final da implantação (§22) — ação crítica, exige admin."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.decide_deploy(
+                orchestration_id,
+                approved=body.approved,
+                comentario=body.comentario,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/deploy/rollback")
+    def rollback_deploy(orchestration_id: str, body: DeployRollbackBody, request: Request) -> Any:
+        """Reverte a última implantação e abre uma tarefa de causa raiz (§21)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.rollback_deploy(
+                orchestration_id, reason=body.reason, actor=_actor(request)
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa")
+    def get_qa_checks(orchestration_id: str, card_id: str) -> Any:
+        """Histórico de verificações manuais de QA do card (§16, ring de 10)."""
+        return _card_op(orchestration_id, lambda: svc.get_qa_checks(orchestration_id, card_id))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa")
+    def register_qa_check(
+        orchestration_id: str, card_id: str, body: QaCheckBody, request: Request
+    ) -> Any:
+        """Registra uma verificação manual de QA (§16)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.register_qa_check(
+                orchestration_id,
+                card_id,
+                cenario=body.cenario,
+                passos=body.passos,
+                ambiente=body.ambiente,
+                resultado_esperado=body.resultado_esperado,
+                resultado_obtido=body.resultado_obtido,
+                evidencias=body.evidencias,
+                gravidade=body.gravidade,
+                status=body.status,
+                tipo_responsavel=body.tipo_responsavel,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa/{index}/fail")
+    def fail_qa_check(
+        orchestration_id: str, card_id: str, index: int, body: QaFailBody, request: Request
+    ) -> Any:
+        """Reprova uma verificação de QA já registrada — cria o bug vinculado (§17)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.fail_qa_check(
+                orchestration_id,
+                card_id,
+                index,
+                resultado_obtido=body.resultado_obtido,
+                evidencias=body.evidencias,
+                gravidade=body.gravidade,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/learning")
+    def get_learning_report(orchestration_id: str) -> Any:
+        """Relatório de aprendizado da demanda (§24) — retrabalho, falhas por
+        etapa, desempenho por executor, intervenções humanas. Informativo."""
+        _guard(orchestration_id)
+        return svc.get_learning_report(orchestration_id)
+
+    @app.get("/v1/learning")
+    def get_learning_report_global() -> Any:
+        """Mesmo relatório, consolidado entre todas as orquestrações (§24)."""
+        return svc.get_learning_report_global()
+
+    @app.put("/v1/orchestrations/{orchestration_id}/budget")
+    def set_budget(orchestration_id: str, body: BudgetBody, request: Request) -> Any:
+        """Eleva/remove o teto de orçamento (§1.2/§3.2, ADR-0026) — ação crítica,
+        exige admin (`/budget` no sufixo administrativo de `api/auth.py`)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.set_orcamento(orchestration_id, body.teto_usd, actor=_actor(request)),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/worktrees")
+    def list_worktrees(orchestration_id: str) -> Any:
+        """Worktrees em disco desta orquestração, com `orfao` marcado (§3.3, ADR-0027)."""
+        _guard(orchestration_id)
+        return svc.list_worktrees(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/worktrees/prune")
+    def prune_worktrees(orchestration_id: str, request: Request) -> Any:
+        """Remove os worktrees órfãos (não referenciados por card ativo) — nunca
+        `rm -rf`, exige admin: pode destruir trabalho de agente não mesclado."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.prune_worktrees(orchestration_id, actor=_actor(request)),
+        )
+
     @app.get("/v1/phases")
     def list_phases() -> Any:
         """Catálogo da esteira F1..F7 com descrição didática (ADR-0015).
@@ -695,6 +1023,96 @@ def create_app(
             return svc.clear_agent_assignment(orchestration_id, key, actor=_actor(request))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.get("/v1/orchestrations/{orchestration_id}/brief")
+    def get_brief(orchestration_id: str) -> Any:
+        """Ficha estruturada da demanda (§1/§2 do fluxo.md)."""
+        _guard(orchestration_id)
+        return svc.get_demand_brief(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/brief")
+    def retriage_brief(orchestration_id: str, body: RetriageBody, request: Request) -> Any:
+        """Re-tria a demanda — útil depois que o operador responde `perguntas_abertas`."""
+        _guard(orchestration_id)
+        return svc.retriage_demand(
+            orchestration_id, executor=body.executor, effort=body.effort, actor=_actor(request)
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/discovery")
+    def get_discovery(orchestration_id: str) -> Any:
+        """Relatório de discovery atual (§3 do fluxo.md, ADR-0020)."""
+        _guard(orchestration_id)
+        return svc.get_discovery_report(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/discovery/history")
+    def get_discovery_history(orchestration_id: str) -> Any:
+        """Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5."""
+        _guard(orchestration_id)
+        return svc.get_discovery_history(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/discovery/run")
+    def run_discovery(orchestration_id: str, body: DiscoveryRunBody) -> Any:
+        """Roda o discovery e aplica a regra de aprovação automática/humana (§4)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.run_discovery(orchestration_id, executor=body.executor, effort=body.effort),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/discovery/decide")
+    def decide_discovery(orchestration_id: str, body: DiscoveryDecideBody, request: Request) -> Any:
+        """Decide a aprovação humana do discovery (ação crítica — papel admin)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.decide_discovery(
+                orchestration_id,
+                approved=body.approved,
+                comentario=body.comentario,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/spec")
+    def get_spec(orchestration_id: str) -> Any:
+        """Especificação corrente (§5 do fluxo.md, ADR-0021)."""
+        _guard(orchestration_id)
+        return svc.get_spec(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/spec/history")
+    def get_spec_history(orchestration_id: str) -> Any:
+        """Histórico de versões da especificação (§4.2, ADR-0021) — ring de até 5."""
+        _guard(orchestration_id)
+        return svc.get_spec_history(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/spec/run")
+    def run_spec(orchestration_id: str, body: SpecRunBody) -> Any:
+        """Gera/regenera a especificação — exige discovery aprovado (§5)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.run_spec(orchestration_id, executor=body.executor, effort=body.effort),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/spec/review")
+    def run_spec_review(orchestration_id: str, body: SpecReviewBody, request: Request) -> Any:
+        """Roda a revisão documental (§6) sobre a especificação corrente."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.run_spec_review(
+                orchestration_id, executor=body.executor, actor=_actor(request)
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/spec/approve")
+    def approve_spec(orchestration_id: str, body: SpecApproveBody, request: Request) -> Any:
+        """Decide a especificação quando o ciclo do §6 escalou (ação crítica — admin)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.approve_spec(
+                orchestration_id,
+                approved=body.approved,
+                comentario=body.comentario,
+                actor=_actor(request),
+            ),
+        )
 
     @app.post("/v1/orchestrations/{orchestration_id}/advance-phase")
     def advance_phase(orchestration_id: str) -> Any:
@@ -906,10 +1324,49 @@ def create_app(
     def run_pr_ci(orchestration_id: str, pr_id: str) -> Any:
         return _card_op(orchestration_id, lambda: svc.run_pr_ci(orchestration_id, pr_id))
 
-    @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")
-    def report_review(orchestration_id: str, pr_id: str, body: StatusBody) -> Any:
+    @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review/run")
+    def run_review(orchestration_id: str, pr_id: str, body: RunReviewBody, request: Request) -> Any:
+        """Roda o agente revisor sobre o diff real da PR e aplica o veredito (ADR-0017)."""
         return _card_op(
-            orchestration_id, lambda: svc.report_review(orchestration_id, pr_id, body.status)
+            orchestration_id,
+            lambda: svc.run_review(
+                orchestration_id,
+                pr_id,
+                executor=body.executor,
+                effort=body.effort,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")
+    def get_review(orchestration_id: str, pr_id: str) -> Any:
+        """Veredito completo da última revisão independente (§14)."""
+        return _card_op(orchestration_id, lambda: svc.get_review(orchestration_id, pr_id))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")
+    def report_review(
+        orchestration_id: str, pr_id: str, body: ReviewStatusBody, request: Request
+    ) -> Any:
+        """Reporta o resultado da revisão (governado, ADR-0017).
+
+        Sobrepor com `justificativa` (sem veredito aprovado) é uma decisão humana que
+        recusa/ignora o agente revisor: exige papel admin — `required_role` não enxerga
+        o corpo da requisição, então a checagem fina do papel fica aqui.
+        """
+        if body.justificativa.strip() and not request.state.principal.can("admin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Aprovar com justificativa (sem veredito aprovado) exige papel admin.",
+            )
+        return _card_op(
+            orchestration_id,
+            lambda: svc.report_review(
+                orchestration_id,
+                pr_id,
+                body.status,
+                actor=_actor(request),
+                justificativa=body.justificativa,
+            ),
         )
 
     @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/merge")
@@ -980,6 +1437,8 @@ def create_app(
             return fn()
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/assign-agent")
     def assign_agent(orchestration_id: str, card_id: str, body: AssignAgentBody) -> Any:
@@ -1002,6 +1461,30 @@ def create_app(
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/unblock")
     def unblock_card(orchestration_id: str, card_id: str) -> Any:
         return _card_op(orchestration_id, lambda: svc.unblock_card(orchestration_id, card_id))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/cancel")
+    def cancel_card(orchestration_id: str, card_id: str, body: BlockBody) -> Any:
+        """Cancela um card individualmente (§8 do fluxo.md, coluna `Cancelled`)."""
+        return _card_op(
+            orchestration_id, lambda: svc.cancel_card(orchestration_id, card_id, body.reason)
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/failures")
+    def get_card_failures(orchestration_id: str, card_id: str) -> Any:
+        """Histórico de falhas do card (§13 do fluxo.md, ADR-0019)."""
+        return _card_op(orchestration_id, lambda: svc.get_card_failures(orchestration_id, card_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/closure")
+    def get_card_closure(orchestration_id: str, card_id: str) -> Any:
+        """Ficha de encerramento do card (§23 do fluxo.md, ADR-0021)."""
+        return _card_op(orchestration_id, lambda: svc.get_card_closure(orchestration_id, card_id))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/route")
+    def route_card(orchestration_id: str, card_id: str) -> Any:
+        """Aciona o roteamento de falha manualmente (ADR-0019) — para quando o
+        automático parou por limite (bloqueado/escalado) e o operador já corrigiu a
+        causa."""
+        return _card_op(orchestration_id, lambda: svc.route_card(orchestration_id, card_id))
 
     # --- approvals (§28.7) ---
     @app.post("/v1/orchestrations/{orchestration_id}/approvals", status_code=201)

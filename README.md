@@ -159,7 +159,18 @@ POST /v1/orchestrations/{id}/cards/{cid}/run    # executa um card
 GET  /v1/orchestrations/{id}/context            # contexto canônico atual
 GET  /v1/orchestrations/{id}/kanban ...cards    # Kanban
 POST .../cards/{cid}/open-pr                     # abre PR do worktree do card
-POST .../pulls/{pr}/ci | /review | /merge        # CI/review/merge governado (merge = admin)
+POST .../pulls/{pr}/ci | /review/run | /review | /merge  # CI, revisão (ADR-0017), merge (admin)
+GET  .../cards/{cid}/failures | POST .../cards/{cid}/route  # roteamento de falha (ADR-0019)
+GET  .../cards/{cid}/closure                     # ficha de encerramento (ADR-0021, §23)
+GET/POST .../discovery | .../discovery/run | .../discovery/decide  # discovery (ADR-0020)
+GET/POST .../spec | .../spec/run | .../spec/review | .../spec/approve  # especificação (ADR-0021)
+GET/PUT .../validation-checks | GET .../validation-checks/suggest  # bateria de validações (ADR-0022, §12)
+GET/PUT .../deploy | .../deploy/history  # implantação governada (ADR-0023, §18-22)
+POST .../deploy/run | /validate | /approve | /rollback  # executa, valida, aceite final, rollback
+GET/POST .../cards/{cid}/qa | POST .../qa/{i}/fail  # QA manual (ADR-0025, §16/§17)
+GET  .../learning | GET /v1/learning              # aprendizado da esteira (ADR-0025, §24; custo real, ADR-0026)
+PUT  .../budget                                  # eleva/remove teto de gasto; admin (ADR-0026)
+GET  .../worktrees | POST .../worktrees/prune    # worktrees órfãos após crash; prune admin (ADR-0027)
 POST .../conflicts/{cid}/resolve                 # resolução de conflito
 POST .../approvals/{aid}/approve | /reject       # aprovação humana
 GET  .../events/stream                           # SSE ao vivo (console)
@@ -169,9 +180,14 @@ GET  /metrics                                    # exposição Prometheus
 Console em `/ui/`: catálogo de projetos ativos/arquivados e Kanban agrupado. Clicar num
 card abre `/ui/detalhe?id=…`, a **sala de controle** daquela orquestração: esteira F1→F7,
 card **"Próximo passo"** (o que falta e qual é o clique, vindo de
-`GET .../next-step`), painel **"o que o agente está fazendo"** com a saída do CLI em tempo
-real, funil só da fase corrente, pendências de governança acionáveis e atividade ao vivo
-por SSE. Cada etapa da esteira mostra o que é, o que entrega e **qual agente a executa** —
+`GET .../next-step`), painel **"Ficha da demanda"** (tipo, objetivo, domínios, impactos,
+riscos e complexidade, produzidos por triagem — agente ou heurística — antes de criar a
+orquestração; ADR-0016), painel **"Revisão de código"** quando há PR aberta (veredito,
+revisor — sempre diferente de quem implementou —, ações obrigatórias/sugestões e
+pontos verificados por um agente independente sobre o diff real; ADR-0017), painel **"o
+que o agente está fazendo"** com a saída do CLI em tempo real, funil só da fase
+corrente, pendências de governança acionáveis e atividade ao vivo por SSE. Cada etapa
+da esteira mostra o que é, o que entrega e **qual agente a executa** —
 clicar no chip troca o agente daquela fase, então F1 pode rodar num modelo barato e F5 no
 mais forte, na mesma orquestração. O console técnico completo — timeline, ADRs, aprovações,
 snapshots (diff), patches, conflitos, corridas de candidatos, custos e PRs — continua em
@@ -204,6 +220,7 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 | `ASO_SLO_FAILURE_BUDGET` | orçamento de erro da taxa de falhas de execução no `/slo` (default 0.10) |
 | `ASO_MAX_SLO_SAMPLES` | retenção de amostras de SLO por orquestração (default 200) |
+| `ASO_ORCAMENTO_PADRAO_USD` | teto de gasto (US$) de orquestrações novas (ADR-0026); sem a variável, sem teto |
 | `ASO_LLM_PROVIDER` / `ASO_LLM_API_KEY` / `ASO_LLM_MODEL` | cérebro do autopilot: `deepseek`/`openai`/`anthropic` + chave + modelo (planejamento via `POST .../plan`) |
 | `ASO_LLM_BASE_URL` | URL base do provedor LLM (opcional; default por provedor) |
 | `ASO_GATE_TEST_COMMAND` | comando de testes/lint rodado no gate das fases de código (F5/F6) no `ASO_TARGET_REPO`; só aprova com exit 0 |
@@ -231,7 +248,7 @@ aprovações. Passos:
    tarefa (JSON no stdin) em um prompt em pt-BR e chama `codex exec "<prompt>"` no worktree
    do card. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
 
-> **Permissão de escrita (causa nº 1 de card `Failed` com "diff vazio")**: em modo
+> **Permissão de escrita (causa nº 1 de card `Blocked` com "diff vazio", ADR-0019)**: em modo
 > não-interativo os CLIs não editam arquivos sem autorização explícita — respondem em texto,
 > saem com 0 e o worktree fica intacto. Use `claude -p --permission-mode acceptEdits` (só
 > edições) ou `--dangerously-skip-permissions` (edições + comandos, necessário para rodar
@@ -265,7 +282,7 @@ alembic check                 # migrations em dia
 pytest -q --cov=src/aso --cov-fail-under=80
 ```
 
-Estado atual: **114 testes verdes**, cobertura **~96%**, ruff/mypy limpos,
+Estado atual: **815 testes verdes**, cobertura **~92%**, ruff/mypy limpos,
 `alembic check` sem diffs, Docker e2e validado no Postgres. CI em
 [.github/workflows/ci.yml](.github/workflows/ci.yml); release por tag no GHCR em
 [.github/workflows/release.yml](.github/workflows/release.yml).

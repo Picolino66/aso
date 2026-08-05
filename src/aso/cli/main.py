@@ -27,7 +27,9 @@ def version() -> None:
 @app.command()
 def run(request: str) -> None:
     """Cria uma orquestração a partir de uma demanda e executa o ciclo (mock)."""
-    orch = _service.create_orchestration(request)
+    # `create_with_triage` (não `create_orchestration` direto): sem a triagem, os
+    # cards nasciam com priority=low e demand_brief vazio (Ponto 1, Incremento B).
+    orch = _service.create_with_triage(request)
     typer.echo(f"Orquestração criada: {orch.id}")
 
     plan = _service.get_plan(orch.id)
@@ -35,10 +37,12 @@ def run(request: str) -> None:
     typer.echo(f"Aprovação humana necessária: {plan.requires_human_approval}")
 
     typer.echo("\nCards:")
+    # run_plan (não um loop manual de run_card): respeita a ordem de `depends_on`
+    # entre agentes — um card dependente (ex. ReviewAgent) recusa `run_card` isolado
+    # antes que sua dependência termine (ADR-0018).
+    _service.run_plan(orch.id)
     for card in _service.get_cards(orch.id):
-        _service.run_card(orch.id, card.id)
-        card_now = next(c for c in _service.get_cards(orch.id) if c.id == card.id)
-        typer.echo(f"  [{card_now.status.value:>10}] {card.title}")
+        typer.echo(f"  [{card.status.value:>10}] {card.title}")
 
     gate = _service.run_quality_gate(orch.id)
     typer.echo(f"\nQuality gate: {gate.status.value}")

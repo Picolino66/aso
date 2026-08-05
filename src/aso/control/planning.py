@@ -19,12 +19,17 @@ _PLANNING_SYSTEM = (
     '{"product": {"name": "...", "domain": "...", "mvp_hypothesis": "..."},\n'
     ' "adrs": [{"title": "...", "decision": "...", "rationale": "..."}],\n'
     ' "backlog": [{"title": "...", "phase": "F5", "domain": "backend",'
-    ' "acceptance_criteria": ["..."]}]}\n'
+    ' "acceptance_criteria": ["..."], "depends_on": ["..."]}]}\n'
     "Distribua o backlog por TODA a esteira (fases F1..F7), não só F5:\n"
     "- F1 discovery/requisitos, F2 arquitetura, F3 dados/contratos, F4 UX/planejamento,\n"
     "  F5 desenvolvimento, F6 testes/qualidade/docs, F7 operação/observabilidade.\n"
     "Gere um backlog enxuto e executável (5 a 15 itens), com ao menos um item por fase "
-    "relevante à ideia."
+    "relevante à ideia.\n"
+    "`depends_on` (§7/§10 do fluxo.md) é a ordem de execução: liste os TÍTULOS EXATOS "
+    "(não índices) de outros itens deste mesmo backlog que precisam terminar antes — "
+    "ex.: um item de F5 que consome um contrato depende do item de F3 que o define. "
+    "Deixe vazio quando não houver dependência real; não invente ordem só para "
+    "preencher o campo."
 )
 
 
@@ -44,7 +49,15 @@ class BacklogItem(BaseModel):
     title: str
     phase: str = "F5"
     domain: str = "backend"
+    # Tipo do card (§16.4/§7, ADR-0025) — permite o LLM marcar épicos/features no
+    # backlog planejado; "Task" (default) é o único tipo que qualquer caminho de
+    # criação produzia até aqui.
+    type: str = "Task"
     acceptance_criteria: list[str] = Field(default_factory=list)
+    # Títulos de outros itens deste backlog que precisam terminar antes (§7/§10 do
+    # fluxo.md) — resolvidos para ids de card numa segunda passada em
+    # `populate_from_plan` (mesmo padrão de `PlannedAgent.depends_on`).
+    depends_on: list[str] = Field(default_factory=list)
 
 
 class ProjectPlan(BaseModel):

@@ -22,8 +22,10 @@ def test_gates_and_approvals_persist(tmp_path: Path) -> None:
     # Ação crítica (impacto deploy) => aprovação humana criada automaticamente.
     assert len(svc.list_approvals(orch.id)) == 1
 
-    for card in svc.get_cards(orch.id):
-        svc.run_card(orch.id, card.id)
+    # run_plan (não um loop manual de run_card): a estratégia sequencial montada aqui
+    # tem ReviewAgent dependente de DevOpsAgent (ADR-0018) — run_plan já respeita essa
+    # ordem nas suas próprias ondas.
+    svc.run_plan(orch.id)
     svc.run_quality_gate(orch.id)
     assert len(svc.list_gate_results(orch.id)) == 1
 

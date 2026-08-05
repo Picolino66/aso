@@ -42,7 +42,9 @@ def test_governed_merge_real_git(tmp_path: Path) -> None:
         svc.merge_pr(orch.id, pr.id)
 
     svc.report_ci(orch.id, pr.id, "passed")
-    svc.report_review(orch.id, pr.id, "approved")
+    # Aprovação governada (ADR-0017) sem revisor de agente configurado neste teste:
+    # exige justificativa humana explícita — o clique sem revisão não existe mais.
+    svc.report_review(orch.id, pr.id, "approved", justificativa="revisão manual do teste")
     merged = svc.merge_pr(orch.id, pr.id)
 
     assert merged.status == "merged"
@@ -51,7 +53,9 @@ def test_governed_merge_real_git(tmp_path: Path) -> None:
     assert (repo / "feature.py").exists()
 
 
-def test_ci_failure_moves_card_to_failed(tmp_path: Path) -> None:
+def test_ci_failure_moves_card_to_needs_fix(tmp_path: Path) -> None:
+    """CI reprovada é corrigível (ADR-0019): `NeedsFix`, não `Failed` — reservado ao
+    roteamento de execução que decidiu escalar para humano."""
     repo = tmp_path / "ci-failure"
     _init_repo(repo)
     svc = OrchestrationService(
@@ -62,7 +66,9 @@ def test_ci_failure_moves_card_to_failed(tmp_path: Path) -> None:
     svc.run_card(orch.id, card.id)
     pr = svc.list_pulls(orch.id)[0]
     svc.report_ci(orch.id, pr.id, "failed")
-    assert svc.get_cards(orch.id)[0].status.value == "Failed"
+    falho = svc.get_cards(orch.id)[0]
+    assert falho.status.value == "NeedsFix"
+    assert falho.failures and falho.failures[-1]["etapa"] == "ci"
 
 
 def test_pr_endpoints_and_merge_governance() -> None:

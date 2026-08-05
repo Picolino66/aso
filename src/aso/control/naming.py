@@ -20,17 +20,12 @@ malformada nem colidir com a de outro candidato rodando em paralelo.
 
 from __future__ import annotations
 
-import json
-import subprocess
-import tempfile
-
 from pydantic import BaseModel
 
+from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
 from aso.control.models import AgentAssignment
 from aso.execution.branch_naming import branch_stem, prefixo_para, slugify, tem_texto_util
 from aso.execution.catalog import ExecutorCatalog
-from aso.execution.llm_client import LlmError
-from aso.execution.llm_provider import parse_llm_json
 from aso.shared.types import CardType, Phase
 
 # Assunto de commit no padrão Conventional Commits, em pt-BR e curto o bastante para
@@ -90,7 +85,7 @@ class NamingService:
             bruto = self._perguntar(
                 assignment, card_type, title, description, acceptance_criteria or [], phase
             )
-        except (LlmError, ValueError, KeyError, OSError, subprocess.SubprocessError) as exc:
+        except ERROS_DE_AGENTE as exc:
             return base.model_copy(update={"fallback_reason": f"{type(exc).__name__}: {exc}"[:200]})
         return _sanear(bruto, card_type, title) or base.model_copy(
             update={"fallback_reason": "resposta do agente sem branch/commit utilizáveis"}
@@ -106,44 +101,15 @@ class NamingService:
         phase: Phase | str | None,
     ) -> dict[str, object]:
         assert self._catalog is not None  # noqa: S101 - garantido pelo chamador
-        profile = self._catalog.get(assignment.executor)
-        if profile is None:
-            raise KeyError(f"Executor '{assignment.executor}' não está no catálogo.")
         pedido = _pedido(card_type, title, description, acceptance_criteria, phase)
-        if profile.kind == "llm":
-            client = self._catalog.llm_client(
-                assignment.executor, effort_override=assignment.effort
-            )
-            return parse_llm_json(client.complete(system=_NAMING_SYSTEM, user=pedido))
-        if profile.kind == "cli":
-            command = self._catalog.cli_command(
-                assignment.executor, effort_override=assignment.effort
-            )
-            return parse_llm_json(self._rodar_cli(command, pedido))
-        raise ValueError(f"Executor '{assignment.executor}' não sabe produzir texto.")
-
-    def _rodar_cli(self, command: list[str], pedido: str) -> str:
-        """Roda o agente CLI só para obter texto — em pasta temporária, sem worktree.
-
-        Nomear não altera código, então nada de `git worktree add`: o agente roda num
-        diretório vazio e descartável, e só o stdout interessa.
-        """
-        tarefa = json.dumps(
-            {"kind": "naming", "content": {"request": pedido, "system": _NAMING_SYSTEM}},
-            ensure_ascii=False,
+        return perguntar_ao_agente(
+            self._catalog,
+            assignment,
+            system=_NAMING_SYSTEM,
+            pedido=pedido,
+            kind="naming",
+            timeout=self._timeout,
         )
-        with tempfile.TemporaryDirectory(prefix="aso-naming-") as tmp:
-            proc = subprocess.run(
-                command,
-                cwd=tmp,
-                input=tarefa,
-                capture_output=True,
-                text=True,
-                timeout=self._timeout,
-            )
-        if proc.returncode != 0:
-            raise ValueError(f"exit={proc.returncode}: {(proc.stderr or proc.stdout)[-200:]}")
-        return proc.stdout
 
 
 def _pedido(

@@ -67,6 +67,7 @@ _CARD_RELS = (
     "dependencies",
     "blocked_by",
     "acceptance_criteria",
+    "correction_actions",
     "linked_requirements",
     "linked_adrs",
     "linked_contracts",
