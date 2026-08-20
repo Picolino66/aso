@@ -136,6 +136,23 @@ def test_fail_qa_check_indice_invalido_leva_a_erro() -> None:
         svc.fail_qa_check(orch.id, card.id, 0)
 
 
+def test_register_qa_check_gera_codigo_e_aceita_titulo_pre_condicoes() -> None:
+    """Plano de teste manual (Tela 20, wf §22.1, ADR-0049)."""
+    svc = OrchestrationService()
+    orch = svc.create_orchestration("demanda qualquer")
+    card = svc.get_cards(orch.id)[0]
+    check = svc.register_qa_check(
+        orch.id,
+        card.id,
+        cenario="login com SSO",
+        titulo="Login via SSO corporativo",
+        pre_condicoes="usuário com conta SSO ativa",
+    )
+    assert check.codigo  # gerado, nunca um "QA-001" fabricado
+    assert check.titulo == "Login via SSO corporativo"
+    assert check.pre_condicoes == "usuário com conta SSO ativa"
+
+
 def test_fail_qa_check_repetido_escala_para_humano_e_falha_apos_limite() -> None:
     svc = OrchestrationService()
     orch = svc.create_orchestration("demanda qualquer")

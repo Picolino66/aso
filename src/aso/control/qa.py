@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from aso.control.triage import DemandBrief
 from aso.kanban.models import KanbanCard
-from aso.shared.ids import now_iso
+from aso.shared.ids import gen_id, now_iso
 from aso.shared.types import CardType
 
 STATUS_PENDENTE = "pendente"
@@ -37,8 +37,18 @@ _TIPOS_QUE_EXIGEM_QA = frozenset({CardType.EPIC, CardType.FEATURE})
 
 
 class QaCheck(BaseModel):
-    """Verificação manual do §16 — o que a automação não cobre."""
+    """Verificação manual do §16 — o que a automação não cobre.
 
+    `codigo`/`titulo`/`pre_condicoes` vieram do plano de teste manual do wf
+    §22.1 (Tela 20, ADR-0049) — `codigo` é gerado (`gen_id`), nunca um código
+    sequencial fictício tipo "QA-001" do exemplo do wireframe (mesma
+    disciplina de não fabricar identificador humano-sequencial já aplicada a
+    `ADR.id`/`Incident.id`).
+    """
+
+    codigo: str = Field(default_factory=lambda: gen_id("qa"))
+    titulo: str = ""
+    pre_condicoes: str = ""
     cenario: str
     passos: list[str] = Field(default_factory=list)
     ambiente: str = ""

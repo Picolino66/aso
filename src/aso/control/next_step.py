@@ -81,6 +81,7 @@ from aso.governance.models import (
     HumanApproval,
     PullRequest,
     QualityGateResult,
+    ReviewComment,
 )
 from aso.kanban.models import KanbanCard
 from aso.shared.types import ColumnKey, ExecutionMode, GateStatus, Phase
@@ -251,6 +252,7 @@ class NextStepInput:
     cards: list[KanbanCard] = field(default_factory=list)
     approvals: list[HumanApproval] = field(default_factory=list)
     pulls: list[PullRequest] = field(default_factory=list)
+    review_comments: list[ReviewComment] = field(default_factory=list)
     conflicts: list[Conflict] = field(default_factory=list)
     gate_results: list[QualityGateResult] = field(default_factory=list)
     drift: DocsDriftReport | None = None
@@ -411,7 +413,8 @@ def _governance_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
     for pr in inp.pulls:
         if pr.status != "open":
             continue
-        found.append(_pr_blocker(orch.id, pr))
+        comentarios_pr = [c for c in inp.review_comments if c.pr_id == pr.id]
+        found.append(_pr_blocker(orch.id, pr, comentarios_pr))
     abertos = [c for c in inp.conflicts if c.status == "open"]
     if abertos:
         found.append(
@@ -498,14 +501,16 @@ def _orphan_card_blocker(inp: NextStepInput) -> NextStepBlocker | None:
     return None
 
 
-def _pr_blocker(orchestration_id: str, pr: PullRequest) -> NextStepBlocker:
+def _pr_blocker(
+    orchestration_id: str, pr: PullRequest, comentarios: list[ReviewComment]
+) -> NextStepBlocker:
     """Traduz o estágio de uma PR aberta na próxima ação do merge governado.
 
-    Ordem de checagem: CI → revisão independente (ADR-0017) → merge. O antigo
-    `pr_review_pendente`, que oferecia `{"status": "approved"}` como um clique só
-    — sem ninguém ter revisado — não existe mais: a revisão passa a ser um agente
-    rodando sobre o diff real, e só um veredito aprovado (ou justificativa humana
-    com papel admin) libera o merge.
+    Ordem de checagem: CI → revisão independente (ADR-0017) → comentários
+    obrigatórios pendentes (ADR-0033) → merge. O antigo `pr_review_pendente`, que
+    oferecia `{"status": "approved"}` como um clique só — sem ninguém ter revisado
+    — não existe mais: a revisão passa a ser um agente rodando sobre o diff real, e
+    só um veredito aprovado (ou justificativa humana com papel admin) libera o merge.
     """
     if pr.ci_status != "passed":
         pendente = pr.ci_status == "pending"
@@ -567,6 +572,23 @@ def _pr_blocker(orchestration_id: str, pr: PullRequest) -> NextStepBlocker:
                 role="admin",
             ),
         )
+    comentario_pendente = next(
+        (c for c in comentarios if c.obrigatorio and c.status == "pendente"), None
+    )
+    if comentario_pendente is not None:
+        return NextStepBlocker(
+            code="pr_comentario_obrigatorio_nao_resolvido",
+            severity=SEVERITY_BLOCKS,
+            title=f"PR {pr.branch}: comentário obrigatório não resolvido",
+            detail=f"{comentario_pendente.arquivo}:{comentario_pendente.linha} — "
+            f"{comentario_pendente.descricao}",
+            action=NextStepAction(
+                label="Resolver comentário",
+                path=_orch_path(
+                    orchestration_id, f"/pulls/{pr.id}/comments/{comentario_pendente.id}/resolve"
+                ),
+            ),
+        )
     return NextStepBlocker(
         code="pr_pronto_merge",
         severity=SEVERITY_HUMAN,
@@ -589,7 +611,12 @@ def _cards_falhos_blocker(orchestration_id: str, falhos: list[KanbanCard]) -> Ne
     if primeiro.failures:
         ultimo = FailureRecord.model_validate(primeiro.failures[-1])
         diagnostico = diagnosticar(ultimo)
-        detail = f"[{diagnostico}] {detail} (tentativa {len(primeiro.failures)})"
+        # §36.4, ADR-0031: `tentativa_atual` é o contador autoritativo (nunca
+        # truncado) — `len(failures)` é só o tamanho do ring, travado em 5.
+        rotulo_tentativa = f"tentativa {primeiro.tentativa_atual}"
+        if primeiro.max_tentativas is not None:
+            rotulo_tentativa += f" de {primeiro.max_tentativas}"
+        detail = f"[{diagnostico}] {detail} ({rotulo_tentativa})"
     return NextStepBlocker(
         code="cards_falhos",
         severity=SEVERITY_HUMAN,
@@ -679,26 +706,36 @@ def _spec_blocker(orch_id: str, spec: SpecDocument, *, enforced: bool) -> NextSt
 
 
 def _deploy_blocker(orch_id: str, deploy: DeployRun) -> NextStepBlocker | None:
-    """Bloqueio de implantação (§18-22, ADR-0023) — só existe quando uma
-    tentativa de implantação de fato ocorreu (`status` pendente = nunca
-    implantou, não bloqueia nada)."""
+    """Bloqueio de implantação (§18-22, ADR-0023; §19, ADR-0029) — só existe quando
+    uma tentativa de implantação de fato ocorreu (`status` pendente = nunca
+    implantou, não bloqueia nada). Com pipeline configurado, `deploy.estagio` nomeia
+    o estágio no título; `diagnostico_falha`/`proxima_acao_falha` (quando presentes)
+    entram no detalhe — nenhuma falha de implantação fica sem próxima ação nomeada
+    (Princípio central do fluxo.md)."""
+    titulo_estagio = f"Estágio '{deploy.estagio}'" if deploy.estagio else "Implantação"
     if deploy.status == DEPLOY_STATUS_FALHOU:
         return NextStepBlocker(
             code="deploy_falhou",
             severity=SEVERITY_OPERATOR,
-            title="Implantação falhou",
-            detail=deploy.resultado or "Veja os logs da implantação.",
+            title=f"{titulo_estagio} falhou",
+            detail=(
+                deploy.proxima_acao_falha or deploy.resultado or "Veja os logs da implantação."
+            ),
             action=NextStepAction(
                 label="Rodar implantação de novo", path=_orch_path(orch_id, "/deploy/run")
             ),
         )
     if deploy.aceite_status == DEPLOY_ACEITE_AGUARDANDO_HUMANO:
+        detail = (
+            "Risco/impacto da demanda ou validação pós-implantação exigem confirmação humana (§22)."
+        )
+        if deploy.proxima_acao_falha:
+            detail = f"{deploy.proxima_acao_falha} {detail}"
         return NextStepBlocker(
             code="deploy_aguardando_aceite",
             severity=SEVERITY_HUMAN,
-            title="Implantação aguardando aceite final",
-            detail="Risco/impacto da demanda ou validação pós-implantação exigem confirmação"
-            " humana (§22).",
+            title=f"{titulo_estagio} aguardando aceite final",
+            detail=detail,
             action=NextStepAction(
                 label="Decidir aceite da implantação",
                 path=_orch_path(orch_id, "/deploy/approve"),
@@ -709,8 +746,12 @@ def _deploy_blocker(orch_id: str, deploy: DeployRun) -> NextStepBlocker | None:
         return NextStepBlocker(
             code="deploy_reprovada",
             severity=SEVERITY_OPERATOR,
-            title="Implantação reprovada no aceite final",
-            detail=deploy.aceite_comentario or "Veja o comentário da decisão.",
+            title=f"{titulo_estagio} reprovado no aceite final",
+            detail=(
+                deploy.proxima_acao_falha
+                or deploy.aceite_comentario
+                or "Veja o comentário da decisão."
+            ),
             action=NextStepAction(
                 label="Rodar implantação de novo", path=_orch_path(orch_id, "/deploy/run")
             ),

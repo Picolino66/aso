@@ -93,6 +93,30 @@ class DemandBrief(BaseModel):
     origem: str = "heuristica"  # nome do executor, ou "heuristica"
     fallback_reason: str = ""
 
+    # Tela 03 (Cadastro de demanda completo, wf §5.2, ADR-0039) — preenchidos
+    # manualmente no formulário, NÃO pelo agente de triagem (fora do vocabulário
+    # de `_TRIAGE_SYSTEM` acima): a triagem interpreta texto livre para os campos
+    # de decisão; estes são informação estrutural que só o solicitante sabe.
+    solicitante: str = ""
+    # Canal/fonte da demanda (ex.: "ticket #123", "reunião de sprint") — distinto
+    # de `origem` acima, que é técnico (nome do executor que triou, ou "heuristica").
+    origem_da_demanda: str = ""
+    sistemas_afetados: list[str] = Field(default_factory=list)
+    apis_afetadas: list[str] = Field(default_factory=list)
+    banco_de_dados_afetado: list[str] = Field(default_factory=list)
+    infraestrutura_afetada: list[str] = Field(default_factory=list)
+    dependencias_conhecidas: list[str] = Field(default_factory=list)
+    restricoes: list[str] = Field(default_factory=list)
+    evidencias_esperadas: list[str] = Field(default_factory=list)
+    # Força aprovação humana independente do que o motor decidiria sozinho — mesmo
+    # efeito que `RoutingRuleAction.aprovacao_humana` já tem (ADR-0028), agora
+    # acionável por demanda individual, não só por regra de sistema.
+    aprovacao_humana_obrigatoria: bool = False
+    # Sem nenhum uso no motor hoje (nenhum gate/freio lê isto) — inerte de
+    # propósito: documentado assim em vez de fingir um efeito que não existe
+    # (mesma honestidade da ausência de "variação" no Dashboard, ADR-0037).
+    prazo: str | None = None
+
     def to_decision_input(self, user_request: str) -> DecisionInput:
         """Traduz a ficha para a entrada do motor de decisão.
 
@@ -116,6 +140,8 @@ class DemandBrief(BaseModel):
             parallelizable=parallelizable,
             needs_independent_review=needs_independent_review,
             impacts=list(self.impactos),
+            tipo=self.tipo,
+            complexidade=self.complexidade,
         )
 
 

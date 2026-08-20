@@ -150,3 +150,41 @@ def test_get_discovery_vazio_antes_de_rodar(tmp_path: Path) -> None:
     resposta = client.get(f"/v1/orchestrations/{oid}/discovery")
     assert resposta.status_code == 200
     assert resposta.json()["status"] == "rascunho"
+
+
+# --------------------------------------------- painel de execução e checklist (ADR-0045)
+
+
+def test_run_discovery_devolve_painel_de_execucao_real(tmp_path: Path) -> None:
+    svc = OrchestrationService(catalog=_catalogo_confiante())
+    client = TestClient(create_app(svc))
+    oid = _orch(svc, tmp_path, risco=RiskLevel.LOW)
+
+    client.post(f"/v1/orchestrations/{oid}/discovery/run", json={})
+    relatorio = client.get(f"/v1/orchestrations/{oid}/discovery").json()
+
+    assert relatorio["started_at"] is not None
+    assert relatorio["finished_at"] is not None
+    assert relatorio["duration_ms"] >= 0
+    assert len(relatorio["log"]) == 2
+
+
+def test_approval_criteria_devolve_os_sete_rotulos_e_motivos_reais(tmp_path: Path) -> None:
+    svc = OrchestrationService()
+    client = TestClient(create_app(svc))
+    oid = _orch(svc, tmp_path, risco=RiskLevel.CRITICAL)
+    client.post(f"/v1/orchestrations/{oid}/discovery/run", json={})
+
+    resposta = client.get(f"/v1/orchestrations/{oid}/discovery/approval-criteria")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert len(corpo["criterios"]) == 7
+    assert corpo["aprovacao_automatica"] is False
+    assert any("Risco da demanda" in m for m in corpo["motivos_escalada"])
+
+
+def test_approval_criteria_orquestracao_inexistente_devolve_404() -> None:
+    svc = OrchestrationService()
+    client = TestClient(create_app(svc))
+    resposta = client.get("/v1/orchestrations/orch_fantasma/discovery/approval-criteria")
+    assert resposta.status_code == 404

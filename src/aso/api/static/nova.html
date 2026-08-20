@@ -4,43 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ASO Runtime — Nova orquestração</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
   <style>
-    :root {
-      --bg:#0f172a; --panel:#1e293b; --panel2:#0b1220; --border:#334155;
-      --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --ok:#22c55e;
-      --warn:#f59e0b; --err:#ef4444; --radius:10px;
-    }
-    * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; font-family:ui-sans-serif,system-ui,sans-serif; background:var(--bg); color:var(--fg); }
-    header { display:flex; align-items:center; gap:12px; padding:14px 24px; background:var(--panel); border-bottom:1px solid var(--border); }
-    header h1 { margin:0; font-size:18px; } header span { color:var(--muted); font-size:13px; } header a { margin-left:auto; color:var(--accent); text-decoration:none; }
     main { width:min(720px,calc(100% - 28px)); margin:32px auto; }
-    .card { margin-bottom:16px; padding:22px; border:1px solid var(--border); border-radius:var(--radius); background:var(--panel); }
+    .card { padding:22px; }
     h2 { margin:0 0 6px; font-size:17px; } h3 { margin:0 0 10px; font-size:14px; }
-    p { margin:0 0 14px; } label { display:block; margin:13px 0 5px; color:var(--muted); font-size:12px; }
-    input, textarea, select, button { font:inherit; }
-    input, textarea, select { width:100%; padding:9px 10px; color:var(--fg); background:var(--panel2); border:1px solid var(--border); border-radius:8px; }
-    textarea { min-height:108px; resize:vertical; }
-    button { border:0; border-radius:8px; padding:10px 15px; font-weight:650; cursor:pointer; color:#08131f; background:var(--accent); }
-    button.ok { background:var(--ok); } button.ghost { color:var(--fg); background:var(--border); } button:disabled { opacity:.45; cursor:not-allowed; }
-    .row { display:flex; gap:9px; flex-wrap:wrap; } .row > div { flex:1 1 210px; }
-    .muted, .status { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
-    .workspace { margin-top:10px; padding:10px; border-radius:8px; background:var(--panel2); }
-    .progress { height:10px; margin:12px 0 7px; overflow:hidden; border:1px solid var(--border); border-radius:999px; background:var(--panel2); }
-    .progress div { width:0; height:100%; background:var(--accent); transition:width .12s ease; }
-    .error { margin-top:10px; color:#fecaca; font-size:12px; } .success { color:#86efac; }
+    p { margin:0 0 14px; }
+    textarea { min-height:108px; }
+    .row > div { flex:1 1 210px; }
+    .status { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+    .workspace { margin-top:10px; padding:10px; border-radius:8px; background:var(--panel-2); }
     .steps { display:flex; gap:8px; margin-bottom:15px; color:var(--muted); font-size:12px; }
     .step { flex:1; padding:7px; text-align:center; border:1px solid var(--border); border-radius:999px; }
-    .step.active { color:var(--fg); border-color:var(--accent); } .step.done { color:#86efac; border-color:var(--ok); }
-    @media (max-width:560px) { header { padding:12px 14px; flex-wrap:wrap; } header a { margin-left:0; width:100%; } main { margin:18px auto; } .card { padding:16px; } .steps { flex-direction:column; } }
+    .step.active { color:var(--fg); border-color:var(--accent); } .step.done { color:var(--ok); border-color:var(--ok); }
+    @media (max-width:560px) { main { margin:18px auto; } .card { padding:16px; } .steps { flex-direction:column; } }
   </style>
 </head>
 <body>
-  <header>
-    <h1>⚙️ ASO Runtime</h1>
-    <span>Nova orquestração</span>
-    <a href="/ui/">← Catálogo de projetos</a>
-  </header>
+  <header id="app-header"></header>
   <main>
     <div class="steps" aria-label="Etapas">
       <div id="stepProject" class="step active">1. Projeto</div>
@@ -97,12 +79,18 @@
     </section>
   </main>
 
+  <script src="/ui/header.js"></script>
   <script>
     let projects = [];
     let analyzedProjectId = null;
     let stream = null;
     let createdOrchestrationId = null;
     let executors = [];
+
+    ASOHeader.mount(document.getElementById('app-header'), {
+      subtitulo: 'Nova orquestração',
+      extraHtml: '<a href="/ui/" style="color:var(--accent)">← Catálogo de projetos</a>',
+    });
 
     function token() { return localStorage.getItem('aso_token') || ''; }
     async function api(path, options) {

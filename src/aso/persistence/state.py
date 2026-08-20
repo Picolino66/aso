@@ -14,12 +14,15 @@ from pydantic import BaseModel, Field
 from aso.control.models import ExecutionPlan, Orchestration
 from aso.governance.models import (
     ADR,
+    BugReport,
     CandidateRun,
     Conflict,
     ContextPatch,
     HumanApproval,
+    Incident,
     PullRequest,
     QualityGateResult,
+    ReviewComment,
     SloEvaluation,
     Snapshot,
 )
@@ -46,6 +49,9 @@ class OrchestrationState(BaseModel):
     pull_requests: list[PullRequest] = Field(default_factory=list)
     candidate_runs: list[CandidateRun] = Field(default_factory=list)
     slo_evaluations: list[SloEvaluation] = Field(default_factory=list)
+    incidents: list[Incident] = Field(default_factory=list)
+    review_comments: list[ReviewComment] = Field(default_factory=list)
+    bug_reports: list[BugReport] = Field(default_factory=list)
 
     board: Board
     cards: list[KanbanCard] = Field(default_factory=list)

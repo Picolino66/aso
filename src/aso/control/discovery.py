@@ -13,6 +13,8 @@ de `decision_engine.py`, não inventa um novo.
 
 from __future__ import annotations
 
+import time
+
 from pydantic import BaseModel, Field
 
 from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
@@ -65,6 +67,16 @@ class DiscoveryReport(BaseModel):
     # Versão dentro do ring (§4.2 do plano4.md, ADR-0021) — 1-based, monotônica.
     versao: int = 1
     at: str = Field(default_factory=now_iso)
+    # Painel de execução (Tela 06, wf §8.2, ADR-0045) — `None`/vazio quando o
+    # relatório nunca passou por `investigar()` (ex.: histórico anterior a esta
+    # ADR). `log` é o registro REAL de início/executor/desfecho — não streaming
+    # token-a-token (a chamada ao agente é síncrona e não instrumentada para
+    # isso), mas nunca uma linha fabricada como o exemplo ilustrativo do
+    # wireframe ("Módulo authentication identificado").
+    started_at: str | None = None
+    finished_at: str | None = None
+    duration_ms: float | None = None
+    log: list[str] = Field(default_factory=list)
 
 
 def exige_aprovacao_discovery(report: DiscoveryReport, brief: DemandBrief) -> bool:
@@ -80,6 +92,56 @@ def exige_aprovacao_discovery(report: DiscoveryReport, brief: DemandBrief) -> bo
         or brief.risco in (RiskLevel.HIGH, RiskLevel.CRITICAL)
         or bool(set(brief.impactos) & _SENSITIVE_IMPACTS)
     )
+
+
+def avaliar_criterios_aprovacao(report: DiscoveryReport, brief: DemandBrief) -> dict[str, object]:
+    """Tela 07 (wf §9.2, ADR-0045): checklist com os 7 rótulos LITERAIS do
+    wireframe — só 3 têm verificação automática real hoje (risco, impactos
+    sensíveis específicos, confiança do agente); os outros 4 ("Escopo claro",
+    "Sem impacto financeiro significativo", "Padrões já aprovados") ficam
+    marcados `verificado: False` (sem dado real para julgar), nunca um `atendido`
+    fabricado. `motivos_escalada` é sempre derivado de condição real — inclui
+    também impactos sensíveis (§14/ADR-0028) sem linha própria no checklist de 7
+    (ex.: segurança, contrato, deploy), para não esconder o motivo real da
+    escalada só porque o wireframe não previu uma linha específica para ele.
+    """
+    risco_baixo = brief.risco not in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+    sem_arquitetura = "architecture" not in brief.impactos
+    sem_perda_dados = "database" not in brief.impactos
+    alta_confianca = report.confianca != "baixa"
+    outros_sensiveis = sorted(
+        (set(brief.impactos) & _SENSITIVE_IMPACTS) - {"architecture", "database"}
+    )
+
+    criterios = [
+        {"nome": "Baixo risco", "verificado": True, "atendido": risco_baixo},
+        {"nome": "Escopo claro", "verificado": False, "atendido": None},
+        {
+            "nome": "Sem mudança relevante de arquitetura",
+            "verificado": True,
+            "atendido": sem_arquitetura,
+        },
+        {"nome": "Sem risco de perda de dados", "verificado": True, "atendido": sem_perda_dados},
+        {"nome": "Sem impacto financeiro significativo", "verificado": False, "atendido": None},
+        {"nome": "Padrões já aprovados", "verificado": False, "atendido": None},
+        {"nome": "Alta confiança do agente", "verificado": True, "atendido": alta_confianca},
+    ]
+    motivos: list[str] = []
+    if not risco_baixo:
+        motivos.append(f"Risco da demanda: {brief.risco.value}.")
+    if not sem_arquitetura:
+        motivos.append("Alteração de arquitetura.")
+    if not sem_perda_dados:
+        motivos.append("Impacto em banco de dados (risco de perda de dados).")
+    if not alta_confianca:
+        motivos.append("Confiança baixa do agente na recomendação.")
+    for impacto in outros_sensiveis:
+        motivos.append(f"Impacto sensível: {impacto}.")
+    return {
+        "criterios": criterios,
+        "aprovacao_automatica": not exige_aprovacao_discovery(report, brief),
+        "motivos_escalada": motivos,
+    }
 
 
 class DiscoveryService:
@@ -104,6 +166,12 @@ class DiscoveryService:
         base = _heuristica(user_request, demand_brief, workspace_report)
         if assignment is None or self._catalog is None:
             return base
+        inicio = now_iso()
+        relogio = time.monotonic()
+        log = [
+            f"{inicio} Discovery iniciado — executor: {assignment.executor}, "
+            f"effort: {assignment.effort or 'padrão'}."
+        ]
         try:
             bruto = self._perguntar(
                 assignment,
@@ -113,13 +181,43 @@ class DiscoveryService:
                 comentarios_anteriores=comentarios_anteriores,
             )
         except ERROS_DE_AGENTE as exc:
-            return base.model_copy(update={"fallback_reason": f"{type(exc).__name__}: {exc}"[:200]})
-        relatorio = _sanear(bruto)
-        if relatorio is None:
+            fim = now_iso()
+            log.append(f"{fim} Falha: {type(exc).__name__}: {exc} — usando fallback heurístico.")
             return base.model_copy(
-                update={"fallback_reason": "resposta do agente sem campos utilizáveis"}
+                update={
+                    "fallback_reason": f"{type(exc).__name__}: {exc}"[:200],
+                    "started_at": inicio,
+                    "finished_at": fim,
+                    "duration_ms": (time.monotonic() - relogio) * 1000,
+                    "log": log,
+                }
             )
-        return relatorio.model_copy(update={"origem": assignment.executor})
+        relatorio = _sanear(bruto)
+        fim = now_iso()
+        duracao_ms = (time.monotonic() - relogio) * 1000
+        if relatorio is None:
+            log.append(
+                f"{fim} Resposta do agente sem campos utilizáveis — usando fallback heurístico."
+            )
+            return base.model_copy(
+                update={
+                    "fallback_reason": "resposta do agente sem campos utilizáveis",
+                    "started_at": inicio,
+                    "finished_at": fim,
+                    "duration_ms": duracao_ms,
+                    "log": log,
+                }
+            )
+        log.append(f"{fim} Concluído — confiança: {relatorio.confianca}.")
+        return relatorio.model_copy(
+            update={
+                "origem": assignment.executor,
+                "started_at": inicio,
+                "finished_at": fim,
+                "duration_ms": duracao_ms,
+                "log": log,
+            }
+        )
 
     def _perguntar(
         self,

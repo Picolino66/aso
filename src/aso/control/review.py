@@ -55,6 +55,11 @@ _CATEGORIAS_VALIDAS = frozenset(
 )
 _SEVERIDADES_VALIDAS = frozenset({"obrigatoria", "sugestao"})
 
+# Vocabulário da severidade de um COMENTÁRIO (wf §20.3) — uma escala de gravidade,
+# DIFERENTE da severidade de uma AÇÃO acima (que é "obrigatória vs. sugestão"). Mesmo
+# vocabulário de QaCheck.gravidade/Incident.gravidade (ADR-0025/ADR-0032).
+_GRAVIDADES_VALIDAS = frozenset({"baixa", "media", "alta", "critica"})
+
 # Impactos da ficha da demanda que exigem confirmação humana mesmo com veredito
 # aprovado (§4 do fluxo.md aplicado ao code review).
 _IMPACTOS_QUE_EXIGEM_HUMANO = frozenset({"security", "database", "deploy"})
@@ -102,13 +107,19 @@ _REVIEW_SYSTEM = (
     "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
     '{"veredito": "...", "resumo": "...", '
     '"acoes": [{"descricao": "...", "categoria": "...", "severidade": "..."}], '
+    '"comentarios": [{"arquivo": "...", "linha": 0, "categoria": "...", '
+    '"severidade": "...", "descricao": "...", "sugestao": "...", '
+    '"obrigatorio": true}], '
     '"pontos_verificados": ["..."]}\n'
     "Tudo em português do Brasil. Valores aceitos (não use outros):\n"
     "- veredito: aprovado|aprovado_com_sugestoes|alteracoes_obrigatorias|reprovado|"
     "necessita_humano\n"
-    "- categoria de cada ação: correcao|teste|seguranca|clareza|escopo|documentacao|"
-    "performance\n"
-    "- severidade de cada ação: obrigatoria|sugestao\n"
+    "- categoria de cada ação/comentário: correcao|teste|seguranca|clareza|escopo|"
+    "documentacao|performance\n"
+    "- severidade de cada AÇÃO (`acoes`): obrigatoria|sugestao\n"
+    "- severidade de cada COMENTÁRIO (`comentarios`): baixa|media|alta|critica — é uma "
+    "escala de GRAVIDADE, diferente da severidade das ações; `obrigatorio` (true/false) "
+    "é o campo que decide se bloqueia a aprovação, não a severidade\n"
     "Avalie os doze eixos do §14: correção, aderência aos requisitos, qualidade, "
     "clareza, manutenibilidade, segurança, tratamento de erros, performance, padrões, "
     "cobertura de testes, risco de regressão e mudanças fora de escopo — registre em "
@@ -116,6 +127,9 @@ _REVIEW_SYSTEM = (
     "Cada crítica vira uma AÇÃO OBJETIVA E ACIONÁVEL (ex.: 'Adicionar teste para o "
     "cenário de token expirado'), nunca um comentário genérico ('melhorar os testes') "
     "— é o §15.\n"
+    "Além disso, ancore cada crítica relevante em `comentarios`, apontando o "
+    "`arquivo`/`linha` exatos do diff a que ela se refere — é a mesma crítica de "
+    "`acoes`, com o local exato.\n"
     "Na dúvida, use `necessita_humano` — nunca `aprovado`."
 )
 
@@ -128,6 +142,21 @@ class ReviewAction(BaseModel):
     severidade: str = "obrigatoria"  # obrigatoria | sugestao
 
 
+class ReviewCommentDraft(BaseModel):
+    """Comentário ancorado em arquivo/linha (wf §20.3), ainda sem identidade própria —
+    `_apply_review_verdict` o associa à PR/card e o promove a `ReviewComment` de
+    primeira classe (ADR-0033). Sem `id`/`orchestration_id`: o agente revisor não
+    conhece nenhum dos dois, só o diff."""
+
+    arquivo: str
+    linha: int = 0
+    categoria: str = "correcao"
+    severidade: str = "media"  # baixa | media | alta | critica — vocabulário de QaCheck
+    descricao: str
+    sugestao: str = ""
+    obrigatorio: bool = True
+
+
 class ReviewVerdict(BaseModel):
     """Resultado de uma revisão independente de código (§14/§15).
 
@@ -138,6 +167,9 @@ class ReviewVerdict(BaseModel):
     veredito: str = VEREDITO_NECESSITA_HUMANO
     resumo: str = ""
     acoes: list[ReviewAction] = Field(default_factory=list)
+    # Mesma crítica de `acoes`, ancorada em arquivo/linha (ADR-0033) — lista vazia é o
+    # comportamento antigo (agente que só devolve `acoes`, ou fallback indisponível).
+    comentarios: list[ReviewCommentDraft] = Field(default_factory=list)
     pontos_verificados: list[str] = Field(default_factory=list)
     revisor: str = ""  # nome do executor que revisou
     origem: str = "indisponivel"  # agente | indisponivel
@@ -394,6 +426,45 @@ def _sanear_acoes(valor: object) -> list[ReviewAction]:
     return resultado
 
 
+def _sanear_comentarios(valor: object) -> list[ReviewCommentDraft]:
+    """Aceita comentários do agente saneando categoria/severidade/linha — mesmo
+    raciocínio de `_sanear_acoes`, com o vocabulário de gravidade de `comentarios`
+    (diferente do de `acoes`). Item sem `arquivo` ou sem `descricao` é descartado: um
+    comentário sem local ou sem crítica não serve à tela 19."""
+    if not isinstance(valor, list):
+        return []
+    resultado: list[ReviewCommentDraft] = []
+    for item in valor[:50]:
+        if not isinstance(item, dict):
+            continue
+        arquivo = str(item.get("arquivo") or "").strip()
+        descricao = str(item.get("descricao") or "").strip()
+        if not arquivo or not descricao:
+            continue
+        categoria = str(item.get("categoria") or "").strip().lower()
+        if categoria not in _CATEGORIAS_VALIDAS:
+            categoria = "correcao"
+        severidade = str(item.get("severidade") or "").strip().lower()
+        if severidade not in _GRAVIDADES_VALIDAS:
+            severidade = "media"
+        try:
+            linha = int(item.get("linha") or 0)
+        except (TypeError, ValueError):
+            linha = 0
+        resultado.append(
+            ReviewCommentDraft(
+                arquivo=arquivo,
+                linha=max(linha, 0),
+                categoria=categoria,
+                severidade=severidade,
+                descricao=descricao,
+                sugestao=str(item.get("sugestao") or "").strip(),
+                obrigatorio=bool(item.get("obrigatorio", True)),
+            )
+        )
+    return resultado
+
+
 def _sanear(bruto: dict[str, object]) -> ReviewVerdict | None:
     """Aceita a resposta do agente saneando contra o vocabulário fechado.
 
@@ -405,8 +476,9 @@ def _sanear(bruto: dict[str, object]) -> ReviewVerdict | None:
     veredito_bruto = bruto.get("veredito")
     resumo = str(bruto.get("resumo") or "").strip()
     acoes_brutas = bruto.get("acoes")
+    comentarios_brutos = bruto.get("comentarios")
     pontos = _lista_texto(bruto.get("pontos_verificados"))
-    if not (veredito_bruto or resumo or acoes_brutas or pontos):
+    if not (veredito_bruto or resumo or acoes_brutas or comentarios_brutos or pontos):
         return None
     veredito = str(veredito_bruto or "").strip().lower()
     if veredito not in _VEREDITOS_VALIDOS:
@@ -415,5 +487,6 @@ def _sanear(bruto: dict[str, object]) -> ReviewVerdict | None:
         veredito=veredito,
         resumo=resumo,
         acoes=_sanear_acoes(acoes_brutas),
+        comentarios=_sanear_comentarios(comentarios_brutos),
         pontos_verificados=pontos,
     )

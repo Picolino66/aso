@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Métricas e aprendizado</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .filtros { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:8px; margin:10px 0; align-items:end; }
+    .filtros label { display:block; font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:2px; }
+    .filtros input, .filtros select { width:100%; }
+    .indicadores { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:10px; margin:12px 0; }
+    .indicador { border:1px solid var(--border); border-radius:8px; padding:10px; }
+    .indicador .rotulo { font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:600; }
+    .indicador .valor { font-size:20px; margin-top:4px; }
+    .indicador .valor.indisponivel { font-size:13px; color:var(--muted); }
+    .indicador .detalhe { font-size:11px; color:var(--muted); margin-top:4px; }
+    .subitem { border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .subitem.desabilitada { opacity:0.55; }
+    .subitem .cab { display:flex; justify-content:space-between; align-items:baseline; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <h2 style="margin:0">Métricas e aprendizado</h2>
+        <p class="muted">15 indicadores (wf §31.1), comparação de modelos (wf §31.2) e recomendações automáticas com justificativa (wf §31.3) — nunca decisão automática, só sugestão para o operador ler.</p>
+
+        <form id="formFiltros" class="filtros">
+          <div><label>Projeto</label><select id="fProjeto"><option value="">Todos</option></select></div>
+          <div><label>Data de</label><input id="fDataDe" type="date"></div>
+          <div><label>Data até</label><input id="fDataAte" type="date"></div>
+          <div><button class="btn ok sm" type="submit">Filtrar</button></div>
+        </form>
+
+        <h3>Indicadores</h3>
+        <div id="indicadores" class="indicadores"><div class="empty">Carregando…</div></div>
+
+        <h3>Comparação de modelos</h3>
+        <div id="comparacao"><div class="empty">Carregando…</div></div>
+
+        <h3>Recomendações automáticas</h3>
+        <div id="recomendacoes"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'metricas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path) {
+      const headers = {};
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, { headers: headers });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function pct(v) { return v == null ? null : (v * 100).toFixed(0) + '%'; }
+    function ms(v) { return v == null ? null : Math.round(v) + ' ms'; }
+    function usd(v) { return v == null ? null : '$ ' + v.toFixed(4); }
+    function indicador(rotulo, valorFormatado, detalhe) {
+      const semDado = valorFormatado == null;
+      return '<div class="indicador"><div class="rotulo">' + esc(rotulo) + '</div>' +
+        '<div class="valor' + (semDado ? ' indisponivel' : '') + '">' + (semDado ? 'não disponível' : esc(valorFormatado)) + '</div>' +
+        (detalhe ? '<div class="detalhe">' + detalhe + '</div>' : '') + '</div>';
+    }
+    function dictParaLista(d) {
+      const entradas = Object.entries(d || {});
+      if (!entradas.length) return '<span class="muted">Nenhum registro.</span>';
+      return entradas.map(function (e) { return esc(e[0]) + ': ' + e[1]; }).join(' · ');
+    }
+
+    async function carregarOpcoesDeFiltro() {
+      const projetos = await api('/v1/projects').catch(function () { return []; });
+      const sel = document.getElementById('fProjeto');
+      projetos.forEach(function (p) {
+        sel.innerHTML += '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
+      });
+    }
+
+    function queryString() {
+      const params = new URLSearchParams();
+      const projeto = document.getElementById('fProjeto').value;
+      const dataDe = document.getElementById('fDataDe').value;
+      const dataAte = document.getElementById('fDataAte').value;
+      if (projeto) params.set('projeto', projeto);
+      if (dataDe) params.set('data_de', dataDe);
+      if (dataAte) params.set('data_ate', dataAte);
+      return params.toString();
+    }
+
+    function renderIndicadores(r) {
+      const taxaRetrabalho = r.total_cards ? r.total_retrabalho / r.total_cards : null;
+      const falhasPorModelo = {};
+      const custoPorModelo = {};
+      (r.desempenho_por_executor || []).forEach(function (d) {
+        falhasPorModelo[d.executor] = d.falhas;
+        custoPorModelo[d.executor] = '$ ' + d.custo_total_usd.toFixed(4);
+      });
+      document.getElementById('indicadores').innerHTML = [
+        indicador('Tempo médio por demanda', ms(r.tempo_medio_por_demanda_ms)),
+        indicador('Tempo médio por etapa', Object.keys(r.tempo_medio_por_etapa_ms || {}).length ? 'ver detalhe' : null, dictParaLista(r.tempo_medio_por_etapa_ms)),
+        indicador('Taxa de aprovação', pct(r.taxa_aprovacao)),
+        indicador('Taxa de retrabalho', pct(taxaRetrabalho)),
+        indicador('Quantidade de falhas', String(r.total_falhas)),
+        indicador('Falhas por categoria', Object.keys(r.erros_recorrentes || {}).length ? 'ver detalhe' : null, dictParaLista(r.erros_recorrentes)),
+        indicador('Falhas por modelo', Object.keys(falhasPorModelo).length ? 'ver detalhe' : null, dictParaLista(falhasPorModelo)),
+        indicador('Falhas por agente', Object.keys(r.falhas_por_agente || {}).length ? 'ver detalhe' : null, dictParaLista(r.falhas_por_agente)),
+        indicador('Custo por demanda', usd(r.custo_medio_por_demanda_usd)),
+        indicador('Custo por modelo', Object.keys(custoPorModelo).length ? 'ver detalhe' : null, dictParaLista(custoPorModelo)),
+        indicador('Intervenções humanas', String(r.intervencoes_humanas)),
+        indicador('Número médio de tentativas', r.numero_medio_tentativas == null ? null : r.numero_medio_tentativas.toFixed(1)),
+        indicador('Taxa de rollback', pct(r.taxa_rollback)),
+        indicador('Cobertura de testes', null, 'Sem fonte real no runtime hoje (só a categoria de falha "testes", não % de cobertura).'),
+        indicador('Taxa de sucesso no primeiro ciclo', pct(r.taxa_sucesso_primeiro_ciclo)),
+      ].join('');
+    }
+
+    function renderComparacao(r) {
+      const linhas = r.desempenho_por_executor || [];
+      document.getElementById('comparacao').innerHTML = linhas.length
+        ? '<table><tr><th>Modelo</th><th>Sucesso</th><th>Retrabalho</th><th>Custo médio</th><th>Tempo médio</th></tr>' +
+          linhas.map(function (d) {
+            const sucesso = d.execucoes ? (d.execucoes - d.falhas) / d.execucoes : null;
+            return '<tr><td>' + esc(d.executor) + '</td>' +
+              '<td>' + (sucesso == null ? '—' : pct(sucesso)) + '</td>' +
+              '<td>' + d.retrabalho + '</td>' +
+              '<td>' + usd(d.custo_por_entrega) + '</td>' +
+              '<td>' + ms(d.tempo_medio_ms) + '</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Nenhum modelo com execução registrada neste recorte.</p>';
+    }
+
+    function renderRecomendacoes(lista) {
+      document.getElementById('recomendacoes').innerHTML = lista.map(function (r) {
+        const semSinal = !r.disparada;
+        return '<div class="subitem' + (!r.disponivel ? ' desabilitada' : '') + '">' +
+          '<div class="cab"><strong>' + esc(r.rotulo) + '</strong>' +
+          (!r.disponivel
+            ? '<span class="pill" title="Sem sinal confiável nos dados hoje — exige julgamento de produto">indisponível</span>'
+            : '<span class="pill ' + (r.disparada ? 'warn' : 'ok') + '">' + (r.disparada ? 'sugerida' : 'sem sinal') + '</span>') +
+          '</div>' +
+          (r.justificativa ? '<p style="margin:4px 0 0">' + esc(r.justificativa) + '</p>' : (semSinal && r.disponivel ? '<p class="muted" style="margin:4px 0 0">Nenhum padrão disparou esta recomendação neste recorte.</p>' : '')) +
+          '</div>';
+      }).join('');
+    }
+
+    async function carregar() {
+      const qs = queryString();
+      try {
+        const [relatorio, recomendacoes] = await Promise.all([
+          api('/v1/learning' + (qs ? '?' + qs : '')),
+          api('/v1/learning/recommendations' + (qs ? '?' + qs : '')),
+        ]);
+        renderIndicadores(relatorio);
+        renderComparacao(relatorio);
+        renderRecomendacoes(recomendacoes);
+      } catch (e) {
+        document.getElementById('indicadores').innerHTML = '<div class="empty">Falha ao carregar: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    document.getElementById('formFiltros').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      carregar();
+    });
+
+    (async function () {
+      await carregarOpcoesDeFiltro();
+      await carregar();
+    })();
+  </script>
+</body>
+</html>

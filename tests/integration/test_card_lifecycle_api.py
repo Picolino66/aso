@@ -53,3 +53,31 @@ def test_run_card_com_dependencia_pendente_devolve_409() -> None:
     card = next(c for c in cards_depois if c["id"] == review_id)
     assert card["status"] == "Blocked"
     assert card["blocked_by"]
+    # §10, ADR-0030: bloqueio por dependência cria uma tarefa vinculada automática.
+    assert card["dependency_task_id"] is not None
+    tarefa = next(c for c in cards_depois if c["id"] == card["dependency_task_id"])
+    assert tarefa["type"] == "Task"
+    assert tarefa["status"] == "Backlog"
+
+
+def test_checklist_de_preparacao_via_api() -> None:
+    client = _client()
+    oid = client.post("/v1/orchestrations", json={"user_request": "demanda qualquer"}).json()["id"]
+    card_id = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]["id"]
+
+    vazio = client.get(f"/v1/orchestrations/{oid}/cards/{card_id}/checklist")
+    assert vazio.status_code == 200
+    assert vazio.json() == []
+
+    client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")
+
+    depois = client.get(f"/v1/orchestrations/{oid}/cards/{card_id}/checklist").json()
+    assert len(depois) >= 5
+    assert all("item" in i and "autor" in i and "at" in i for i in depois)
+
+
+def test_checklist_card_inexistente_devolve_404() -> None:
+    client = _client()
+    oid = client.post("/v1/orchestrations", json={"user_request": "demanda qualquer"}).json()["id"]
+    resposta = client.get(f"/v1/orchestrations/{oid}/cards/card_inexistente/checklist")
+    assert resposta.status_code == 404

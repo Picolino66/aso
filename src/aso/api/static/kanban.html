@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Kanban</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .quadro { display:flex; gap:10px; overflow-x:auto; padding-bottom:10px; }
+    .coluna { min-width:220px; max-width:220px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:8px; flex-shrink:0; }
+    .coluna.arrastando-sobre { outline:2px dashed var(--accent); }
+    .coluna h4 { margin:0 0 8px; font-size:12px; display:flex; justify-content:space-between; }
+    .kcard { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:8px; margin-bottom:6px; font-size:11px; cursor:grab; }
+    .kcard.arrastando { opacity:.4; }
+    .kcard .cod { color:var(--muted); }
+    .kcard .tit { font-weight:600; margin:2px 0; }
+    .kcard .linha { color:var(--muted); margin-top:2px; }
+    .kcard .icones { margin-top:4px; display:flex; gap:6px; }
+    .picker-item { padding:8px 0; border-bottom:1px solid var(--border); }
+    .erro-move { color:var(--err); font-size:12px; margin-top:6px; min-height:16px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <div id="semDemanda" hidden>
+        <section class="card">
+          <h2>Kanban</h2>
+          <p class="muted">Escolha uma demanda para ver o board dela.</p>
+          <div id="listaPicker"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+
+      <div id="comDemanda" hidden>
+        <section class="card">
+          <div class="row between">
+            <h2 style="margin:0">Kanban</h2>
+            <a href="#" id="linkDemanda">← voltar para a demanda</a>
+          </div>
+          <div class="erro-move" id="erroMove"></div>
+          <div class="quadro" id="quadro"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    ASOHeader.mount(document.getElementById('app-header'), ID ? { orchestrationId: ID } : {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'kanban' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function tempoDecorrido(iso) {
+      if (!iso) return '—';
+      const ms = Date.now() - new Date(iso).getTime();
+      const min = Math.floor(ms / 60000);
+      if (min < 1) return 'agora';
+      if (min < 60) return min + 'min';
+      const h = Math.floor(min / 60);
+      if (h < 24) return h + 'h';
+      return Math.floor(h / 24) + 'd';
+    }
+
+    async function carregarPicker() {
+      const container = document.getElementById('listaPicker');
+      try {
+        const orquestracoes = await api('/v1/orchestrations');
+        if (!orquestracoes.length) { container.innerHTML = '<div class="empty">Nenhuma demanda ainda.</div>'; return; }
+        container.innerHTML = orquestracoes.slice(0, 30).map(function (o) {
+          return '<div class="picker-item"><a href="/ui/kanban?id=' + encodeURIComponent(o.id) + '">' +
+            esc((o.user_request || o.id).slice(0, 80)) + '</a></div>';
+        }).join('');
+      } catch (e) { container.innerHTML = '<div class="empty">Falha ao carregar demandas.</div>'; }
+    }
+
+    let TRANSICOES = {};
+    let CARD_ARRASTADO = null;
+
+    function renderCard(coluna, c) {
+      const div = document.createElement('div');
+      div.className = 'kcard';
+      div.draggable = true;
+      div.dataset.id = c.id;
+      div.dataset.coluna = coluna;
+      div.innerHTML =
+        '<div class="cod">' + esc(c.id.slice(0, 14)) + '…</div>' +
+        '<div class="tit">' + esc(c.titulo) + '</div>' +
+        '<div class="linha">Prioridade: ' + esc(c.prioridade) + '</div>' +
+        '<div class="linha">' + esc(c.agente || '—') + (c.modelo ? ' · ' + esc(c.modelo) : '') + (c.effort ? ' · ' + esc(c.effort) : '') + '</div>' +
+        '<div class="linha">tentativas: ' + c.tentativas + ' · falhas: ' + c.falhas + (c.falhas_truncadas ? '+' : '') + '</div>' +
+        '<div class="linha">na etapa há ' + tempoDecorrido(c.atualizado_em) + '</div>' +
+        '<div class="icones">' +
+          (c.bloqueado ? '<span class="pill err" title="' + esc(c.block_reason || 'bloqueado') + '">🔒 bloqueado</span>' : '') +
+          (c.aprovacao_humana_pendente ? '<span class="pill warn" title="aprovação humana pendente">⏳ aprovação</span>' : '') +
+        '</div>';
+      div.addEventListener('dragstart', function () {
+        CARD_ARRASTADO = { id: c.id, de: coluna };
+        div.classList.add('arrastando');
+      });
+      div.addEventListener('dragend', function () { div.classList.remove('arrastando'); });
+      div.addEventListener('click', function () {
+        location.href = '/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(c.id);
+      });
+      return div;
+    }
+
+    async function mover(cardId, deColuna, paraColuna) {
+      const erro = document.getElementById('erroMove');
+      erro.textContent = '';
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(cardId) + '/move', {
+          method: 'POST', body: JSON.stringify({ to_column: paraColuna }),
+        });
+        await carregarQuadro();
+      } catch (e) {
+        erro.textContent = e.message;
+        await carregarQuadro();
+      }
+    }
+
+    async function carregarQuadro() {
+      const dados = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/kanban');
+      TRANSICOES = dados.transicoes;
+      const quadro = document.getElementById('quadro');
+      quadro.innerHTML = '';
+      dados.colunas.forEach(function (col) {
+        const div = document.createElement('div');
+        div.className = 'coluna';
+        div.dataset.coluna = col.coluna;
+        const h4 = document.createElement('h4');
+        h4.innerHTML = '<span>' + esc(col.rotulo) + '</span><span class="muted">' + col.cards.length + '</span>';
+        div.appendChild(h4);
+        col.cards.forEach(function (c) { div.appendChild(renderCard(col.coluna, c)); });
+        div.addEventListener('dragover', function (e) {
+          e.preventDefault();
+          div.classList.add('arrastando-sobre');
+        });
+        div.addEventListener('dragleave', function () { div.classList.remove('arrastando-sobre'); });
+        div.addEventListener('drop', function (e) {
+          e.preventDefault();
+          div.classList.remove('arrastando-sobre');
+          if (!CARD_ARRASTADO) return;
+          const destino = col.coluna;
+          if (destino !== CARD_ARRASTADO.de) mover(CARD_ARRASTADO.id, CARD_ARRASTADO.de, destino);
+          CARD_ARRASTADO = null;
+        });
+        quadro.appendChild(div);
+      });
+    }
+
+    async function carregar() {
+      if (!ID) {
+        document.getElementById('semDemanda').hidden = false;
+        await carregarPicker();
+        return;
+      }
+      document.getElementById('comDemanda').hidden = false;
+      document.getElementById('linkDemanda').href = '/ui/demanda-detalhe?id=' + encodeURIComponent(ID);
+      await carregarQuadro();
+    }
+    carregar();
+  </script>
+</body>
+</html>

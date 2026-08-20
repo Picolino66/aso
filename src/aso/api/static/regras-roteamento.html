@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Regras de roteamento</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .regra-linha { border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; display:flex; gap:10px; align-items:flex-start; }
+    .regra-linha.arrastando { opacity:.4; }
+    .regra-linha .alca { cursor:grab; color:var(--muted); padding-top:2px; }
+    .regra-linha .corpo { flex:1; }
+    .regra-linha .cab { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+    .condicoes-editor .linha-cond { display:flex; gap:6px; margin-top:6px; align-items:center; }
+    .condicoes-editor select, .condicoes-editor input { margin:0; width:auto; flex:1; }
+    .acao-editor .grade { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+    .somente-leitura-nota { margin-bottom:12px; }
+    .preview-lista { margin-top:8px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <div>
+            <h2 style="margin:0">Regras de roteamento</h2>
+            <p class="muted" style="margin:4px 0 0">SE condições ENTÃO agente/modelo/effort/aprovação (wf §33) · <a href="/ui/console">executores e configurações</a></p>
+          </div>
+          <button id="btnNova" class="btn ok" type="button">+ Nova regra</button>
+        </div>
+        <div class="empty somente-leitura-nota" id="notaSomenteLeitura" hidden>
+          Papel atual sem permissão de escrita — criar, editar, excluir e reordenar regras exige papel <b>admin</b>.
+        </div>
+        <div id="listaRegras"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlayEditor" hidden>
+    <div class="modal" style="max-width:640px">
+      <h2 id="tituloEditor">Nova regra</h2>
+      <label for="campoNome">Nome *</label>
+      <input id="campoNome" placeholder="ex.: Segurança crítica">
+      <label for="campoDescricao">Descrição</label>
+      <input id="campoDescricao" placeholder="explica o propósito da regra">
+      <label><input id="campoAtiva" type="checkbox" checked style="width:auto;display:inline-block"> Ativa</label>
+
+      <h3 style="margin:16px 0 4px">SE (todas as condições precisam bater)</h3>
+      <div class="condicoes-editor" id="condicoesEditor"></div>
+      <button id="btnAddCondicao" class="ghost btn sm" type="button" style="margin-top:8px">+ condição</button>
+
+      <h3 style="margin:16px 0 4px">ENTÃO</h3>
+      <div class="acao-editor">
+        <div class="grade">
+          <div>
+            <label for="acaoAgente">Agente</label>
+            <input id="acaoAgente" placeholder="ex.: BackendDevelopmentAgent">
+            <label for="acaoModelo">Modelo (executor)</label>
+            <select id="acaoModelo"><option value="">— sem opinião —</option></select>
+            <label for="acaoEffort">Effort</label>
+            <input id="acaoEffort" placeholder="ex.: max">
+          </div>
+          <div>
+            <label for="acaoAprovacao">Aprovação humana</label>
+            <select id="acaoAprovacao">
+              <option value="">— sem opinião —</option>
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select>
+            <label for="acaoGates">Quality gates (separados por vírgula)</label>
+            <input id="acaoGates" placeholder="ex.: security_scan, code_review">
+            <label for="acaoLimite">Limite de tentativas</label>
+            <input id="acaoLimite" type="number" min="1" placeholder="— sem opinião —">
+          </div>
+        </div>
+      </div>
+
+      <div class="row between" style="margin-top:14px">
+        <button id="btnPreview" class="ghost btn sm" type="button">Pré-visualizar demandas que casariam</button>
+      </div>
+      <div id="previewResultado" class="preview-lista"></div>
+
+      <div class="error" id="erroEditor" hidden></div>
+      <div class="modal-actions">
+        <button id="cancelarEditor" class="ghost" type="button">Cancelar</button>
+        <button id="salvarEditor" class="ok" type="button">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'configuracoes' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    const CAMPOS = [
+      ['tipo', 'Tipo'], ['risco', 'Risco'], ['complexidade', 'Complexidade'],
+      ['dominios', 'Domínios'], ['impactos', 'Impactos'],
+    ];
+    const OPERADORES = [
+      ['igual', 'igual a'], ['diferente', 'diferente de'], ['em', 'está em (lista)'],
+      ['contem', 'contém'], ['maior_ou_igual', 'maior ou igual a'],
+    ];
+
+    let EH_ADMIN = false;
+    let REGRAS = [];
+    let CONDICOES_ATUAIS = [];
+    let editandoId = null;
+
+    function linhaCondicaoHtml(cond, indice) {
+      const c = cond || { campo: 'tipo', operador: 'igual', valor: '' };
+      return '<div class="linha-cond" data-indice="' + indice + '">' +
+        '<select class="cond-campo">' + CAMPOS.map(function (f) {
+          return '<option value="' + f[0] + '"' + (f[0] === c.campo ? ' selected' : '') + '>' + f[1] + '</option>';
+        }).join('') + '</select>' +
+        '<select class="cond-operador">' + OPERADORES.map(function (o) {
+          return '<option value="' + o[0] + '"' + (o[0] === c.operador ? ' selected' : '') + '>' + o[1] + '</option>';
+        }).join('') + '</select>' +
+        '<input class="cond-valor" value="' + esc(Array.isArray(c.valor) ? c.valor.join(',') : (c.valor == null ? '' : c.valor)) + '" placeholder="valor (listas: separadas por vírgula)">' +
+        '<button class="ghost btn sm remover-cond" type="button">×</button>' +
+        '</div>';
+    }
+
+    function renderCondicoesEditor() {
+      const container = document.getElementById('condicoesEditor');
+      container.innerHTML = CONDICOES_ATUAIS.map(linhaCondicaoHtml).join('');
+      Array.from(container.querySelectorAll('.remover-cond')).forEach(function (btn, i) {
+        btn.addEventListener('click', function () { CONDICOES_ATUAIS.splice(i, 1); renderCondicoesEditor(); });
+      });
+    }
+    document.getElementById('btnAddCondicao').addEventListener('click', function () {
+      CONDICOES_ATUAIS.push({ campo: 'tipo', operador: 'igual', valor: '' });
+      renderCondicoesEditor();
+    });
+
+    function lerCondicoesDoFormulario() {
+      const linhas = Array.from(document.querySelectorAll('#condicoesEditor .linha-cond'));
+      return linhas.map(function (linha) {
+        const campo = linha.querySelector('.cond-campo').value;
+        const operador = linha.querySelector('.cond-operador').value;
+        const bruto = linha.querySelector('.cond-valor').value;
+        const valor = operador === 'em' ? bruto.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : bruto;
+        return { campo: campo, operador: operador, valor: valor };
+      });
+    }
+
+    function lerAcaoDoFormulario() {
+      const aprovacaoBruta = document.getElementById('acaoAprovacao').value;
+      const gatesBruto = document.getElementById('acaoGates').value.trim();
+      const limiteBruto = document.getElementById('acaoLimite').value;
+      return {
+        agente: document.getElementById('acaoAgente').value.trim() || null,
+        modelo: document.getElementById('acaoModelo').value || null,
+        effort: document.getElementById('acaoEffort').value.trim() || null,
+        aprovacao_humana: aprovacaoBruta === '' ? null : aprovacaoBruta === 'true',
+        quality_gates: gatesBruto ? gatesBruto.split(',').map(function (s) { return s.trim(); }).filter(Boolean) : [],
+        limite_tentativas: limiteBruto ? parseInt(limiteBruto, 10) : null,
+      };
+    }
+
+    function resumoCondicoes(regra) {
+      return regra.condicoes.map(function (c) {
+        return c.campo + ' ' + c.operador + ' ' + (Array.isArray(c.valor) ? c.valor.join('/') : c.valor);
+      }).join(' E ');
+    }
+    function resumoAcao(regra) {
+      const a = regra.acao;
+      const partes = [];
+      if (a.agente) partes.push('agente=' + a.agente);
+      if (a.modelo) partes.push('modelo=' + a.modelo);
+      if (a.effort) partes.push('effort=' + a.effort);
+      if (a.aprovacao_humana != null) partes.push('aprovação=' + (a.aprovacao_humana ? 'sim' : 'não'));
+      if (a.quality_gates && a.quality_gates.length) partes.push('gates=' + a.quality_gates.join('/'));
+      if (a.limite_tentativas != null) partes.push('limite=' + a.limite_tentativas);
+      return partes.join(' · ') || '—';
+    }
+
+    let indiceArrastado = null;
+    function renderLista() {
+      const container = document.getElementById('listaRegras');
+      if (!REGRAS.length) {
+        container.innerHTML = '<div class="empty">Nenhuma regra cadastrada ainda.</div>';
+        return;
+      }
+      container.innerHTML = REGRAS.map(function (r, i) {
+        return '<div class="regra-linha" draggable="' + EH_ADMIN + '" data-indice="' + i + '">' +
+          '<span class="alca">⠿</span>' +
+          '<div class="corpo">' +
+            '<div class="cab"><strong>' + esc(r.nome) + '</strong>' +
+              '<span>' +
+                '<span class="pill' + (r.ativa ? ' ok' : '') + '">' + (r.ativa ? 'ativa' : 'inativa') + '</span> ' +
+                '<span class="muted">precedência ' + r.precedencia + '</span>' +
+                (EH_ADMIN ? ' <button class="ghost btn sm editar-regra" data-id="' + r.id + '">Editar</button>' +
+                  ' <button class="ghost btn sm err excluir-regra" data-id="' + r.id + '">Excluir</button>' : '') +
+              '</span>' +
+            '</div>' +
+            (r.descricao ? '<p class="muted" style="margin:4px 0">' + esc(r.descricao) + '</p>' : '') +
+            '<p style="margin:2px 0"><b>SE</b> ' + esc(resumoCondicoes(r)) + '</p>' +
+            '<p style="margin:2px 0"><b>ENTÃO</b> ' + esc(resumoAcao(r)) + '</p>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      Array.from(container.querySelectorAll('.editar-regra')).forEach(function (btn) {
+        btn.addEventListener('click', function () { abrirEditor(REGRAS.find(function (r) { return r.id === btn.dataset.id; })); });
+      });
+      Array.from(container.querySelectorAll('.excluir-regra')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('Excluir esta regra de roteamento?')) return;
+          await api('/v1/routing-rules/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+          await carregarRegras();
+        });
+      });
+
+      if (!EH_ADMIN) return;
+      const linhas = Array.from(container.querySelectorAll('.regra-linha'));
+      linhas.forEach(function (linha) {
+        linha.addEventListener('dragstart', function () {
+          indiceArrastado = parseInt(linha.dataset.indice, 10);
+          linha.classList.add('arrastando');
+        });
+        linha.addEventListener('dragend', function () { linha.classList.remove('arrastando'); });
+        linha.addEventListener('dragover', function (e) { e.preventDefault(); });
+        linha.addEventListener('drop', async function (e) {
+          e.preventDefault();
+          const destino = parseInt(linha.dataset.indice, 10);
+          if (indiceArrastado === null || destino === indiceArrastado) return;
+          const movida = REGRAS.splice(indiceArrastado, 1)[0];
+          REGRAS.splice(destino, 0, movida);
+          indiceArrastado = null;
+          renderLista();
+          await api('/v1/routing-rules/reorder', {
+            method: 'PUT',
+            body: JSON.stringify({ ordem: REGRAS.map(function (r) { return r.id; }) }),
+          });
+          await carregarRegras();
+        });
+      });
+    }
+
+    async function carregarRegras() {
+      REGRAS = await api('/v1/routing-rules');
+      REGRAS.sort(function (a, b) { return a.precedencia - b.precedencia; });
+      renderLista();
+    }
+
+    async function popularModelos() {
+      const select = document.getElementById('acaoModelo');
+      try {
+        const executores = await api('/v1/executors');
+        executores.forEach(function (e) {
+          const opt = document.createElement('option');
+          opt.value = e.name; opt.textContent = e.name;
+          select.appendChild(opt);
+        });
+      } catch (e) { /* select fica só com "sem opinião" */ }
+    }
+
+    function abrirEditor(regra) {
+      editandoId = regra ? regra.id : null;
+      document.getElementById('tituloEditor').textContent = regra ? 'Editar regra' : 'Nova regra';
+      document.getElementById('campoNome').value = regra ? regra.nome : '';
+      document.getElementById('campoDescricao').value = regra ? regra.descricao : '';
+      document.getElementById('campoAtiva').checked = regra ? regra.ativa : true;
+      CONDICOES_ATUAIS = regra ? JSON.parse(JSON.stringify(regra.condicoes)) : [{ campo: 'tipo', operador: 'igual', valor: '' }];
+      renderCondicoesEditor();
+      const a = regra ? regra.acao : {};
+      document.getElementById('acaoAgente').value = a.agente || '';
+      document.getElementById('acaoModelo').value = a.modelo || '';
+      document.getElementById('acaoEffort').value = a.effort || '';
+      document.getElementById('acaoAprovacao').value = a.aprovacao_humana == null ? '' : String(a.aprovacao_humana);
+      document.getElementById('acaoGates').value = (a.quality_gates || []).join(', ');
+      document.getElementById('acaoLimite').value = a.limite_tentativas || '';
+      document.getElementById('previewResultado').innerHTML = '';
+      document.getElementById('erroEditor').hidden = true;
+      document.getElementById('overlayEditor').hidden = false;
+    }
+    document.getElementById('btnNova').addEventListener('click', function () { abrirEditor(null); });
+    document.getElementById('cancelarEditor').addEventListener('click', function () {
+      document.getElementById('overlayEditor').hidden = true;
+    });
+
+    document.getElementById('btnPreview').addEventListener('click', async function () {
+      const resultado = document.getElementById('previewResultado');
+      resultado.innerHTML = '<p class="muted">Calculando…</p>';
+      try {
+        const condicoes = lerCondicoesDoFormulario();
+        const casaram = await api('/v1/routing-rules/preview', {
+          method: 'POST',
+          body: JSON.stringify({ condicoes: condicoes, acao: lerAcaoDoFormulario() }),
+        });
+        resultado.innerHTML = casaram.length
+          ? '<p class="muted">' + casaram.length + ' demanda(s) já existente(s) casariam:</p><ul class="simples">' +
+            casaram.map(function (d) {
+              return '<li><a href="/ui/detalhe?id=' + encodeURIComponent(d.orchestration_id) + '">' +
+                esc(d.user_request.slice(0, 70)) + '</a> — ' + esc(d.tipo) + '/' + esc(d.risco) + '</li>';
+            }).join('') + '</ul>'
+          : '<p class="muted">Nenhuma demanda existente casaria com estas condições.</p>';
+      } catch (e) {
+        resultado.innerHTML = '<p class="muted">Falha ao calcular a pré-visualização: ' + esc(e.message) + '</p>';
+      }
+    });
+
+    document.getElementById('salvarEditor').addEventListener('click', async function () {
+      const erro = document.getElementById('erroEditor');
+      erro.hidden = true;
+      const corpo = {
+        nome: document.getElementById('campoNome').value.trim(),
+        descricao: document.getElementById('campoDescricao').value.trim(),
+        ativa: document.getElementById('campoAtiva').checked,
+        precedencia: editandoId ? (REGRAS.find(function (r) { return r.id === editandoId; }) || {}).precedencia || 100 : 100,
+        condicoes: lerCondicoesDoFormulario(),
+        acao: lerAcaoDoFormulario(),
+      };
+      if (!corpo.nome) { erro.textContent = 'Informe o nome da regra.'; erro.hidden = false; return; }
+      try {
+        if (editandoId) {
+          await api('/v1/routing-rules/' + encodeURIComponent(editandoId), { method: 'PUT', body: JSON.stringify(corpo) });
+        } else {
+          await api('/v1/routing-rules', { method: 'POST', body: JSON.stringify(corpo) });
+        }
+        document.getElementById('overlayEditor').hidden = true;
+        await carregarRegras();
+      } catch (e) { erro.textContent = 'Não foi possível salvar: ' + e.message; erro.hidden = false; }
+    });
+
+    async function carregar() {
+      try {
+        const me = await api('/v1/me');
+        EH_ADMIN = me.role === 'admin';
+      } catch (e) { EH_ADMIN = false; }
+      document.getElementById('notaSomenteLeitura').hidden = EH_ADMIN;
+      document.getElementById('btnNova').hidden = !EH_ADMIN;
+      await popularModelos();
+      await carregarRegras();
+    }
+    carregar();
+  </script>
+</body>
+</html>

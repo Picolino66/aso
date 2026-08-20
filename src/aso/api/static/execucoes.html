@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Execuções</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .picker-item { padding:8px 0; border-bottom:1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <div id="semDemanda" hidden>
+        <section class="card">
+          <h2>Execuções</h2>
+          <p class="muted">Escolha uma demanda para ver as execuções dos cards dela.</p>
+          <div id="listaPicker"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+
+      <div id="comDemanda" hidden>
+        <section class="card">
+          <div class="row between">
+            <h2 style="margin:0">Execuções</h2>
+            <a href="#" id="linkDemanda">← voltar para a demanda</a>
+          </div>
+          <p class="muted">Painel de execução completo (controles, log, arquivos alterados) fica na ficha de cada card.</p>
+          <table><tr><th>Card</th><th>Status</th><th>Agente</th><th>Modelo</th><th>Tentativas</th><th>Effort</th><th></th></tr>
+            <tbody id="linhas"></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    ASOHeader.mount(document.getElementById('app-header'), ID ? { orchestrationId: ID } : {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'execucoes' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path) {
+      const headers = {};
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, { headers: headers });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    async function carregarPicker() {
+      const container = document.getElementById('listaPicker');
+      try {
+        const orquestracoes = await api('/v1/orchestrations');
+        if (!orquestracoes.length) { container.innerHTML = '<div class="empty">Nenhuma demanda ainda.</div>'; return; }
+        container.innerHTML = orquestracoes.slice(0, 30).map(function (o) {
+          return '<div class="picker-item"><a href="/ui/execucoes?id=' + encodeURIComponent(o.id) + '">' +
+            esc((o.user_request || o.id).slice(0, 80)) + '</a></div>';
+        }).join('');
+      } catch (e) { container.innerHTML = '<div class="empty">Falha ao carregar demandas.</div>'; }
+    }
+
+    async function carregarLista() {
+      const cards = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards');
+      document.getElementById('linhas').innerHTML = cards.length ? cards.map(function (c) {
+        return '<tr><td>' + esc(c.title) + (c.pausado ? ' <span class="pill warn">pausado</span>' : '') + '</td>' +
+          '<td>' + esc(c.status) + '</td><td>' + esc(c.assignee || '—') + '</td>' +
+          '<td>' + esc(c.executor || '—') + '</td>' +
+          '<td>' + c.tentativa_atual + '</td><td>' + esc(c.effort_override || '—') + '</td>' +
+          '<td><a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(c.id) + '">ver</a></td></tr>';
+      }).join('') : '<tr><td colspan="7"><div class="empty">Nenhum card ainda.</div></td></tr>';
+    }
+
+    async function carregar() {
+      if (!ID) {
+        document.getElementById('semDemanda').hidden = false;
+        await carregarPicker();
+        return;
+      }
+      document.getElementById('comDemanda').hidden = false;
+      document.getElementById('linkDemanda').href = '/ui/demanda-detalhe?id=' + encodeURIComponent(ID);
+      await carregarLista();
+    }
+    carregar();
+  </script>
+</body>
+</html>

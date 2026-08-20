@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Testes</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .picker-item { padding:8px 0; border-bottom:1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <div id="semDemanda" hidden>
+        <section class="card">
+          <h2>Testes</h2>
+          <p class="muted">Escolha uma demanda para ver os quality gates e as verificações de QA dela.</p>
+          <div id="listaPicker"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+
+      <div id="comDemanda" hidden>
+        <section class="card">
+          <div class="row between">
+            <h2 style="margin:0">Testes</h2>
+            <a href="#" id="linkDemanda">← voltar para a demanda</a>
+          </div>
+          <p class="muted">Quality gates automatizados (wf §16, FID-21) + plano de teste manual e registro de bug (wf §20/§21, FID-22) — detalhe de cada cenário e o formulário de registro ficam no card, aba Testes.</p>
+          <h3>Quality gates por fase</h3>
+          <div id="gates"><div class="empty">Carregando…</div></div>
+          <h3>Verificações de QA por card</h3>
+          <table><tr><th>Card</th><th>Verificações</th><th></th></tr>
+            <tbody id="linhasCards"></tbody>
+          </table>
+          <h3>Bugs registrados</h3>
+          <table><tr><th>Título</th><th>Gravidade</th><th>Card original</th><th></th></tr>
+            <tbody id="linhasBugs"></tbody>
+          </table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    ASOHeader.mount(document.getElementById('app-header'), ID ? { orchestrationId: ID } : {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'testes' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path) {
+      const headers = {};
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, { headers: headers });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    async function carregarPicker() {
+      const container = document.getElementById('listaPicker');
+      try {
+        const orquestracoes = await api('/v1/orchestrations');
+        if (!orquestracoes.length) { container.innerHTML = '<div class="empty">Nenhuma demanda ainda.</div>'; return; }
+        container.innerHTML = orquestracoes.slice(0, 30).map(function (o) {
+          return '<div class="picker-item"><a href="/ui/testes?id=' + encodeURIComponent(o.id) + '">' +
+            esc((o.user_request || o.id).slice(0, 80)) + '</a></div>';
+        }).join('');
+      } catch (e) { container.innerHTML = '<div class="empty">Falha ao carregar demandas.</div>'; }
+    }
+
+    async function carregarConteudo() {
+      const [gates, cards, bugs] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/quality-gates'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/bug-reports').catch(function () { return []; }),
+      ]);
+      document.getElementById('gates').innerHTML = gates.length
+        ? '<table><tr><th>Fase</th><th>Status</th><th>Critérios</th></tr>' +
+          gates.map(function (g) {
+            return '<tr><td>' + esc(g.phase) + '</td>' +
+              '<td><span class="pill ' + (g.status === 'PASSED' ? 'ok' : 'err') + '">' + esc(g.status) + '</span></td>' +
+              '<td>' + g.criteria.length + ' critério(s), ' + g.blocking_issues.length + ' bloqueante(s)</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Nenhum quality gate rodado ainda.</p>';
+
+      document.getElementById('linhasCards').innerHTML = cards.length ? cards.map(function (c) {
+        const checks = c.qa_checks || [];
+        const passaram = checks.filter(function (q) { return q.status === 'passou'; }).length;
+        return '<tr><td>' + esc(c.title) + '</td><td>' + checks.length + ' verificação(ões), ' + passaram + ' passou(aram)</td>' +
+          '<td><a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(c.id) + '">ver</a></td></tr>';
+      }).join('') : '<tr><td colspan="3"><div class="empty">Nenhum card ainda.</div></td></tr>';
+
+      function tituloDeCard(cardId) {
+        const c = cards.find(function (c) { return c.id === cardId; });
+        return c ? c.title : cardId;
+      }
+      document.getElementById('linhasBugs').innerHTML = bugs.length ? bugs.map(function (r) {
+        return '<tr><td>' + esc(r.titulo) + '</td><td>' + esc(r.gravidade) + '</td>' +
+          '<td>' + esc(tituloDeCard(r.card_original_id)) + '</td>' +
+          '<td><a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(r.card_id) + '">ver bug</a></td></tr>';
+      }).join('') : '<tr><td colspan="4"><div class="empty">Nenhum bug registrado ainda.</div></td></tr>';
+    }
+
+    async function carregar() {
+      if (!ID) {
+        document.getElementById('semDemanda').hidden = false;
+        await carregarPicker();
+        return;
+      }
+      document.getElementById('comDemanda').hidden = false;
+      document.getElementById('linkDemanda').href = '/ui/demanda-detalhe?id=' + encodeURIComponent(ID);
+      await carregarConteudo();
+    }
+    carregar();
+  </script>
+</body>
+</html>

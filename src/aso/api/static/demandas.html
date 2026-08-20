@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Demandas</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    table { table-layout:fixed; }
+    td, th { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    td.col-titulo { white-space:normal; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <h2 style="margin:0">Demandas</h2>
+          <a href="/ui/demanda-nova" class="btn ok" style="text-decoration:none">+ Nova demanda</a>
+        </div>
+        <div class="filtros-bar" id="filtros">
+          <input id="f-q" placeholder="Buscar demanda…" style="min-width:220px">
+          <select id="f-project_id"><option value="">Projeto (todos)</option></select>
+          <select id="f-tipo">
+            <option value="">Tipo (todos)</option>
+            <option value="funcionalidade">Funcionalidade</option>
+            <option value="correcao">Correção</option>
+            <option value="refatoracao">Refatoração</option>
+            <option value="arquitetura">Arquitetura</option>
+            <option value="infraestrutura">Infraestrutura</option>
+            <option value="investigacao">Investigação</option>
+            <option value="documentacao">Documentação</option>
+            <option value="seguranca">Segurança</option>
+            <option value="desempenho">Desempenho</option>
+            <option value="produto">Produto</option>
+          </select>
+          <select id="f-risco" title="wf §4.2 pede 'Prioridade' e 'Risco' separados, mas não existe prioridade de demanda além do risco (ADR-0038) — os dois filtros do wireframe convergem neste único controle.">
+            <option value="">Prioridade / Risco (todas)</option>
+            <option value="low">Baixa</option>
+            <option value="medium">Média</option>
+            <option value="high">Alta</option>
+            <option value="critical">Crítica</option>
+          </select>
+          <select id="f-complexidade">
+            <option value="">Complexidade (todas)</option>
+            <option value="simples">Simples</option>
+            <option value="intermediaria">Intermediária</option>
+            <option value="complexa">Complexa</option>
+            <option value="estrategica">Estratégica</option>
+          </select>
+          <select id="f-impacto">
+            <option value="">Impacto (todos)</option>
+            <option value="architecture">Arquitetura</option>
+            <option value="contract">Contrato</option>
+            <option value="security">Segurança</option>
+            <option value="database">Banco de dados</option>
+            <option value="deploy">Deploy</option>
+            <option value="secrets">Segredos</option>
+            <option value="database_reset">Reset de banco</option>
+            <option value="branch_main">Branch principal</option>
+          </select>
+          <select id="f-status">
+            <option value="">Status (todos)</option>
+            <option value="created">Criada</option>
+            <option value="running">Em execução</option>
+            <option value="waiting_human">Aguardando humano</option>
+            <option value="completed">Concluída</option>
+            <option value="cancelled">Cancelada</option>
+          </select>
+          <input id="f-executor" placeholder="Agente responsável" style="min-width:150px">
+          <input id="f-created_from" type="date" title="Criada de">
+          <input id="f-created_to" type="date" title="Criada até">
+          <select id="f-aprovacao_humana">
+            <option value="">Aprovação humana (todas)</option>
+            <option value="true">Com pendência</option>
+            <option value="false">Sem pendência</option>
+          </select>
+          <button id="limpar" class="ghost sm" type="button">Limpar filtros</button>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:110px">Código</th>
+              <th>Título</th>
+              <th style="width:120px">Tipo</th>
+              <th style="width:100px">Prioridade</th>
+              <th style="width:130px">Status</th>
+              <th style="width:60px">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="linhas"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+        </table>
+
+        <div class="tabela-toolbar">
+          <span class="muted" id="resumoPagina"></span>
+          <div class="row">
+            <button id="pagAnterior" class="ghost sm" type="button">← Anterior</button>
+            <button id="pagProxima" class="ghost sm" type="button">Próxima →</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({}, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    const CAMPOS_FILTRO = [
+      'q', 'project_id', 'tipo', 'risco', 'complexidade', 'impacto',
+      'status', 'executor', 'created_from', 'created_to', 'aprovacao_humana',
+    ];
+    const ROTULO_STATUS = {
+      created: 'Criada', running: 'Em execução', waiting_human: 'Aguardando humano',
+      completed: 'Concluída', cancelled: 'Cancelada',
+    };
+    const TOM_STATUS = {
+      running: 'info', waiting_human: 'warn', completed: 'ok', cancelled: 'err',
+    };
+    const ROTULO_RISCO = { low: 'Baixa', medium: 'Média', high: 'Alta', critical: 'Crítica' };
+    const TOM_RISCO = { low: '', medium: 'info', high: 'warn', critical: 'err' };
+
+    // 11 ações da linha (wf §4.4). "Editar"/"Priorizar"/"Bloquear" não têm
+    // NENHUM suporte de backend hoje — desabilitadas com o motivo explícito,
+    // em vez de fingir uma ação que não existe (ADR-0038).
+    function acoesDaLinha(orch) {
+      return [
+        { rotulo: 'Abrir', href: '/ui/detalhe?id=' + orch.id },
+        { rotulo: 'Editar', desabilitado: 'Sem suporte hoje — ver FID-12 (cadastro completo)' },
+        { rotulo: 'Duplicar', onClick: function () { duplicar(orch.id); } },
+        { rotulo: 'Priorizar', desabilitado: 'Não existe prioridade de demanda separada do risco (ADR-0038)' },
+        { rotulo: 'Bloquear', desabilitado: 'Não existe status de bloqueio de demanda hoje (ADR-0037)' },
+        { rotulo: 'Cancelar', onClick: function () { cancelar(orch.id); }, confirmar: 'Cancelar esta demanda? Esta ação é irreversível.' },
+        { rotulo: 'Visualizar histórico', href: '/ui/demanda-detalhe?id=' + orch.id + '&aba=Histórico' },
+        { rotulo: 'Visualizar documentos', href: '/ui/demanda-detalhe?id=' + orch.id + '&aba=Documentos' },
+        { rotulo: 'Visualizar cards', href: '/ui/demanda-estrutura?id=' + orch.id },
+        { rotulo: 'Reiniciar etapa', onClick: function () { reiniciar(orch.id); }, confirmar: 'Reiniciar a etapa atual desta demanda?' },
+        { rotulo: 'Solicitar intervenção humana', onClick: function () { solicitarIntervencao(orch.id); } },
+      ];
+    }
+
+    async function duplicar(id) {
+      try {
+        const nova = await api('/v1/orchestrations/' + encodeURIComponent(id) + '/duplicate', { method: 'POST' });
+        location.href = '/ui/detalhe?id=' + nova.id;
+      } catch (e) { alert('Não foi possível duplicar: ' + e.message); }
+    }
+    async function cancelar(id) {
+      if (!confirm('Cancelar esta demanda? Esta ação é irreversível.')) return;
+      try { await api('/v1/orchestrations/' + encodeURIComponent(id) + '/cancel', { method: 'POST' }); carregar(); }
+      catch (e) { alert('Não foi possível cancelar: ' + e.message); }
+    }
+    async function reiniciar(id) {
+      if (!confirm('Reiniciar a etapa atual desta demanda?')) return;
+      try { await api('/v1/orchestrations/' + encodeURIComponent(id) + '/retry', { method: 'POST' }); carregar(); }
+      catch (e) { alert('Não foi possível reiniciar: ' + e.message); }
+    }
+    async function solicitarIntervencao(id) {
+      const motivo = prompt('Descreva o motivo da intervenção humana solicitada:');
+      if (!motivo) return;
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(id) + '/approvals', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'Intervenção solicitada via lista de demandas', reason: motivo }),
+        });
+        alert('Intervenção solicitada.');
+      } catch (e) { alert('Não foi possível solicitar: ' + e.message); }
+    }
+
+    function fecharMenusAbertos() {
+      document.querySelectorAll('.hdr-dropdown').forEach(function (n) { n.hidden = true; });
+    }
+    document.addEventListener('click', function (ev) {
+      if (!ev.target.closest('.acoes-menu')) fecharMenusAbertos();
+    });
+
+    function montarMenuAcoes(orch) {
+      const wrap = document.createElement('div');
+      wrap.className = 'acoes-menu';
+      const botao = document.createElement('button');
+      botao.className = 'btn ghost sm';
+      botao.type = 'button';
+      botao.textContent = '⋮';
+      const painel = document.createElement('div');
+      painel.className = 'hdr-dropdown';
+      painel.hidden = true;
+      acoesDaLinha(orch).forEach(function (acao) {
+        const item = document.createElement(acao.href ? 'a' : 'button');
+        item.className = 'hdr-dropdown-item';
+        item.textContent = acao.rotulo;
+        item.style.width = '100%';
+        item.style.textAlign = 'left';
+        item.style.border = '0';
+        item.style.background = 'transparent';
+        item.style.cursor = 'pointer';
+        if (acao.href) item.href = acao.href;
+        if (acao.desabilitado) {
+          item.disabled = true;
+          item.style.opacity = '.5';
+          item.style.cursor = 'not-allowed';
+          item.title = acao.desabilitado;
+        } else if (acao.onClick) {
+          item.addEventListener('click', function () {
+            fecharMenusAbertos();
+            acao.onClick();
+          });
+        }
+        painel.appendChild(item);
+      });
+      botao.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        const estavaAberto = !painel.hidden;
+        fecharMenusAbertos();
+        painel.hidden = estavaAberto;
+      });
+      wrap.appendChild(botao);
+      wrap.appendChild(painel);
+      return wrap;
+    }
+
+    // ---------------------------------------------------- estado nos filtros / URL
+
+    function lerFiltrosDaUrl() {
+      const params = new URLSearchParams(location.search);
+      const filtros = {};
+      CAMPOS_FILTRO.forEach(function (campo) {
+        const valor = params.get(campo);
+        if (valor) filtros[campo] = valor;
+      });
+      const page = parseInt(params.get('page') || '1', 10);
+      return { filtros: filtros, page: isNaN(page) || page < 1 ? 1 : page };
+    }
+
+    function aplicarFiltrosNosControles(filtros) {
+      CAMPOS_FILTRO.forEach(function (campo) {
+        const el = document.getElementById('f-' + campo);
+        if (el) el.value = filtros[campo] || '';
+      });
+    }
+
+    function lerFiltrosDosControles() {
+      const filtros = {};
+      CAMPOS_FILTRO.forEach(function (campo) {
+        const el = document.getElementById('f-' + campo);
+        if (el && el.value) filtros[campo] = el.value;
+      });
+      return filtros;
+    }
+
+    function atualizarUrl(filtros, page) {
+      const params = new URLSearchParams();
+      CAMPOS_FILTRO.forEach(function (campo) {
+        if (filtros[campo]) params.set(campo, filtros[campo]);
+      });
+      if (page > 1) params.set('page', String(page));
+      const query = params.toString();
+      history.replaceState(null, '', location.pathname + (query ? '?' + query : ''));
+    }
+
+    let estado = lerFiltrosDaUrl();
+    const PAGE_SIZE = 20;
+
+    async function carregarProjetos() {
+      try {
+        const projetos = await api('/v1/projects');
+        const select = document.getElementById('f-project_id');
+        projetos.forEach(function (p) {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          select.appendChild(opt);
+        });
+        select.value = estado.filtros.project_id || '';
+      } catch (e) { /* catálogo de projetos indisponível — filtro fica só com "todos" */ }
+    }
+
+    function linhaDaTabela(orch) {
+      const tr = document.createElement('tr');
+      const risco = (orch.demand_brief && orch.demand_brief.risco) || '';
+      const tipo = (orch.demand_brief && orch.demand_brief.tipo) || '—';
+      tr.innerHTML =
+        '<td>' + esc(orch.id.slice(0, 14)) + '…</td>' +
+        '<td class="col-titulo">' + esc(orch.user_request) + '</td>' +
+        '<td>' + esc(tipo) + '</td>' +
+        '<td>' + (risco ? '<span class="pill ' + (TOM_RISCO[risco] || '') + '">' + esc(ROTULO_RISCO[risco] || risco) + '</span>' : '—') + '</td>' +
+        '<td><span class="pill ' + (TOM_STATUS[orch.status] || '') + '">' + esc(ROTULO_STATUS[orch.status] || orch.status) + '</span></td>' +
+        '<td class="col-acoes"></td>';
+      tr.querySelector('.col-acoes').appendChild(montarMenuAcoes(orch));
+      return tr;
+    }
+
+    async function carregar() {
+      const linhas = document.getElementById('linhas');
+      linhas.innerHTML = '<tr><td colspan="6" class="empty">Carregando…</td></tr>';
+      const params = new URLSearchParams();
+      Object.keys(estado.filtros).forEach(function (k) { params.set(k, estado.filtros[k]); });
+      params.set('page', String(estado.page));
+      params.set('page_size', String(PAGE_SIZE));
+      let itens = [];
+      let total = 0;
+      try {
+        const resp = await fetch('/v1/orchestrations?' + params.toString(), {
+          headers: token() ? { Authorization: 'Bearer ' + token() } : {},
+        });
+        itens = await resp.json();
+        total = parseInt(resp.headers.get('X-Total-Count') || '0', 10);
+      } catch (e) {
+        linhas.innerHTML = '<tr><td colspan="6" class="empty">Falha ao carregar demandas.</td></tr>';
+        return;
+      }
+      linhas.innerHTML = '';
+      if (!itens.length) {
+        linhas.innerHTML = '<tr><td colspan="6" class="empty">Nenhuma demanda encontrada com esses filtros.</td></tr>';
+      } else {
+        itens.forEach(function (orch) { linhas.appendChild(linhaDaTabela(orch)); });
+      }
+      const inicio = (estado.page - 1) * PAGE_SIZE + 1;
+      const fim = Math.min(estado.page * PAGE_SIZE, total);
+      document.getElementById('resumoPagina').textContent = total
+        ? ('Mostrando ' + inicio + '–' + fim + ' de ' + total)
+        : 'Nenhuma demanda';
+      document.getElementById('pagAnterior').disabled = estado.page <= 1;
+      document.getElementById('pagProxima').disabled = estado.page * PAGE_SIZE >= total;
+    }
+
+    function filtrosMudaram() {
+      estado = { filtros: lerFiltrosDosControles(), page: 1 };
+      atualizarUrl(estado.filtros, estado.page);
+      carregar();
+    }
+
+    CAMPOS_FILTRO.forEach(function (campo) {
+      const el = document.getElementById('f-' + campo);
+      if (el) el.addEventListener('change', filtrosMudaram);
+    });
+    document.getElementById('f-q').addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') filtrosMudaram();
+    });
+    document.getElementById('limpar').addEventListener('click', function () {
+      CAMPOS_FILTRO.forEach(function (campo) {
+        const el = document.getElementById('f-' + campo);
+        if (el) el.value = '';
+      });
+      filtrosMudaram();
+    });
+    document.getElementById('pagAnterior').addEventListener('click', function () {
+      if (estado.page <= 1) return;
+      estado.page -= 1;
+      atualizarUrl(estado.filtros, estado.page);
+      carregar();
+    });
+    document.getElementById('pagProxima').addEventListener('click', function () {
+      estado.page += 1;
+      atualizarUrl(estado.filtros, estado.page);
+      carregar();
+    });
+
+    aplicarFiltrosNosControles(estado.filtros);
+    carregarProjetos();
+    carregar();
+  </script>
+</body>
+</html>

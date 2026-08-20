@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Estrutura da demanda</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .tree-toggle { display:inline-block; width:14px; cursor:pointer; color:var(--muted); user-select:none; }
+    .tree-toggle.folha { visibility:hidden; }
+    .tree .node { cursor:pointer; }
+    .tree .node:hover { text-decoration:underline; color:var(--accent); }
+    .tree .add { margin-left:8px; font-size:11px; color:var(--accent); cursor:pointer; }
+    .tree ul.recolhida { display:none; }
+    .modal label { margin-top:10px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <h2 style="margin:0">Estrutura da demanda</h2>
+          <button id="criarRaiz" class="btn ok" type="button">+ Criar item</button>
+        </div>
+        <p class="muted">Projeto → Épico → História → Card → Subtarefa (wf §12). Domínio de <code id="tituloDemanda">…</code>.</p>
+        <div id="arvoreContainer"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlayCriar" hidden>
+    <div class="modal">
+      <h2>Criar item</h2>
+      <label for="novoTitulo">Título *</label>
+      <input id="novoTitulo" placeholder="Título do item">
+      <label for="novoTipo">Tipo</label>
+      <select id="novoTipo">
+        <option value="Epic">Épico</option>
+        <option value="Feature">História</option>
+        <option value="Task" selected>Card</option>
+      </select>
+      <label for="novoPai">Item pai</label>
+      <select id="novoPai"><option value="">— Nenhum (raiz) —</option></select>
+      <div class="error" id="erroCriar" hidden></div>
+      <div class="modal-actions">
+        <button id="cancelarCriar" class="ghost" type="button">Cancelar</button>
+        <button id="confirmarCriar" class="ok" type="button">Criar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    ASOHeader.mount(document.getElementById('app-header'), { orchestrationId: ID });
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    if (!ID) { location.href = '/ui/demandas'; }
+
+    const CHAVE_EXPANSAO = 'aso_tree_expanded_' + ID;
+    function lerExpandidos() {
+      try { return new Set(JSON.parse(localStorage.getItem(CHAVE_EXPANSAO) || '[]')); }
+      catch (e) { return new Set(); }
+    }
+    function salvarExpandidos(set) {
+      localStorage.setItem(CHAVE_EXPANSAO, JSON.stringify(Array.from(set)));
+    }
+    let expandidos = lerExpandidos();
+
+    let arvoreAtual = [];
+    function achatarIds(nos, acc) {
+      acc = acc || [];
+      nos.forEach(function (n) { acc.push({ id: n.id, title: n.title }); achatarIds(n.filhos, acc); });
+      return acc;
+    }
+
+    function renderNo(no) {
+      const temFilhos = no.filhos && no.filhos.length > 0;
+      const aberto = expandidos.has(no.id);
+      const li = document.createElement('li');
+      const toggle = document.createElement('span');
+      toggle.className = 'tree-toggle' + (temFilhos ? '' : ' folha');
+      toggle.textContent = temFilhos ? (aberto ? '▼' : '▶') : '·';
+      const node = document.createElement('span');
+      node.className = 'node';
+      node.textContent = no.title + ' ';
+      node.title = 'Ir para os detalhes do card';
+      node.addEventListener('click', function () {
+        location.href = '/ui/card-detalhe?id=' + ID + '&card=' + no.id;
+      });
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = no.type + ' · ' + no.status;
+      const add = document.createElement('span');
+      add.className = 'add';
+      add.textContent = '+ item';
+      add.addEventListener('click', function () { abrirCriar(no.id); });
+
+      li.appendChild(toggle);
+      li.appendChild(node);
+      li.appendChild(meta);
+      li.appendChild(add);
+
+      if (temFilhos) {
+        const ul = document.createElement('ul');
+        ul.className = 'tree' + (aberto ? '' : ' recolhida');
+        no.filhos.forEach(function (filho) { ul.appendChild(renderNo(filho)); });
+        toggle.addEventListener('click', function () {
+          const agoraAberto = !ul.classList.contains('recolhida');
+          ul.classList.toggle('recolhida');
+          toggle.textContent = agoraAberto ? '▶' : '▼';
+          if (agoraAberto) expandidos.delete(no.id); else expandidos.add(no.id);
+          salvarExpandidos(expandidos);
+        });
+        li.appendChild(ul);
+      }
+      return li;
+    }
+
+    function popularSelectPai() {
+      const select = document.getElementById('novoPai');
+      select.innerHTML = '<option value="">— Nenhum (raiz) —</option>';
+      achatarIds(arvoreAtual).forEach(function (item) {
+        const opt = document.createElement('option');
+        opt.value = item.id; opt.textContent = item.title;
+        select.appendChild(opt);
+      });
+    }
+
+    async function carregar() {
+      const container = document.getElementById('arvoreContainer');
+      try {
+        const orch = await api('/v1/orchestrations/' + encodeURIComponent(ID));
+        document.getElementById('tituloDemanda').textContent = orch.user_request.slice(0, 60);
+        arvoreAtual = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/tree');
+        popularSelectPai();
+        if (!arvoreAtual.length) {
+          container.innerHTML = '<div class="empty">Nenhum item ainda — use "+ Criar item".</div>';
+          return;
+        }
+        const raiz = document.createElement('ul');
+        raiz.className = 'tree';
+        arvoreAtual.forEach(function (no) { raiz.appendChild(renderNo(no)); });
+        container.innerHTML = '';
+        container.appendChild(raiz);
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Falha ao carregar a estrutura.</div>';
+      }
+    }
+
+    function abrirCriar(paiId) {
+      document.getElementById('novoTitulo').value = '';
+      document.getElementById('erroCriar').hidden = true;
+      document.getElementById('novoPai').value = paiId || '';
+      document.getElementById('overlayCriar').hidden = false;
+    }
+    document.getElementById('criarRaiz').addEventListener('click', function () { abrirCriar(''); });
+    document.getElementById('cancelarCriar').addEventListener('click', function () {
+      document.getElementById('overlayCriar').hidden = true;
+    });
+    document.getElementById('confirmarCriar').addEventListener('click', async function () {
+      const titulo = document.getElementById('novoTitulo').value.trim();
+      const erro = document.getElementById('erroCriar');
+      erro.hidden = true;
+      if (!titulo) { erro.textContent = 'Informe o título.'; erro.hidden = false; return; }
+      const paiId = document.getElementById('novoPai').value || null;
+      if (paiId) expandidos.add(paiId);
+      try {
+        await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: titulo,
+            type: document.getElementById('novoTipo').value,
+            parent_id: paiId,
+          }),
+        });
+        salvarExpandidos(expandidos);
+        document.getElementById('overlayCriar').hidden = true;
+        carregar();
+      } catch (e) { erro.textContent = 'Não foi possível criar: ' + e.message; erro.hidden = false; }
+    });
+
+    carregar();
+  </script>
+</body>
+</html>

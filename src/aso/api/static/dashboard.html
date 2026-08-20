@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Dashboard</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .two-col { display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
+    @media (max-width:720px) { .two-col { grid-template-columns:1fr; } }
+    .mermaid { background:var(--panel-2); border-radius:8px; padding:10px; overflow-x:auto; }
+    #cardsPorStatus div, #aprovacoesPorTipo div { display:flex; justify-content:space-between; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <h2>Visão consolidada da esteira</h2>
+        <div class="indicators-grid" id="indicadores">
+          <div class="empty">Carregando…</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Fluxo geral da esteira</h2>
+        <pre class="mermaid">
+flowchart LR
+    A[Demanda] --&gt; B[Classificação]
+    B --&gt; C[Discovery]
+    C --&gt; D[Aprovação]
+    D --&gt; E[Especificação]
+    E --&gt; F[Cards]
+    F --&gt; G[Implementação]
+    G --&gt; H[Testes]
+    H --&gt; I[Code Review]
+    I --&gt; J[Testes Manuais]
+    J --&gt; K[Implantação]
+    K --&gt; L[Validação]
+    L --&gt; M[Aceite]
+    M --&gt; N[Conclusão]
+
+    H --&gt;|Falhou| G
+    I --&gt;|Reprovado| G
+    J --&gt;|Falhou| G
+    K --&gt;|Falhou| G
+    L --&gt;|Falha crítica| O[Rollback]
+    O --&gt; G
+        </pre>
+      </section>
+
+      <div class="two-col">
+        <section class="card">
+          <h2>Cards por status</h2>
+          <div id="cardsPorStatus" class="tl"><div class="empty">Carregando…</div></div>
+        </section>
+        <section class="card">
+          <h2>Aprovações pendentes</h2>
+          <div id="aprovacoesPorTipo" class="tl"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+
+      <section class="card">
+        <h2>Atividades recentes</h2>
+        <div id="atividades" class="tl"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'dashboard' });
+    if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: 'neutral' }); }
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path) {
+      const headers = {};
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, { headers });
+      return r.ok ? r.json() : null;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    // Sem campo de "variação": nenhuma série temporal real existe hoje para
+    // calcular isso (ADR-0037) — cada card mostra só valor e link.
+    const INDICADORES = [
+      { chave: 'demandas_ativas', titulo: 'Demandas ativas', href: '/ui/demandas' },
+      { chave: 'em_execucao', titulo: 'Em execução', href: '/ui/execucoes' },
+      { chave: 'bloqueadas', titulo: 'Bloqueadas', href: '/ui/demandas' },
+      { chave: 'falhas_abertas', titulo: 'Falhas abertas', href: '/ui/testes' },
+    ];
+
+    function renderLista(container, mapa, vazio) {
+      const chaves = Object.keys(mapa);
+      container.innerHTML = chaves.length
+        ? chaves
+            .map(function (k) {
+              return '<div>' + esc(k) + '<strong>' + mapa[k] + '</strong></div>';
+            })
+            .join('')
+        : '<div class="empty">' + vazio + '</div>';
+    }
+
+    async function carregar() {
+      const resumo = await api('/v1/dashboard-summary');
+      if (resumo) {
+        document.getElementById('indicadores').innerHTML = INDICADORES.map(function (i) {
+          return (
+            '<div class="card indicator">' +
+            '<span class="titulo">' + esc(i.titulo) + '</span>' +
+            '<span class="valor">' + esc(resumo[i.chave]) + '</span>' +
+            '<a href="' + i.href + '">Ver detalhamento →</a>' +
+            '</div>'
+          );
+        }).join('');
+        renderLista(
+          document.getElementById('cardsPorStatus'),
+          resumo.cards_por_status,
+          'Nenhum card ainda.'
+        );
+        renderLista(
+          document.getElementById('aprovacoesPorTipo'),
+          resumo.aprovacoes_por_tipo,
+          'Nenhuma aprovação pendente.'
+        );
+      }
+
+      const atividades = await api('/v1/activity?limit=15');
+      const lista = document.getElementById('atividades');
+      lista.innerHTML =
+        atividades && atividades.length
+          ? atividades
+              .map(function (a) {
+                const hora = String(a.at || '').slice(11, 16);
+                return '<div>' + esc(hora) + ' — <b>' + esc(a.tipo) + '</b> · ' + esc(a.ator) + '</div>';
+              })
+              .join('')
+          : '<div class="empty">Sem atividade recente.</div>';
+    }
+
+    carregar();
+    setInterval(carregar, 20000);
+  </script>
+</body>
+</html>

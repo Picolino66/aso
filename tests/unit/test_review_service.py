@@ -207,3 +207,53 @@ def test_diff_pequeno_nao_e_truncado() -> None:
     bruto = '{"veredito": "aprovado", "resumo": "ok", "pontos_verificados": ["correção"]}'
     verdito = _revisar(ReviewService(_cli(bruto)), AgentAssignment(executor="revisor"))
     assert not any("truncado" in p for p in verdito.pontos_verificados)
+
+
+# ------------------------------------------------- comentários ancorados (ADR-0033)
+
+
+def test_comentarios_sao_aceitos_e_saneados() -> None:
+    bruto = (
+        '{"veredito": "alteracoes_obrigatorias", "resumo": "x", '
+        '"comentarios": [{"arquivo": "src/x.py", "linha": 42, "categoria": "seguranca", '
+        '"severidade": "critica", "descricao": "SQL injection", '
+        '"sugestao": "use parâmetros", "obrigatorio": true}]}'
+    )
+    verdito = _revisar(ReviewService(_cli(bruto)), AgentAssignment(executor="revisor"))
+    assert len(verdito.comentarios) == 1
+    comentario = verdito.comentarios[0]
+    assert comentario.arquivo == "src/x.py"
+    assert comentario.linha == 42
+    assert comentario.categoria == "seguranca"
+    assert comentario.severidade == "critica"
+    assert comentario.descricao == "SQL injection"
+    assert comentario.sugestao == "use parâmetros"
+    assert comentario.obrigatorio is True
+
+
+def test_comentario_sem_arquivo_ou_sem_descricao_e_descartado() -> None:
+    bruto = (
+        '{"veredito": "aprovado", "comentarios": ['
+        '{"descricao": "sem arquivo"}, {"arquivo": "x.py"}]}'
+    )
+    verdito = _revisar(ReviewService(_cli(bruto)), AgentAssignment(executor="revisor"))
+    assert verdito.comentarios == []
+
+
+def test_severidade_do_comentario_usa_vocabulario_de_gravidade_distinto_da_acao() -> None:
+    """O vocabulário de `comentarios.severidade` (gravidade) é diferente do de
+    `acoes.severidade` (obrigatória/sugestão) — fora do vocabulário cai em `media`,
+    nunca em `obrigatoria`/`sugestao` (que pertencem ao outro campo)."""
+    bruto = (
+        '{"veredito": "aprovado", "comentarios": [{"arquivo": "x.py", '
+        '"descricao": "algo", "severidade": "obrigatoria"}]}'
+    )
+    verdito = _revisar(ReviewService(_cli(bruto)), AgentAssignment(executor="revisor"))
+    assert verdito.comentarios[0].severidade == "media"
+
+
+def test_sem_comentarios_no_json_produz_lista_vazia() -> None:
+    """Compatibilidade com agente/prompt antigo que só devolve `acoes`."""
+    bruto = '{"veredito": "aprovado", "acoes": [{"descricao": "x"}]}'
+    verdito = _revisar(ReviewService(_cli(bruto)), AgentAssignment(executor="revisor"))
+    assert verdito.comentarios == []

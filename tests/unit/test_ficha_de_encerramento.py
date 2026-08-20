@@ -59,6 +59,18 @@ def test_merge_preenche_a_ficha_de_encerramento(tmp_path: Path) -> None:
     assert ficha == card.closure
 
 
+def test_ficha_de_encerramento_traz_o_checklist_de_preparacao(tmp_path: Path) -> None:
+    """§10, ADR-0030: evidência do checklist aparece no encerramento do card. Com um
+    provider real (CLI), a branch é de fato criada — os 8 itens marcam."""
+    svc, oid, card_id = _merge_governado(tmp_path)
+    card = svc.get_cards(oid)[0]
+    assert card.closure["checklist_preparacao"] == card.preparation_checklist
+    itens = {c["item"] for c in card.closure["checklist_preparacao"]}
+    assert "Branch criada" in itens
+    assert "Especificação lida" in itens
+    assert "Card desbloqueado" in itens
+
+
 def test_campo_sem_dado_no_runtime_nao_aparece_inventado(tmp_path: Path) -> None:
     """Sem discovery/spec rodados, `documentos` fica vazio — não inventa versão 0."""
     svc, oid, _card_id = _merge_governado(tmp_path)

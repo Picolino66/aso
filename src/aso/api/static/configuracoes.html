@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Configurações</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .placeholder { max-width:640px; margin:40px auto; text-align:center; }
+    .placeholder h2 { margin:0 0 10px; font-size:20px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card placeholder">
+        <h2>Configurações</h2>
+        <p class="muted">
+          Esta seção ainda não foi implementada — acompanhe <strong>FID-26</strong> no board
+          (<a href="/docs" target="_blank">API</a>).
+        </p>
+        <a href="/ui/console">Conteúdo relacionado hoje: Console técnico (⚙ Config) →</a>
+      </section>
+    </main>
+  </div>
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'configuracoes' });
+  </script>
+</body>
+</html>

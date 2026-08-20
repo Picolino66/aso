@@ -56,3 +56,15 @@ def test_unknown_phase_raises() -> None:
     engine = QualityGateEngine()
     with pytest.raises(KeyError):
         engine.run(Phase.F7, "orch_test", {})
+
+
+# --------------------------------------------- duração por critério (ADR-0048)
+
+
+def test_criterio_registra_duracao_real() -> None:
+    engine = QualityGateEngine()
+    engine.register(Phase.F2, [Criterion("pattern", _has_pattern)])
+    ctx = {"architecture": {"pattern": "modular-monolith"}}
+    result = engine.run(Phase.F2, "orch_test", ctx)
+    assert result.criteria[0].duration_ms is not None
+    assert result.criteria[0].duration_ms >= 0

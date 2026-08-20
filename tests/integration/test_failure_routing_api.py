@@ -154,6 +154,49 @@ def test_get_failures_e_post_route_pela_api(tmp_path: Path) -> None:
     assert len(falhas_depois) == 3
 
 
+def test_reroteamento_repetido_nao_trava_o_contador_no_tamanho_do_ring(
+    tmp_path: Path,
+) -> None:
+    """§36.4, ADR-0031: `card.tentativa_atual` é o contador autoritativo — reroteamento
+    manual repetido (`/route`) sobre um card já `Failed` precisa continuar contando de
+    verdade depois da 5ª falha, não travar porque `card.failures` é um ring de 5.
+    Antes desta ADR, `next_step` usava `len(card.failures)` e o rótulo "tentativa N"
+    ficava preso em 5 para sempre."""
+    repo = tmp_path / "route-repetido-proj"
+    _init_repo(repo)
+    comando = ["bash", "-c", 'echo "AssertionError: sample failure" >&2; exit 1']
+    provider = CliAgentExecutionProvider(comando, str(repo), timeout=5)
+    svc = OrchestrationService(provider=provider, max_escalonamentos=1)
+    client = TestClient(create_app(svc))
+    oid = svc.create_orchestration("ajustar backend").id
+    card_id = svc.get_cards(oid)[0].id
+
+    client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")  # 2 falhas (limite=1)
+    for _ in range(5):  # mais 5 reroteamentos manuais → 7 falhas no total
+        resposta = client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/route")
+        assert resposta.status_code == 200
+
+    card = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]
+    assert card["status"] == "Failed"
+    assert card["tentativa_atual"] == 7
+    # O ring de auditoria (`failures`) continua travado em 5 — isso é o esperado
+    # (histórico das ÚLTIMAS falhas, não um contador) — o bug era usar o TAMANHO
+    # dele como se fosse o contador.
+    falhas = client.get(f"/v1/orchestrations/{oid}/cards/{card_id}/failures").json()
+    assert len(falhas) == 5
+
+    # `_card_blockers` só considera cards da FASE CORRENTE da orquestração (F1 por
+    # padrão); o card em si nasce em F5 — alinha as duas para o bloqueio aparecer,
+    # mesmo padrão já usado nos testes de pipeline de implantação (F6).
+    b = svc._bundle(oid)  # noqa: SLF001
+    b.orchestration.current_phase = Phase.F5
+    svc._persist(b)  # noqa: SLF001
+
+    next_step = client.get(f"/v1/orchestrations/{oid}/next-step").json()
+    blocker = next(b for b in next_step["blockers"] if b["code"] == "cards_falhos")
+    assert "tentativa 7" in blocker["detail"]
+
+
 # ---------------------------------------------------------------- persistência (Postgres/SQLite)
 
 

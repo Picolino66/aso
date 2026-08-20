@@ -6,6 +6,7 @@ coletado antes de qualquer merge. Nunca opera na branch principal.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 from pathlib import Path
@@ -84,6 +85,34 @@ class WorktreeManager:
         """Retorna o diff de uma branch candidata contra HEAD, sem alterar o repositório."""
         with _GIT_META_LOCK:
             return self._git("diff", "HEAD..." + branch).stdout
+
+    def changed_files(self, branch: str) -> list[str]:
+        """Arquivos alterados numa branch candidata contra HEAD (Tela 15, wf §17.1,
+        ADR-0048) — mesma comparação de `branch_diff`, só os caminhos (`--name-only`),
+        sem o diff inteiro."""
+        with _GIT_META_LOCK:
+            saida = self._git("diff", "--name-only", "HEAD..." + branch).stdout
+        return [linha for linha in saida.splitlines() if linha.strip()]
+
+    def commit_count(self, branch: str) -> int:
+        """Nº de commits da branch candidata que HEAD ainda não tem (Tela 18, wf
+        §20.1, ADR-0049) — mesma comparação de `branch_diff`/`changed_files`."""
+        with _GIT_META_LOCK:
+            saida = self._git("rev-list", "--count", "HEAD.." + branch).stdout
+        return int(saida.strip() or "0")
+
+    def line_stats(self, branch: str) -> tuple[int, int]:
+        """Linhas adicionadas/removidas da branch candidata contra HEAD (Tela 18,
+        wf §20.1, ADR-0049) — `git diff --shortstat`, parseado à mão porque o git
+        não tem saída estruturada para isso."""
+        with _GIT_META_LOCK:
+            saida = self._git("diff", "--shortstat", "HEAD..." + branch).stdout
+        adicionadas = re.search(r"(\d+) insertion", saida)
+        removidas = re.search(r"(\d+) deletion", saida)
+        return (
+            int(adicionadas.group(1)) if adicionadas else 0,
+            int(removidas.group(1)) if removidas else 0,
+        )
 
     def run_on_branch(
         self, branch: str, command: list[str], *, timeout: float = 300.0

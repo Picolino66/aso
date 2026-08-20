@@ -1,0 +1,235 @@
+/* Biblioteca de componentes reutilizáveis do ASO Runtime (wf §2.1, §40) — ADR-0034.
+ * Documentado em docs/design-system.md. Requer tokens.css antes deste arquivo.
+ *
+ * Extraído das 4 páginas de /ui/* SEM alterar nenhum seletor/classe já usado
+ * pelo JS de cada página (zero mudança de markup/comportamento — só de onde a
+ * regra CSS mora e dos valores de cor). Cada página mantém, no seu próprio
+ * <style>, apenas o layout específico que não é compartilhado por nenhuma
+ * outra tela; esse <style> vem DEPOIS deste arquivo no <head>, então uma
+ * página pode sobrescrever uma regra daqui quando o mesmo nome de classe tem
+ * um significado local diferente (ex.: `.card` do kanban macro).
+ */
+
+/* ===== Reset e base ===== */
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; font-family:var(--font); background:var(--bg); color:var(--fg); }
+a { color:var(--accent); }
+code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:12px; font-family:var(--mono); }
+button, input, textarea, select { font:inherit; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline:2px solid var(--accent); outline-offset:2px;
+}
+
+/* ===== Header (wf §2.2/§2.3) ===== */
+header {
+  position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:12px;
+  flex-wrap:wrap; padding:14px 24px; background:var(--panel); border-bottom:1px solid var(--border);
+}
+header h1 { margin:0; font-size:18px; }
+header .spacer { flex:1; }
+header .sub { color:var(--muted); font-size:13px; }
+
+/* Header vivo (wf §2.3, ADR-0035): busca global e central de notificações,
+   ambos um input/botão com um dropdown posicionado abaixo. */
+.hdr-busca { position:relative; }
+.hdr-busca input { width:220px; padding:6px 9px; }
+.hdr-dropdown {
+  position:absolute; top:calc(100% + 4px); right:0; z-index:10; min-width:260px;
+  max-width:360px; max-height:320px; overflow:auto; border:1px solid var(--border);
+  border-radius:8px; background:var(--panel); box-shadow:0 4px 14px rgba(15,23,42,.12);
+}
+.hdr-dropdown-item {
+  display:block; padding:8px 10px; font-size:12px; color:var(--fg); text-decoration:none;
+  border-bottom:1px solid var(--border);
+}
+.hdr-dropdown-item:last-child { border-bottom:0; }
+.hdr-dropdown-item:hover { background:var(--panel-2); }
+
+/* ===== Formulários ===== */
+input, textarea, select {
+  width:100%; padding:8px 10px; color:var(--fg); background:var(--panel-2);
+  border:1px solid var(--border); border-radius:8px;
+}
+textarea { min-height:80px; resize:vertical; }
+label { display:block; margin:12px 0 5px; color:var(--muted); font-size:12px; }
+
+/* ===== Botões — padrão elemento <button> (macro/nova/detalhe) ===== */
+button {
+  border:0; border-radius:8px; padding:8px 12px; font-size:13px; font-weight:650;
+  cursor:pointer; background:var(--accent); color:var(--on-accent);
+}
+button:hover { opacity:.86; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+button.ghost { background:var(--border); color:var(--fg); }
+button.ok { background:var(--ok); color:var(--on-ok); }
+button.err { background:var(--err); color:var(--on-err); }
+button.info { background:var(--info); color:var(--on-info); }
+button.sm { padding:5px 9px; font-size:12px; }
+button.big { padding:11px 18px; font-size:14px; }
+
+/* ===== Botões — padrão .btn (console) — mesma linguagem visual, classe distinta ===== */
+.btn {
+  border:0; border-radius:8px; padding:8px 12px; font-size:13px; font-weight:650;
+  cursor:pointer; background:var(--accent); color:var(--on-accent);
+}
+.btn:hover { opacity:.86; }
+.btn[disabled] { background:var(--border); color:var(--muted); opacity:.5; cursor:not-allowed; }
+.btn.ghost { background:var(--border); color:var(--fg); }
+.btn.ok { background:var(--ok); color:var(--on-ok); }
+.btn.err { background:var(--err); color:var(--on-err); }
+.btn.sm { padding:4px 8px; font-size:12px; }
+
+/* ===== Card de indicador / painel (wf §3.3) ===== */
+.card {
+  padding:14px; border:1px solid var(--border); border-radius:var(--radius);
+  background:var(--panel); margin-bottom:var(--gap);
+}
+.card > h2 {
+  margin:0 0 10px; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted);
+}
+.indicators-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:12px; margin-bottom:var(--gap); }
+.indicator { display:flex; flex-direction:column; gap:4px; }
+.indicator .titulo { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+.indicator .valor { font-size:28px; font-weight:700; color:var(--fg); }
+.indicator a { font-size:12px; margin-top:4px; }
+.muted { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.empty { padding:18px; text-align:center; color:var(--muted); font-size:13px; }
+.row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.row > input, .row > div { flex:1; }
+.between { justify-content:space-between; }
+
+/* ===== Pill de status (wf, colunas "Status") ===== */
+.pill {
+  display:inline-block; border-radius:999px; padding:2px 9px; font-size:11px;
+  background:var(--border); color:var(--fg);
+}
+.pill.ok { background:rgba(22,163,74,.14); color:var(--ok); }
+.pill.err { background:rgba(220,38,38,.14); color:var(--err); }
+.pill.warn { background:rgba(217,119,6,.14); color:var(--warn); }
+.pill.info { background:rgba(79,70,229,.14); color:var(--info); }
+.pill.accent { background:rgba(2,132,199,.14); color:var(--accent); }
+.pill.archived { background:rgba(217,119,6,.14); color:var(--warn); }
+
+/* ===== Abas (wf §6.3, "Abas") ===== */
+.tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:var(--gap); flex-wrap:wrap; }
+.tab { padding:8px 12px; cursor:pointer; border-bottom:2px solid transparent; color:var(--muted); font-size:13px; }
+.tab.active { color:var(--fg); border-color:var(--accent); }
+
+/* ===== Tabela filtrável (wf §4) ===== */
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
+th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
+
+/* ===== Checklist (wf §9.2 e diversos) ===== */
+.checklist { list-style:none; margin:14px 0 0; padding:0; }
+.checklist li { display:flex; gap:9px; align-items:baseline; padding:5px 0; font-size:13px; color:var(--muted); }
+.checklist li .ico { width:16px; text-align:center; }
+.checklist li.ok { color:var(--fg); } .checklist li.ok .ico { color:var(--ok); }
+.checklist li.atual { color:var(--fg); font-weight:650; } .checklist li.atual .ico { color:var(--accent); }
+.checklist li.falha { color:var(--err); }
+.checklist li .aqui { font-size:11px; font-weight:400; color:var(--accent); }
+
+/* ===== Árvore (wf §12, "Estrutura da demanda") — novo, para telas futuras ===== */
+.tree { list-style:none; margin:0; padding:0; font-size:13px; }
+.tree li { padding:3px 0 3px 18px; position:relative; }
+.tree li::before {
+  content:"├─"; position:absolute; left:0; color:var(--muted); font-family:var(--mono); font-size:12px;
+}
+.tree li:last-child::before { content:"└─"; }
+.tree ul { list-style:none; margin:0; padding-left:16px; }
+.tree .node { color:var(--fg); }
+.tree .meta { margin-left:6px; color:var(--muted); font-size:11px; }
+
+/* ===== Barra de progresso (wf §6.4) ===== */
+.progressbar, .progress, .progresso {
+  height:10px; margin:12px 0 8px; overflow:hidden; border:1px solid var(--border);
+  border-radius:999px; background:var(--panel-2);
+}
+.progressbar > div, .progress > div, .progresso > div {
+  width:0; height:100%; background:var(--accent); transition:width .12s ease;
+}
+.progresso > div { background:var(--ok); }
+
+/* ===== Painel de logs / timeline (wf §8, "Logs da execução") ===== */
+.tl { max-height:340px; overflow:auto; font-size:12px; }
+.tl div { padding:3px 0; border-bottom:1px solid var(--border); }
+.evt { display:flex; gap:8px; padding:4px 0; font-size:12px; color:var(--muted); border-bottom:1px solid var(--border); }
+.evt b { color:var(--fg); font-weight:600; }
+
+/* ===== Kanban (board + card) ===== */
+.board { display:flex; gap:10px; overflow-x:auto; padding-bottom:8px; }
+.col, .column {
+  min-width:190px; flex:0 0 190px; padding:9px; border:1px solid var(--border);
+  border-radius:9px; background:var(--panel-2);
+}
+.col h3, .column h3 {
+  display:flex; justify-content:space-between; margin:0 0 8px; color:var(--muted);
+  font-size:11px; text-transform:uppercase;
+}
+.kcard {
+  padding:8px; border:1px solid var(--border); border-radius:8px; background:var(--panel);
+  margin-bottom:8px; font-size:13px;
+}
+.kcard strong { display:block; font-size:13px; line-height:1.35; margin-bottom:2px; }
+.kcard small, .kcard .t { color:var(--muted); font-size:10px; }
+
+/* ===== Overlay / modal ===== */
+.overlay {
+  position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+  padding:16px; background:rgba(15,23,42,.45);
+}
+.modal {
+  width:min(580px,100%); max-height:88vh; overflow:auto; padding:20px; border:1px solid var(--border);
+  border-radius:var(--radius); background:var(--panel); display:flex; flex-direction:column;
+}
+.modal h2 { margin:0 0 6px; font-size:17px; }
+.modal label { display:block; margin:13px 0 5px; color:var(--muted); font-size:12px; }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+.error { margin-top:10px; color:var(--err); font-size:12px; }
+.success { color:var(--ok); font-size:12px; }
+.reason { margin-top:6px; font-size:12px; color:var(--err); background:rgba(220,38,38,.08); padding:4px 6px; border-radius:6px; }
+
+/* ===== Grid responsivo ===== */
+@media (max-width:900px) {
+  main { grid-template-columns:1fr !important; }
+}
+@media (max-width:720px) {
+  header { padding:11px 13px; }
+  header .spacer { display:none; width:100%; }
+}
+
+/* ===== Barra de filtros / tabela paginada (Tela 02, wf §4, ADR-0038) ===== */
+.filtros-bar { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:var(--gap); align-items:center; }
+.filtros-bar input, .filtros-bar select { width:auto; min-width:130px; padding:6px 8px; }
+.filtros-bar input[type=date] { min-width:150px; }
+.tabela-toolbar { display:flex; justify-content:space-between; align-items:center; margin-top:10px; gap:8px; flex-wrap:wrap; }
+.acoes-menu { position:relative; display:inline-block; }
+td.col-acoes { text-align:right; white-space:nowrap; }
+
+/* ===== Sidebar (wf §2.4, 16 seções) — ADR-0036 ===== */
+.shell { display:flex; align-items:stretch; flex:1; min-height:0; }
+.shell > main { flex:1; min-width:0; padding:24px; }
+#app-sidebar {
+  flex:0 0 208px; padding:14px 10px; border-right:1px solid var(--border);
+  background:var(--panel); position:sticky; top:57px; align-self:flex-start;
+  max-height:calc(100vh - 57px); overflow-y:auto;
+}
+.sidebar-nav { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; }
+.sidebar-item {
+  display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:8px;
+  color:var(--fg); text-decoration:none; font-size:13px;
+}
+.sidebar-item:hover { background:var(--panel-2); }
+.sidebar-item.active { background:var(--panel-2); color:var(--accent); font-weight:650; }
+.sidebar-item .ic { width:18px; text-align:center; }
+.sidebar-toggle { display:none; position:fixed; top:66px; left:10px; z-index:16; }
+@media (max-width:860px) {
+  .sidebar-toggle { display:inline-flex; }
+  #app-sidebar {
+    position:fixed; top:0; left:0; bottom:0; z-index:15; padding-top:60px;
+    transform:translateX(-100%); transition:transform .15s ease;
+    box-shadow:2px 0 10px rgba(15,23,42,.15);
+  }
+  #app-sidebar.sidebar-open { transform:translateX(0); }
+}

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Agentes</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .agente-linha { border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+    .agente-linha.inativa { opacity:.55; }
+    .agente-linha .cab { display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap; }
+    .agente-linha .campos { font-size:12px; color:var(--muted); margin-top:4px; }
+    .somente-leitura-nota { margin-bottom:12px; }
+    .grade { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <div>
+            <h2 style="margin:0">Agentes</h2>
+            <p class="muted" style="margin:4px 0 0">13 campos por agente, fonte de verdade das permissões reais (wf §32) · <a href="/ui/regras-roteamento">regras de roteamento</a></p>
+          </div>
+          <button id="btnNovo" class="btn ok" type="button">+ Novo agente</button>
+        </div>
+        <div class="empty somente-leitura-nota" id="notaSomenteLeitura" hidden>
+          Papel atual sem permissão de escrita — criar, editar e excluir agentes exige papel <b>admin</b>.
+        </div>
+        <div id="listaAgentes"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlayEditor" hidden>
+    <div class="modal" style="max-width:680px">
+      <h2 id="tituloEditor">Novo agente</h2>
+      <div class="grade">
+        <div>
+          <label for="campoNome">Nome *</label>
+          <input id="campoNome" placeholder="ex.: Desenvolvedor backend">
+          <label for="campoTipo">Tipo</label>
+          <input id="campoTipo" placeholder="ex.: desenvolvimento">
+          <label for="campoFuncao">Função</label>
+          <input id="campoFuncao" placeholder="descrição curta">
+          <label for="campoPlataforma">Plataforma</label>
+          <input id="campoPlataforma" placeholder="ex.: Claude, Codex">
+          <label for="campoRole">Papel real (AgentRegistry)</label>
+          <select id="campoRole"><option value="">— sem vínculo —</option></select>
+        </div>
+        <div>
+          <label for="campoModelos">Modelos permitidos (vírgula)</label>
+          <input id="campoModelos" placeholder="ex.: opus, sonnet">
+          <label for="campoEfforts">Efforts permitidos (vírgula)</label>
+          <input id="campoEfforts" placeholder="ex.: medium, high">
+          <label for="campoProjetos">Projetos (id, vírgula — vazio = todos)</label>
+          <input id="campoProjetos" placeholder="vazio = todos os projetos">
+          <label for="campoCategorias">Categorias de tarefa (vírgula)</label>
+          <input id="campoCategorias" placeholder="backend, frontend, database…">
+          <label><input id="campoSupervisao" type="checkbox" style="width:auto;display:inline-block"> Exige supervisão</label>
+        </div>
+      </div>
+      <div class="grade" style="margin-top:8px">
+        <div>
+          <label for="campoFerramentas">Ferramentas (vírgula) — vira allowed_tools real</label>
+          <input id="campoFerramentas" placeholder="read_file, write_file…">
+        </div>
+        <div>
+          <label for="campoPermissoes">Permissões (vírgula) — vira context_sections real</label>
+          <input id="campoPermissoes" placeholder="engineering, quality…">
+        </div>
+      </div>
+      <div class="grade" style="margin-top:8px">
+        <div>
+          <label for="campoLimiteCusto">Limite de custo (USD) — vazio = sem limite</label>
+          <input id="campoLimiteCusto" type="number" min="0" step="0.01">
+        </div>
+        <div>
+          <label for="campoLimiteTentativas">Limite de tentativas — vazio = sem limite</label>
+          <input id="campoLimiteTentativas" type="number" min="1" step="1">
+        </div>
+      </div>
+      <label style="margin-top:8px"><input id="campoAtivo" type="checkbox" checked style="width:auto;display:inline-block"> Ativo</label>
+      <p class="muted" style="margin:8px 0 0">Ferramentas/Permissões e limites são a FONTE DE VERDADE real (ContextBus/execução) quando um papel está vinculado — editar aqui muda o que o agente pode escrever e quando pode rodar.</p>
+
+      <div class="error" id="erroEditor" hidden></div>
+      <div class="modal-actions">
+        <button id="cancelarEditor" class="ghost" type="button">Cancelar</button>
+        <button id="salvarEditor" class="ok" type="button">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'agentes' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function listaDeTexto(s) {
+      return s.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+    }
+
+    let EH_ADMIN = false;
+    let AGENTES = [];
+    let editandoId = null;
+
+    function campoResumo(rotulo, valor) {
+      return valor ? '<span>' + esc(rotulo) + ': ' + esc(valor) + '</span>' : '';
+    }
+
+    function renderLista() {
+      const container = document.getElementById('listaAgentes');
+      if (!AGENTES.length) {
+        container.innerHTML = '<div class="empty">Nenhum agente cadastrado ainda.</div>';
+        return;
+      }
+      container.innerHTML = AGENTES.map(function (a) {
+        return '<div class="agente-linha' + (a.ativo ? '' : ' inativa') + '">' +
+          '<div class="cab"><strong>' + esc(a.nome) + '</strong>' +
+            '<span>' +
+              (a.role ? '<span class="pill ok">' + esc(a.role) + '</span>' : '<span class="pill">sem vínculo real</span>') +
+              (a.exige_supervisao ? ' <span class="pill warn">supervisão</span>' : '') +
+              (a.ativo ? '' : ' <span class="pill">inativo</span>') +
+              (EH_ADMIN ? ' <button class="ghost btn sm editar-agente" data-id="' + a.id + '">Editar</button>' +
+                ' <button class="ghost btn sm err excluir-agente" data-id="' + a.id + '">Excluir</button>' : '') +
+            '</span>' +
+          '</div>' +
+          (a.funcao ? '<p class="muted" style="margin:4px 0">' + esc(a.funcao) + '</p>' : '') +
+          '<div class="campos">' +
+            [
+              campoResumo('Tipo', a.tipo),
+              campoResumo('Plataforma', a.plataforma),
+              campoResumo('Modelos permitidos', (a.modelos_permitidos || []).join(', ')),
+              campoResumo('Efforts permitidos', (a.efforts_permitidos || []).join(', ')),
+              campoResumo('Ferramentas', (a.ferramentas || []).join(', ')),
+              campoResumo('Permissões', (a.permissoes || []).join(', ')),
+              campoResumo('Projetos', (a.projetos || []).join(', ') || 'todos'),
+              campoResumo('Categorias de tarefa', (a.categorias_tarefa || []).join(', ')),
+              campoResumo('Limite de custo', a.limite_custo_usd != null ? ('$ ' + a.limite_custo_usd) : ''),
+              campoResumo('Limite de tentativas', a.limite_tentativas != null ? String(a.limite_tentativas) : ''),
+            ].filter(Boolean).join(' · ') +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      Array.from(container.querySelectorAll('.editar-agente')).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          abrirEditor(AGENTES.find(function (a) { return a.id === btn.dataset.id; }));
+        });
+      });
+      Array.from(container.querySelectorAll('.excluir-agente')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          if (!confirm('Excluir este agente do catálogo?')) return;
+          try {
+            await api('/v1/agent-definitions/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+            await carregarAgentes();
+          } catch (e) { alert('Não foi possível excluir: ' + e.message); }
+        });
+      });
+    }
+
+    async function carregarAgentes() {
+      AGENTES = await api('/v1/agent-definitions');
+      AGENTES.sort(function (a, b) { return a.nome.localeCompare(b.nome); });
+      renderLista();
+    }
+
+    async function popularRoles() {
+      const select = document.getElementById('campoRole');
+      try {
+        const roles = await api('/v1/agent-definitions/roles');
+        roles.forEach(function (r) {
+          const opt = document.createElement('option');
+          opt.value = r; opt.textContent = r;
+          select.appendChild(opt);
+        });
+      } catch (e) { /* select fica só com "sem vínculo" */ }
+    }
+
+    function abrirEditor(agente) {
+      editandoId = agente ? agente.id : null;
+      document.getElementById('tituloEditor').textContent = agente ? 'Editar agente' : 'Novo agente';
+      document.getElementById('campoNome').value = agente ? agente.nome : '';
+      document.getElementById('campoTipo').value = agente ? agente.tipo : '';
+      document.getElementById('campoFuncao').value = agente ? agente.funcao : '';
+      document.getElementById('campoPlataforma').value = agente ? agente.plataforma : '';
+      document.getElementById('campoRole').value = agente ? agente.role : '';
+      document.getElementById('campoModelos').value = agente ? (agente.modelos_permitidos || []).join(', ') : '';
+      document.getElementById('campoEfforts').value = agente ? (agente.efforts_permitidos || []).join(', ') : '';
+      document.getElementById('campoProjetos').value = agente ? (agente.projetos || []).join(', ') : '';
+      document.getElementById('campoCategorias').value = agente ? (agente.categorias_tarefa || []).join(', ') : '';
+      document.getElementById('campoFerramentas').value = agente ? (agente.ferramentas || []).join(', ') : '';
+      document.getElementById('campoPermissoes').value = agente ? (agente.permissoes || []).join(', ') : '';
+      document.getElementById('campoLimiteCusto').value = agente && agente.limite_custo_usd != null ? agente.limite_custo_usd : '';
+      document.getElementById('campoLimiteTentativas').value = agente && agente.limite_tentativas != null ? agente.limite_tentativas : '';
+      document.getElementById('campoSupervisao').checked = agente ? agente.exige_supervisao : false;
+      document.getElementById('campoAtivo').checked = agente ? agente.ativo : true;
+      document.getElementById('erroEditor').hidden = true;
+      document.getElementById('overlayEditor').hidden = false;
+    }
+    document.getElementById('btnNovo').addEventListener('click', function () { abrirEditor(null); });
+    document.getElementById('cancelarEditor').addEventListener('click', function () {
+      document.getElementById('overlayEditor').hidden = true;
+    });
+
+    document.getElementById('salvarEditor').addEventListener('click', async function () {
+      const erro = document.getElementById('erroEditor');
+      erro.hidden = true;
+      const limiteCusto = document.getElementById('campoLimiteCusto').value;
+      const limiteTentativas = document.getElementById('campoLimiteTentativas').value;
+      const corpo = {
+        nome: document.getElementById('campoNome').value.trim(),
+        tipo: document.getElementById('campoTipo').value.trim(),
+        funcao: document.getElementById('campoFuncao').value.trim(),
+        plataforma: document.getElementById('campoPlataforma').value.trim(),
+        role: document.getElementById('campoRole').value,
+        modelos_permitidos: listaDeTexto(document.getElementById('campoModelos').value),
+        efforts_permitidos: listaDeTexto(document.getElementById('campoEfforts').value),
+        ferramentas: listaDeTexto(document.getElementById('campoFerramentas').value),
+        permissoes: listaDeTexto(document.getElementById('campoPermissoes').value),
+        projetos: listaDeTexto(document.getElementById('campoProjetos').value),
+        categorias_tarefa: listaDeTexto(document.getElementById('campoCategorias').value),
+        limite_custo_usd: limiteCusto === '' ? null : parseFloat(limiteCusto),
+        limite_tentativas: limiteTentativas === '' ? null : parseInt(limiteTentativas, 10),
+        exige_supervisao: document.getElementById('campoSupervisao').checked,
+        ativo: document.getElementById('campoAtivo').checked,
+      };
+      if (!corpo.nome) { erro.textContent = 'Informe o nome do agente.'; erro.hidden = false; return; }
+      try {
+        if (editandoId) {
+          await api('/v1/agent-definitions/' + encodeURIComponent(editandoId), { method: 'PUT', body: JSON.stringify(corpo) });
+        } else {
+          await api('/v1/agent-definitions', { method: 'POST', body: JSON.stringify(corpo) });
+        }
+        document.getElementById('overlayEditor').hidden = true;
+        await carregarAgentes();
+      } catch (e) { erro.textContent = 'Não foi possível salvar: ' + e.message; erro.hidden = false; }
+    });
+
+    async function carregar() {
+      try {
+        const me = await api('/v1/me');
+        EH_ADMIN = me.role === 'admin';
+      } catch (e) { EH_ADMIN = false; }
+      document.getElementById('notaSomenteLeitura').hidden = EH_ADMIN;
+      document.getElementById('btnNovo').hidden = !EH_ADMIN;
+      await popularRoles();
+      await carregarAgentes();
+    }
+    carregar();
+  </script>
+</body>
+</html>

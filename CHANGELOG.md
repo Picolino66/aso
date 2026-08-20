@@ -4,7 +4,51 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
 
 ## [0.1.0] — não lançado (MVP-1 + persistência)
 
+### Planejamento
+- **Diagnóstico de fidelidade ao `fluxo.md` e ao `wiframe-fluxo.md`:** o runtime está
+  em ≈55% de aderência — funcionalidade da esteira em 85%, modelo de dados em 78%, mas
+  cobertura de telas em 42%, navegação em 15% e estilo visual em 25% (a spec pede
+  wireframe claro; a UI é um console escuro sem sidebar). Registrado em
+  [docs/plano-fidelidade-fluxo.md](docs/plano-fidelidade-fluxo.md) com 27 cards
+  (FID-01…FID-27) no Backlog do board, sob os épicos EPIC-9 (lacunas da esteira) e
+  EPIC-10 (shell e telas).
+
 ### Corrigido
+- **6 bugs reais do `/code-review ultra` pós-FID-27 (ADR-0055):** com o
+  backlog de fidelidade 100% `Done`, uma revisão multiagente sobre o diff
+  acumulado (FID-22–FID-27, ainda não commitado) encontrou 6 defeitos reais.
+  Decisão do usuário (opção recomendada): corrigir os 6, não só os mais
+  críticos. **(1)** `card.tentativa_atual` soma sucesso e falha, mas era
+  passado direto a `decidir()` como contador de escalação — 2 sucessos + 1
+  falha real escalava para humano já na 1ª falha, pulando `mesmo_agente`/
+  `aumentar_effort`; novo campo `tentativa_falha_atual` (uncapped, zera a
+  cada sucesso) corrige, com migration validada no Postgres real. **(2)** a
+  Tela 03 (`demand_brief` completo) não propagava `decision_input` ao
+  planejador — a classificação preenchida à mão nunca influenciava a escolha
+  de agente/regra de roteamento; corrigido reaproveitando
+  `DemandBrief.to_decision_input()`. **(3)** revisão reprovada com PR cujo
+  único comentário era de rodada ANTERIOR já resolvida descartava
+  `verdito.acoes`, deixando `NeedsFix` sem orientação nenhuma — o fallback
+  agora olha o resultado filtrado, não a existência histórica de
+  comentários. **(4)** `saude_pos_deploy` ignorava `deploy.status` — um
+  comando de deploy que falha (validação nunca roda) era relatado como
+  saudável, sugerindo `concluir_implantacao`; `STATUS_FALHOU` agora checa
+  primeiro. **(5)** `_faixa` (painel de recomendação, Tela 13) colapsava
+  todo grupo de custo/tempo empatado no rank mais baixo (`list.index` sempre
+  acha a 1ª ocorrência) — corrigido com rank médio do grupo; e
+  `get_learning_report_global()` hidratava o sistema inteiro num endpoint
+  só-leitura chamado a cada edição de classificação — agora recorta por
+  `project_id`. **(6)** `PUT /v1/agent-definitions/{id}` podia revogar
+  `ferramentas`/`permissoes` reais de um papel por omissão de campo (default
+  Pydantic `[]`, `AgentCatalogService.update` substituindo em vez de
+  mesclar) — fonte de verdade real das permissões (`AgentRegistry.seed_from_catalog`,
+  ADR-0053); a UI existente não explorava isso (sempre envia o objeto
+  completo), mas violava deny-by-default como contrato de API. Corrigido com
+  semântica PATCH-like: campo omitido/`null` preserva o valor atual, só
+  lista explícita substitui. Os 6 achados têm teste de regressão dedicado,
+  verificado falhando antes da correção. Bateria completa verde (1356
+  testes, 93.42% de cobertura); migration validada no Postgres real
+  (`docker compose up` + `./scripts/smoke.sh`).
 - **Painel de atividade mostrava o começo da história (ADR-0015):** ele pedia
   `timeline?page_size=14`, e `events_page` ordena `seq ASC` com `offset=0` — recebia os 14
   eventos **mais antigos** da orquestração e os invertia no render, recarregando a mesma
@@ -64,6 +108,775 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   Suíte completa rodada 5× seguidas após a correção: 781 passed em todas.
 
 ### Adicionado
+- **Requisitos de UX obrigatórios aplicados transversalmente (ADR-0054,
+  FID-27) — card de encerramento da missão de fidelidade:** wf §39 lista 12
+  requisitos que toda tela do runtime deveria cumprir; a `description` do
+  card no board resumia só 10, omitindo "toda tela informa status atual" e
+  "cada alteração gera nova entrada de auditoria". Decisão do usuário
+  (opção recomendada): tratar os **12** pontos literais do wireframe como
+  escopo real — os 2 omitidos já saíram cobertos sem exigir mudança. Uma
+  varredura (Explore) contra as ~20 páginas reais entregues por FID-10 a
+  FID-26 encontrou **9 lacunas**, todas fechadas, nenhuma exigindo
+  migration (os dados já existiam no backend). **`aprovacoes.html`** (a
+  inbox central) violava dois requisitos na mesma tela — Aprovar/Rejeitar
+  disparavam sem confirmação e sem mostrar critérios; decisão do usuário
+  (opção recomendada): fechar com `confirm()` nativo (mesmo padrão já usado
+  em 5 outras páginas), com o texto do diálogo compondo um resumo de
+  `action`/`tipo`/`risk`/`reason`/`payload` — não existe campo
+  `criterios`/`checklist` pronto no backend para esse tipo de aprovação. A
+  coluna "Origem" da mesma tabela ganhou pill automática/manual, corrigindo
+  uma inconsistência com a coluna Risco ao lado (que já tinha pill).
+  **`execucoes.html`** ganhou a coluna **Modelo** que faltava na tabela
+  agregada (`card.executor` já existia, só não era exibido).
+  **`auditoria.html`** — "Card: X · Demanda: Y" era texto puro, sem
+  navegação de volta; ganhou `<a href>` para `/ui/card-detalhe` e
+  `/ui/demanda-detalhe`. **`demanda-detalhe.html`/`card-detalhe.html`** — o
+  campo de risco era texto plano, inconsistente com `demandas.html`/
+  `aprovacoes.html`; nova `pillRisco()` replicando o `TOM_RISCO` de
+  `demandas.html` (ADR-0038). **`card-detalhe.html`** — a timeline genérica
+  não marcava retrocessos visualmente; nova `ehRetornoDeFluxo()`, heurística
+  documentada no código (não existe campo booleano de "retorno" no
+  `CardEvent`, então é inferido, nunca fabricado); a aba Falhas passou a
+  reexibir o `next_action` que já existia no evento, mas só aparecia na aba
+  Histórico. **`demanda-detalhe.html`** — a aba Histórico (consome
+  `/timeline`, eventos de **domínio**, um stream estruturalmente diferente
+  do `CardEvent` do card) descartava o `payload` inteiro de cada evento,
+  mostrando só tipo+data; passou a exibir o `payload` por completo, sem
+  fabricar campos que esse tipo de evento não tem. Novo teste
+  `tests/integration/test_ux_transversal_wf39.py` (8 testes) — primeiro
+  gate automatizado cross-página da missão, travando as 8 correções contra
+  regressão futura. **Com este card, os 137 cards do board (`FID-01`…`FID-27`
+  + `TASK-01`…`TASK-110`) estão 100% `Done`** — suíte completa com cobertura
+  ≥80% (1345 testes, 93,29%).
+- **Catálogo de agentes como fonte de verdade de permissões (ADR-0053,
+  FID-26):** a Tela 30 pedia 13 campos por agente e 14 agentes-exemplo, mas
+  as duas estruturas pré-existentes não cobriam isso — `AgentRegistry`
+  (16 papéis hardcoded, alimenta a `PermissionPolicy` real do `ContextBus`)
+  não é persistente nem editável em runtime, e `ExecutorCatalog` é um
+  conceito totalmente diferente (modelos, não papéis/permissões). Decisão
+  do usuário, **opção não recomendada** (escolhida deliberadamente sobre
+  "espelho somente leitura"): o catálogo novo — `AgentDefinition` /
+  `AgentDefinitionRepository` / `AgentCatalogService` (mesmo template de
+  `RoutingRuleRepository`/`RoutingRuleService`, ADR-0028) — é a **fonte de
+  verdade real** das permissões. `AgentRegistry.seed_from_catalog()`
+  substitui `seed_defaults()` na construção do registry: semeia a base
+  segura primeiro, depois sobrescreve `allowed_tools`/`context_sections` de
+  um papel real com `ferramentas`/`permissoes` da definição ativa vinculada
+  a ele — editar uma definição no catálogo muda de fato o que aquele agente
+  pode escrever via `ContextBus` na próxima orquestração. Não-destrutividade
+  do primeiro boot **confirmada por comparação direta**: catálogo vazio e
+  catálogo com os 14 exemplos (ferramentas/permissões copiadas verbatim dos
+  valores hardcoded) produzem `permission_map()` byte-idêntico ao baseline
+  pré-ADR. **Bug real encontrado e corrigido** durante a implementação: nada
+  impedia duas definições ativas com o mesmo `role`, causando "última values
+  ganha" silenciosa na ordem alfabética de `seed_from_catalog` — corrigido
+  com `_verificar_role_unico` (recusa criar/ativar uma segunda definição
+  para um papel já ocupado; desativar libera o papel). **14 agentes-exemplo
+  pré-provisionados**, decisão do usuário (opção recomendada): **11/14**
+  mapeados para papéis reais do `AgentRegistry` (Orquestrador, Arquiteto,
+  Analista de requisitos, Desenvolvedor backend/frontend, Especialista em
+  banco/infraestrutura, QA, Code reviewer, Segurança, Documentação); **3/14**
+  (Discovery técnico, Deploy, Incidentes) ficam **sem papel, honestamente**
+  — nenhum papel dedicado existe hoje no `AgentRegistry` para eles. **Limite
+  de custo e de tentativas por agente**: novo terceiro freio independente e
+  aditivo (`_recusar_se_limite_do_agente_estourado`, chamado em `run_card`),
+  convive com o orçamento por orquestração (ADR-0026) e o limite por card
+  (ADR-0031), cada um em escopo diferente. Migration `54e2ef2b7e2f` (tabela
+  global `agent_definitions`, mesmo precedente de `routing_rules`). Escrita
+  em `/v1/agent-definitions` exige papel `admin` — nível crítico máximo,
+  já que controla permissão real do `ContextBus`. `/ui/agentes` deixou de
+  ser placeholder: editor modal com os 13 campos, mesmo padrão de
+  `/ui/regras-roteamento`. Validado ao vivo em Docker/Postgres real: os 14
+  exemplos apareceram, CRUD completo funcionou, criação de segunda definição
+  para papel já vinculado devolveu 400, e uma edição restringindo
+  ferramentas/permissões de "Desenvolvedor backend" sobreviveu a um restart
+  do container `api`. 34 testes novos (`test_agent_catalog.py`,
+  `test_agent_catalog_api.py`, `test_agent_catalog_persistence.py`,
+  `test_agent_catalog_html.py`); `ruff`/`mypy --strict`/`alembic check`
+  limpos; suíte completa com cobertura ≥80% (1337 testes, 93,29%).
+- **Métricas e aprendizado com recorte por projeto e período (ADR-0052,
+  FID-25):** a maior parte da Tela 29 já tinha fonte real —
+  `observability/aprendizado.py` (ADR-0025) já agregava por executor/modelo
+  (execuções, falhas, retrabalho, tempo médio, custo) e `list_orchestrations`
+  (ADR-0038) já filtrava por projeto/período em SQL real indexado, então a
+  tabela de comparação de modelos (wf §31.2) não precisou de nenhuma mudança
+  de backend. O card cita `aprendizado.py` como origem das 8 recomendações
+  automáticas (wf §31.3), mas o módulo produzia só **1** frase de texto
+  livre (um único heurístico) — nenhuma das 8 categorias existia como
+  lógica distinta. Nova `recomendacoes_estruturadas()`: **6 categorias com
+  regra determinística e limiar fixo documentado** (aumentar effort para
+  categoria de falha recorrente; evitar modelo com ≥50% de taxa de falha;
+  adicionar teste automático quando a falha recorrente é de categoria
+  "testes"/"qa"; modificar critérios de aprovação quando a taxa de
+  aprovação é <50%; alterar limite de tentativas quando intervenções
+  humanas atingem ≥30% dos cards; ajustar regras de roteamento quando o
+  retrabalho atinge ≥30% dos cards). **"Criar novo agente especializado"**
+  e **"criar template de card"** ficam **permanentemente desabilitadas** —
+  nenhum sinal nos dados distingue os cenários que as justificariam, mesmo
+  padrão de "criar investigação separada" desabilitada no FID-21/ADR-0048.
+  **"Cobertura de testes"** (indicador 14 dos 15) é **sempre** `None`,
+  nunca calculado — o runtime não tem número de cobertura chegando ao
+  domínio (só a categoria de falha "testes", uma correlação fraca que
+  mentiria se usada como proxy); mostrado honestamente como "não
+  disponível". `get_learning_report_global` ganhou
+  `project_id`/`data_de`/`data_ate` — filtro SQL real e indexado de
+  `list_orchestrations` aplicado **antes** de hidratar qualquer
+  orquestração, restringindo a lista primeiro (mesmo cuidado de escala de
+  `audit_page`, ADR-0051, que rejeitou explicitamente hidratar o sistema
+  inteiro em Python). **4 indicadores novos** (tempo/custo médio por
+  demanda, número médio de tentativas, falhas por agente): `consolidar()`
+  ganhou parâmetros de **contagem bruta**, somados pelo coletor antes de
+  qualquer divisão — nunca uma média-de-médias, matematicamente errada
+  entre orquestrações de tamanhos diferentes; "primeiro ciclo"/"número
+  médio de tentativas" usam `card.tentativa_atual` (contador autoritativo
+  e sem limite de ring, ADR-0031), nunca o ring de tentativas (capado em
+  10); "falhas por agente" usa um campo novo `CardSnapshot.agente`
+  (`card.assignee`, o PAPEL) — agrupamento deliberadamente diferente de
+  `desempenho_por_executor` (agrupado por `card.executor`, o MODELO), já
+  que o wireframe pede os dois como indicadores distintos. `/ui/metricas`
+  deixou de ser placeholder: página única cross-demanda (mesmo padrão de
+  `/ui/auditoria`, FID-24, já que a Tela 29 também é naturalmente global)
+  com os 15 indicadores, a tabela de comparação de modelos e as 8
+  recomendações com justificativa quando disparadas. Nenhuma migration
+  necessária — tudo vive em dataclasses puras computadas na leitura.
+- **Auditoria cross-demanda com filtros (ADR-0051, FID-24):** a aba "audit"
+  do console legado só mostrava contadores agregados — zero filtro sobre
+  registros individuais. Investigação prévia encontrou que nenhuma query
+  cross-orquestração filtrável existia no runtime (só `/v1/activity`, um
+  peek plano sem filtro) e que 5 dos 14 campos do wireframe (Projeto,
+  Modelo, Effort, Etapa-como-Fase, Identificador da execução) não tinham
+  fonte durável — só existiam nos rings limitados (`tentativas` capado em
+  10, `failures` em 5), que violariam o critério "registro nunca
+  sobrescrito" se reaproveitados como fonte. `CardEvent`/`CardEventRow` (já
+  append-only e nunca truncado, ADR-0019) ganhou 4 campos novos opcionais
+  (`model`, `effort`, `phase`, `execution_id`), preenchidos **daqui pra
+  frente** nos pontos de escrita já existentes (`_apply_execution`/
+  `_route_failure`, chamados de `run_card`/`run_plan`) — eventos antigos e
+  movimentação manual ficam honestamente `None` nesses 4 campos, nunca
+  fabricados retroativamente. `execution_id` é gerado uma vez por tentativa
+  de execução e propagado a todo `CardEvent` nascido dela (confirmado:
+  "AgentStarted"→"TestsPassed" da mesma execução compartilham o mesmo id).
+  Nova consulta `audit_page` segue o padrão de query SQL real e paginada de
+  `list_orchestrations` (ADR-0038) — deliberadamente **não** o padrão N+1 de
+  `list_all_approvals` (hidratar toda orquestração em Python), rejeitado
+  porque auditoria cresce sem limite; implementada nos dois adapters (SQL e
+  in-memory), contrato `OrchestrationRepository` mantido simétrico. **6
+  filtros reais** (wf §30.3): data/agente/etapa sobre colunas indexadas,
+  projeto via `JOIN`, demanda por `orchestration_id`, resultado via `ILIKE`
+  substring (texto livre, não um enum fabricado). **Exportação em CSV**
+  (novo `GET /v1/audit/export`) — primeiro export CSV do projeto (o único
+  precedente, `closure/export` da ADR-0050, é markdown, adequado a
+  relatório narrativo, não tabela de auditoria); teto defensivo de 5000
+  linhas, documentado explicitamente. `/ui/auditoria` deixou de ser
+  placeholder: página única cross-demanda (a auditoria já é naturalmente
+  global, não picker+drilldown) com os 6 filtros, lista paginada e
+  exportação carregando os mesmos filtros aplicados. Uma migration nova (4
+  colunas + 3 índices em `card_events`), validada em SQLite **e Postgres
+  real via Docker**, incluindo sobrevivência a um restart completo do
+  container da API.
+- **Aprovação, implantação, validação, rollback, aceite e encerramento
+  (ADR-0050, FID-23):** as Telas 22-27 (wf §24-§29) giram em torno de UM
+  `DeployRun` da demanda (Telas 22-26) ou da demanda inteira (Tela 27), então
+  a aba "Deploys" de `demanda-detalhe.html` ganhou o **pipeline visual de 5
+  estágios** (Tela 23) — descoberto já **100% pronto no backend desde o
+  FID-02** (`PIPELINE_PADRAO` já usava os mesmos 5 nomes do wireframe), só
+  faltava a UI. Ganhou também o **checklist de aprovação de 9 itens +
+  avaliação de risco** (Tela 22, wf §24): 4 itens com sinal real (PR
+  aprovada, testes aprovados, plano de rollback disponível, aprovação
+  humana realizada), 5 sem sinal — os mesmos já documentados como sem sinal
+  desde a ADR-0023, nunca fabricados. **Saúde pós-implantação de 4 níveis +
+  decisão sugerida** (Tela 24, wf §26): `saude_pos_deploy` deriva de FATO —
+  `validacao_resultados` já distinguia item bloqueante de não-bloqueante
+  (§20) desde a ADR-0023; "saudável com alertas" é só quando um item
+  NÃO-bloqueante falhou, nunca heurística. A decisão sugerida é só uma
+  **sugestão textual, nunca uma ação automática** — quem executa é sempre o
+  endpoint real, acionado manualmente pelo operador. **Rollback com
+  estratégia + checklist de 6 itens** (Tela 25, wf §27): novo campo
+  `DeployRun.rollback_estrategia`, puramente descritivo — documentado
+  explicitamente que o runtime sempre roda o mesmo
+  `deploy_rollback_command` independente da estratégia escolhida, sem
+  execução diferenciada real; do checklist, 4 itens têm sinal real
+  (incluindo "abrir análise de causa raiz", que reaproveita o `Incident`
+  que `rollback_deploy` já cria automaticamente, ADR-0032), 2 sem sinal.
+  Aba "Incidentes" ganhou timeline completa e ações investigar/resolver.
+  **3 sub-tipos de aceite humano** (Tela 26, wf §28.2): novo campo
+  `DeployRun.tipo_aceite_humano` (produto/técnico/negócio), opcional, só
+  populado quando o operador informa — nunca inferido. **Nova aba
+  "Encerramento"** (14ª aba de `demanda-detalhe.html`) cobre a Tela 27 (wf
+  §29): primeiro agregador no nível da DEMANDA inteira
+  (`_build_demand_closure`) — mesma disciplina de `_build_card_closure`
+  (ADR-0021, "só monta o que o runtime já tem à mão"), até então só existia
+  por card. Discrepância real encontrada entre as specs e resolvida: a
+  wireframe tem 14 blocos (inclui "Cards concluídos"), mas `fluxo.md` §23 e
+  o próprio critério de aceite do card ("13 blocos") só têm 13 — resolvido
+  honrando o texto literal do card: 13 blocos no relatório, "Cards
+  concluídos" vira métrica de resumo (wf §29.2), não um 14º bloco. Novo
+  `GET .../closure/export` devolve markdown pronto para download
+  (`Content-Disposition: attachment`) — endpoint real no backend, não
+  geração client-side. `/ui/implantacoes` deixou de ser placeholder e segue
+  o padrão picker+drilldown de `/ui/execucoes`/`/ui/testes`/`/ui/code-reviews`
+  (FID-21/22); `/ui/aprovacoes` quebra esse padrão deliberadamente e vira
+  uma **inbox cross-demanda real** (`GET /v1/approvals?status=` já existia,
+  cross-orquestração) — mais honesto que replicar o picker só por
+  consistência visual. Nenhuma migration necessária — todos os campos
+  novos vivem no ring JSONB `deploy_runs` já existente.
+- **Code review, correção obrigatória, testes manuais e bug manual (ADR-0049, FID-22):**
+  as Telas 18/19/20/21 (wf §20-§23) também são sobre **um card específico**
+  — `card-detalhe.html` teve as abas "Review" e "Testes" expandidas, mesmo
+  padrão de "expandir aba existente" do FID-18/FID-21. **Resumo do review**
+  (wf §20.1) ganhou commits e linhas adicionadas/removidas via novos
+  `WorktreeManager.commit_count`/`line_stats` (`git rev-list --count`/`git
+  diff --shortstat`). **Checklist de 12 eixos** (wf §20.2) mostra os rótulos
+  fixos do wireframe ao lado do `pontos_verificados` **real** (texto livre
+  do revisor) — nunca cruzados um a um, para não fabricar uma precisão de
+  auditoria que o dado não sustenta, mesma disciplina de "fato, não palpite"
+  já usada na confiança de falha (ADR-0048) e de recomendação (ADR-0044).
+  Comentários de review agora mostram os 8 campos do wf §20.3 (`ReviewComment`,
+  ADR-0033, já tinha todos — só a UI cortava para 4). **Correção obrigatória
+  travada de verdade no backend**: `run_review` recusa com `409` quando
+  `card.status == NeedsFix` — o card precisa passar de volta por `Testing`
+  antes de nova revisão, reaproveitando a máquina de estados já existente
+  (ADR-0047), sem mecanismo novo. **Plano de teste manual** (wf §22.1):
+  `QaCheck` ganhou `codigo` (gerado via `gen_id`, nunca um "QA-001"
+  fabricado como no exemplo do wireframe)/`titulo`/`pre_condicoes`, sem
+  migration (ring JSONB no card, como já era). **Registro de bug manual**
+  (wf §23): nova entidade `BugReport`, tabela relacional própria
+  (`bug_reports`) — mesmo padrão de `Incident` (ADR-0032), escolhido depois
+  de comparar explicitamente contra o padrão JSONB do `Documento` (FID-19) e
+  concluir que bug é "lista de tamanho variável com ciclo de vida próprio",
+  não um ring versionado. `card_original_id` é o campo "Card original" do
+  wf §23.1 (o card que tinha o problema); `card_id` é o `KanbanCard(type=Bug)`
+  recém-criado, objeto rastreável no Kanban, mesmo papel de `Incident.card_id`.
+  `create_bug_report` reaproveita a mesma forma de descrição textual de
+  `_criar_bug_de_qa` (ADR-0025), sem duplicar lógica. Das 6 opções de
+  "retorno de fluxo" (wf §23.2), só **"Criar card independente"** tem efeito
+  real (bug nasce sem `dependencies`/`parent_id`); as outras 5 ("retornar
+  para implementação/infraestrutura/banco de dados/documentação/
+  arquitetura") são **metadado descritivo** — o runtime não tem roteamento
+  automático entre disciplinas/times, fabricar isso mentiria sobre o que o
+  sistema faz; a intenção do operador fica gravada e visível. `/ui/code-reviews`
+  deixou de ser placeholder — lista agregada por demanda, mesmo padrão de
+  `/ui/execucoes`/`/ui/testes` (FID-21). `/ui/testes?id=` ganhou tabela de
+  bugs registrados, fechando o gap que o próprio FID-21 já documentava; as
+  cores de status de QA foram corrigidas (o vocabulário real é
+  `passou`/`falhou`/`pendente` — a UI antiga comparava com
+  `aprovado`/`reprovado`, que nunca existiram como valor real). Uma
+  migration nova (`bug_reports`), validada em SQLite **e Postgres real via
+  Docker**, incluindo sobrevivência a um restart completo do container da
+  API (prova que o dado veio do banco, não só do cache em memória).
+- **Execução, quality gates e tratamento de falhas (ADR-0048, FID-21):**
+  o conteúdo das Telas 15/16/17 é sobre **um card específico** em execução,
+  não a demanda inteira — `card-detalhe.html` (FID-14/ADR-0041) ganhou uma
+  11ª aba "Falhas" e as abas "Execuções"/"Testes" já existentes foram
+  expandidas, mesmo padrão de "expandir aba existente" já usado no FID-18
+  para Discovery. Dos 8 controles em voo do wf §17.2, **6 ganharam
+  funcionalidade real**: Cancelar/Transferir agente/Marcar bloqueado
+  reaproveitados como já estavam; **Aumentar effort/Trocar modelo** (dois
+  métodos novos) reaproveitam **as mesmas funções puras** do roteamento
+  automático de falha (`proximo_effort`/`proximo_executor`, ADR-0019) —
+  zero lógica de decisão duplicada, só um caminho manual novo de acioná-las;
+  `run_card` passou a considerar `card.effort_override`/`card.executor_override`
+  com a mesma prioridade de um parâmetro explícito, sem criar um segundo
+  mecanismo de resolução paralelo. **Adicionar contexto** (campo novo,
+  entra no próximo prompt do agente via `_build_task`). **Solicitar ajuda**
+  reaproveita `request_approval` (ação rotulada, sem mecanismo novo).
+  **Pausar** ganhou uma reinterpretação honesta e restrita — impede a
+  **próxima** execução (`run_card` recusa com 409), não interrompe uma já
+  em andamento, já que nada no runtime suporta isso hoje. Das 7 "decisões
+  do orquestrador" (wf §19.2), 6 mapeiam para ações reais; **"Criar
+  investigação separada" fica desabilitada** com tooltip honesto — não
+  existe esse mecanismo; "Bloquear" é rotulado honestamente como "Bloquear
+  (card)", já que não existe bloqueio de demanda inteira. Diagnóstico e
+  confiança de falha são **calculados na leitura**, nunca persistidos como
+  palpite — nova função pura `confianca_diagnostico`: `"alta"` quando a
+  falha veio de verificação nomeada da bateria (fato), `"baixa"` na
+  heurística por palavra-chave — categórica, nunca um percentual, mesmo
+  raciocínio já usado na confiança de recomendação de roteamento
+  (ADR-0044). **Duração real por critério de quality gate**:
+  `QualityGateEngine.run` mede `time.monotonic()` em volta de cada
+  predicado (cobre comando externo e em memória uniformemente) — novo
+  `GateCriterionResult.duration_ms`, migration na tabela normalizada
+  `gate_criteria`. Novo `WorktreeManager.changed_files` (`git diff
+  --name-only`) para "arquivos alterados" — lista vazia honesta quando o
+  card nunca teve branch. "Plano passo a passo" do wireframe **não virou
+  um checklist fictício** — nenhum mecanismo rastreia progresso granular
+  por passo; a aba aponta para o `preparation_checklist` real já existente,
+  sem inventar uma terceira fonte de verdade. `/ui/execucoes?id=` e
+  `/ui/testes?id=` (2 das 16 seções fixas da sidebar) substituem os
+  placeholders do FID-09 — listas agregadas por demanda com drill-down para
+  `/ui/card-detalhe`, mesmo padrão kanban macro vs. kanban por card do
+  FID-20; `/ui/testes` documenta honestamente que plano de teste
+  manual/registro de bug (wf §20/§21) é escopo do FID-22, ainda pendente.
+  Duas migrations novas, validadas em SQLite **e Postgres real via
+  Docker**. Um bug real (ordem de validação em `transfer_card_model` —
+  catálogo checado antes da existência do card) foi encontrado e corrigido
+  pelos próprios testes antes de finalizar.
+- **Kanban operacional completo (ADR-0047, FID-20):** wf §13 pede 14 colunas
+  nomeadas, card resumido com 11 campos e movimentação manual respeitando a
+  máquina de estados do wf §35. Investigação prévia encontrou uma dívida
+  antiga: `specs/kanban.md` (TASK-04, ADR-0002) já listava "movimentos
+  inválidos são rejeitados" como critério de aceite original — **nunca
+  implementado**; `BoardService.move_card` sempre aceitou qualquer
+  origem→destino. Este card paga essa dívida, não é escopo novo. Novo
+  módulo puro `kanban/transitions.py`: grafo de transições válidas
+  derivado do diagrama do §35, com os nomes do wireframe mapeados para as
+  16 `ColumnKey` reais — "Pronto para implantação" e o estado transitório
+  "Rollback" (sem `ColumnKey` própria) são colapsados honestamente em
+  arestas reais adjacentes (Review→Deploying, Validating→NeedsFix),
+  documentado explicitamente. **Validação só no caminho manual**: novo
+  `OrchestrationService.move_card_validado`, usado exclusivamente pelo
+  endpoint HTTP `POST .../move` — confirmado que **todos** os call-sites
+  internos de automação (roteamento de falha, liberação de dependência,
+  block/unblock/cancel) chamam `BoardService.move_card` diretamente, nunca
+  através do método de serviço — zero risco a fluxos internos já maduros.
+  Dois testes existentes que usavam o endpoint de mover como atalho de
+  fixture (não testavam a máquina de estados) foram ajustados para uma
+  transição válida. Novo `GET /v1/orchestrations/{id}/kanban`: as 16
+  colunas reais (13 com rótulo literal do wireframe, 3 sem correspondência
+  usando o nome do `ColumnKey`) com os cards trazendo os 11 campos do
+  §13.3 **já resolvidos no backend** (agente/modelo/effort cruzados com o
+  catálogo de executores e o ring de tentativas; indicador de aprovação
+  humana pendente filtrado por `card_id`; falhas com indicador honesto de
+  truncamento do ring de 5) — evita N+1 no cliente. Nova página
+  `/ui/kanban?id=` substitui o placeholder do FID-09 — board de **uma**
+  demanda (decisão explícita do usuário; o kanban macro `/ui/`, que agrega
+  várias orquestrações, continua existindo à parte, intocado). Sem `?id=`,
+  mostra um seletor de demandas. Drag-and-drop nativo HTML5, zero
+  dependência externa nova — transição rejeitada mostra a mensagem real
+  devolvida pelo backend e sempre recarrega o quadro do servidor, nunca
+  move otimisticamente no cliente. `demanda-detalhe.html`: aba "Cards"
+  ganhou um link para o Kanban completo.
+- **Documentos, especificações e revisão documental (ADR-0046, FID-19):**
+  wf §10 pede 13 tipos de documento (Requisitos, Especificação funcional,
+  Especificação técnica, Arquitetura, Diagrama de componentes, Diagrama de
+  fluxo, Modelo de dados, Contrato de API, Plano de migração, Plano de
+  testes, Plano de implantação, Plano de rollback, Checklist de segurança).
+  Investigação prévia mapeou: 1 tipo já era `SpecDocument` (entidade
+  madura, com fluxo de revisão completo); 4 tipos já eram **campos**
+  isolados dentro dele (a própria ADR-0021 já tinha decidido
+  deliberadamente não dar campos próprios a eles); **8 tipos não tinham
+  NENHUMA representação**. Nova entidade **genérica** `Documento`
+  (`control/documento.py`) cobre só esses 8 — não 8 modelos Pydantic
+  separados, seguindo o precedente já usado no projeto (`ContextPatch`/
+  `DomainEvent`/o próprio ring genérico de `control/documentos.py`). **Os 5
+  tipos já cobertos pelo spec continuam vivendo só lá, nunca duplicados**
+  (decisão explícita do usuário sobre a alternativa de migrar tudo para o
+  sistema novo) — a lista de documentos os mostra em modo leitura, lendo o
+  dado real ao vivo do `SpecDocument`; tentar editá-los pela rota nova
+  devolve `400` com mensagem explicando onde editar de verdade.
+  **Achado decisivo, reaproveitado sem nenhuma mudança**: `DocReviewVerdict`/
+  `ReviewService.revisar_documento` (ADR-0021) já tinha **exatamente** os
+  quatro desfechos do wf §11.2 (aprovado / aprovado com observações /
+  reprovado / necessita decisão humana) e já era genérico (aceita qualquer
+  `BaseModel`) — o checklist do revisor dos 8 tipos novos reaproveita o
+  motor inteiro, com um fluxo deliberadamente mais simples que o da spec
+  (sem contagem de rodadas, sem exigir revisor diferente do autor — são
+  artefatos de apoio, não o gate central de qualidade). Novo modelo
+  `DocumentComment` (comparado campo a campo com `ReviewComment`/ADR-0033 —
+  só 3 de 8 batiam — não reaproveitado) com os 8 campos literais do wf
+  §10.3/§11.3: autor, tipo, severidade, trecho relacionado, descrição, ação
+  solicitada, status, resposta do autor. Comparação de versões via
+  `difflib.unified_diff` (stdlib, zero dependência nova). **Persistência**:
+  duas colunas JSONB novas em `orchestrations` (não tabelas novas) — mesmo
+  padrão de `discovery_reports`/`spec_documents`; migration validada não só
+  em SQLite, mas em **Postgres real via Docker** (`docker compose up
+  --build`, `/health`, `./scripts/smoke.sh`, além de um ciclo completo de
+  criar/ler/editar/comentar documento contra o Postgres). Nova página
+  `/ui/documentos?id=` substitui o placeholder criado no FID-09/ADR-0036
+  (uma das 16 seções fixas da sidebar, reservada desde então) — editor
+  Markdown com visualização renderizada por um "subconjunto simples"
+  próprio (cabeçalhos, negrito, itálico, código, listas, links — não um
+  parser CommonMark completo nem biblioteca externa nova, mantendo o
+  precedente "zero dependência" das ADRs anteriores), histórico de versões
+  com comparação, comentários e o checklist do revisor. Sem `?id=`, mostra
+  um seletor simples de demandas em vez de redirecionar — é a primeira
+  seção de primeiro nível da sidebar com conteúdo por-demanda, alcançável
+  sem contexto prévio. `demanda-detalhe.html`: aba "Documentos" ganhou um
+  link para a página completa.
+- **Discovery técnico e sua aprovação (ADR-0045, FID-18):** expande a aba
+  "Discovery" já existente em `demanda-detalhe.html` (não uma página nova)
+  com painel de execução, log real e checklist de aprovação. `DiscoveryReport`
+  ganha `started_at`/`finished_at`/`duration_ms`/`log` — timestamps e
+  duração **reais**, medidos com `time.monotonic()` dentro de
+  `DiscoveryService.investigar()`; `log` é uma lista curta de eventos reais
+  (início com executor/effort, desfecho com confiança ou motivo de falha),
+  nunca uma linha fabricada como o exemplo ilustrativo do wireframe. Escopo
+  de "logs ao vivo" **refinado durante a implementação**: investigação
+  revelou que streaming verdadeiro (token a token, enquanto a chamada
+  ainda está em voo) exigiria portar o padrão `Popen`+threads+`AgentLogBus`
+  (já usado em `cli_provider.py` para execução de card) para
+  `agent_ask.py::perguntar_ao_agente` — função compartilhada por **5
+  serviços** (naming, triagem, revisão, discovery, especificação); em vez
+  desse raio de impacto desproporcional, entregue timing+log reais
+  pós-execução, decisão documentada explicitamente, não escondida. As 7
+  "Etapas da análise" do wireframe **não** viraram um checklist fictício —
+  a chamada ao agente é uma única operação, sem sub-passos observáveis; a
+  aba mostra uma nota honesta em vez de progresso granular fabricado.
+  **Checklist de aprovação com os 7 rótulos literais do wireframe**
+  (decisão explícita do usuário, não a alternativa recomendada de mostrar
+  só os 3 reais) — nova função pura `avaliar_criterios_aprovacao`: 3 itens
+  com verificação automática real (risco, mudança de arquitetura, risco de
+  perda de dados via impacto "database", confiança do agente), os outros 4
+  ("Escopo claro", "Sem impacto financeiro significativo", "Padrões já
+  aprovados") ficam com tooltip honesto "sem verificação automática hoje",
+  nunca um resultado fabricado. `motivos_escalada` é 100% real — satisfaz
+  o critério de aceite "motivos da escalada humana listados explicitamente",
+  que antes não existia como texto algum. Novo `GET
+  .../discovery/approval-criteria`. As 4 ações de aprovação (Reprovar,
+  Solicitar ajustes, Aprovar com observações, Aprovar) mapeiam
+  honestamente para as 2 operações reais já existentes
+  (`decide_discovery(approved: bool)`) — documentado como simplificação de
+  UX, não 4 estados novos persistidos; zero mudança de backend para as
+  ações em si. Painel de execução (agente/modelo/effort/status/tempo
+  decorrido) reaproveita `agent_assignments["discovery"]` cruzado com o
+  catálogo de executores, mesmo padrão do painel de responsáveis da Tela
+  04. Botão "Rodar discovery" reaproveita `POST .../discovery/run`, que já
+  existia (usado até agora só em `detalhe.html`). Correção retroativa em
+  `docs/mapa-paginas.md`: as linhas "Modelos"/"Aprovações" citavam
+  FID-17/FID-18 especulativamente desde o FID-09 — corrigidas agora que
+  suas implementações reais confirmaram que ambos vivem dentro de
+  `demanda-detalhe.html`, não em `/ui/modelos`/`/ui/aprovacoes`.
+- **Classificação editável e painel de recomendação (ADR-0044, FID-17):**
+  duas abas novas em `demanda-detalhe.html` — "Classificação" (wf §7, Tela
+  05) e "Recomendação" (wf §15, Tela 13) — não uma página satélite nova,
+  já que ambas falam da mesma demanda já em foco na Tela 04 (a própria
+  descrição do card confirmava: "a classificação aparece na ficha").
+  **Classificação editável**: novo `PATCH /v1/orchestrations/{id}/classification`,
+  edição pontual (só os campos informados mudam), diferente de
+  `retriage_demand` (que reroda o agente de triagem inteiro do zero) —
+  evento auditável `ClassificationUpdated` com `before`/`after`, mesmo
+  padrão estrutural já usado por `ExecutionSettingsUpdated`, aparecendo
+  automaticamente na aba Histórico. **Painel de recomendação**: novo `GET
+  /v1/orchestrations/{id}/recommendation` — método novo e independente
+  (`preview_recommendation`), escolha explícita do usuário sobre a
+  alternativa de refatorar `create_orchestration`/`_apply_routing_rule`
+  (caminho crítico já em produção) para compartilhar lógica; reaproveita as
+  mesmas funções puras do caminho real (`avaliar_regras`+
+  `contexto_de_demand_brief`, mesmo par do FID-15/ADR-0042; e, sem regra
+  casando, `MultiAgentDecisionEngine.decide`+`sugerir_effort`), só que
+  somente leitura, sem persistir nada. **Confiança é categórica** (`"alta"`
+  quando uma regra bateu, `"baixa"` no fallback heurístico) — decisão
+  explícita do usuário: nunca um percentual fabricado, já que o motor não
+  produz nenhum número de confiança (o "92%" do wireframe é só exemplo
+  ilustrativo). **Custo/tempo estimados** derivados do histórico GLOBAL de
+  desempenho (`GET /v1/learning`, `desempenho_por_executor`), bucketados em
+  terços (baixo/médio/alto) pela posição relativa do executor recomendado —
+  `null` quando não há modelo recomendado (heurística não recomenda modelo)
+  ou não há amostra desse executor no histórico. **"Override humano da
+  recomendação registrado"** reaproveita 100% o `PATCH .../execution-settings`
+  já existente (que já gravava `ExecutionSettingsUpdated`) via um botão
+  "Aplicar como override manual" na aba Recomendação — nenhum mecanismo de
+  override novo foi inventado. "Prioridade" continua sendo o mesmo campo
+  que `risco` (convergência já documentada nas ADR-0038/0039); "quality
+  gates necessários" vêm de `RoutingAction.quality_gates` quando uma regra
+  bate; "número estimado de cards" é omitido por completo — não existe
+  mecanismo real que produza essa estimativa hoje.
+- **Detalhes da demanda em 11 abas (ADR-0043, FID-16):** `detalhe.html` é a
+  "sala de controle" legada (esteira F1→F7, próximo passo, SSE ao vivo) que
+  a ADR-0036 (FID-09) tinha deixado explicitamente sem sidebar — mas essa
+  mesma ADR já previa que os cards FID-10…FID-26 iriam "absorver" o conteúdo
+  das páginas legadas para dentro das seções novas. Este card é essa
+  absorção: nova página satélite `/ui/demanda-detalhe?id=&aba=`, mesmo
+  padrão dos satélites anteriores (header+sidebar `active:'demandas'`,
+  componente `.tabs`/`.tab` já usado no FID-14) — **`detalhe.html`
+  permanece 100% intocada**, seguindo o mesmo precedente do FID-14/ADR-0041
+  (página nova + redirecionamento dos pontos de entrada, não edição da
+  página legada no lugar). Cabeçalho com os 11 campos do wf §6.2 (código,
+  status, prioridade/risco — mesmo campo único desde a ADR-0038/0039 —,
+  complexidade, impacto, projeto, solicitante, data de criação). **Barra de
+  progresso** = cards Done / total de cards da demanda inteira (fórmula não
+  especificada pelo wireframe, decidida com o usuário — mesma lógica já
+  usada para o progresso da FASE atual em `next_step.py`, agora aplicada à
+  demanda inteira); reaproveita `.progressbar`, componente CSS comentado
+  desde a origem como "wf §6.4" e nunca consumido até agora. **Painel de
+  responsáveis** usa `agent_assignments` real (10 etapas técnicas: F1-F7 +
+  `naming`/`triagem`/`revisao`), cruzado com `GET /v1/executors` para
+  resolver o modelo — não os 4 papéis ilustrativos do exemplo do wireframe
+  ("Orquestrador/Arquiteto/Implementação/Review"), que não correspondem a
+  nenhuma chave real do domínio. **SSE mantido ao vivo** (decisão do
+  usuário, não a alternativa mais simples de fetch único) — primeira página
+  satélite do projeto com `EventSource`; reaproveita o mesmo endpoint de
+  `detalhe.html`, mas cada evento recarrega só o núcleo + a aba **ativa**
+  (carregamento tardio por aba, com cache), não a página inteira. **Zero
+  endpoint novo** — as 11 abas (Visão geral, Discovery, Documentos, Cards,
+  Execuções, Testes, Reviews, Deploys, Incidentes, Histórico, Métricas)
+  consomem 17 endpoints já existentes de cards anteriores; "Documentos"
+  agrega Discovery+Spec+ADRs (a lista completa de tipos de documento do wf
+  §10 é escopo do FID-19, não deste card). `demandas.html`: "Visualizar
+  histórico"/"Visualizar documentos" agora apontam para a nova página com
+  deep-link direto à aba certa; "Abrir" continua em `/ui/detalhe` — a única
+  ação de console que permanece lá.
+- **Editor visual de regras de roteamento (ADR-0042, FID-15):** camada de UI
+  pura sobre o motor SE/ENTÃO já entregue no FID-01/ADR-0028 — o wireframe
+  §33 descreve o editor de condições/ações, mas **não menciona** pré-
+  visualização de demandas nem ordem de precedência editável em nenhum
+  lugar; os dois critérios extras do card são extrapolações sobre a spec
+  original, documentadas como tal na ADR, não escondidas. Pré-visualização
+  real via novo `POST /v1/routing-rules/preview`: roda `avaliar_regras()`
+  (motor puro do FID-01, zero duplicação de lógica no frontend) contra
+  `list_all()` — todas as demandas já existentes no sistema, leitura leve
+  sem hidratar bundle, mesma filosofia "dev-scale" já aceita em
+  `header_summary`/`search` (ADR-0035). Nova função pura
+  `contexto_de_demand_brief`, espelhando `contexto_de_decision_input` já
+  existente. Ordenação por **arrastar-e-soltar** (escolha explícita do
+  usuário, não a alternativa recomendada mais simples de campo numérico por
+  linha) via novo `PUT /v1/routing-rules/reorder`, reatribuindo
+  `precedencia` sequencial (10, 20, 30…) — registrada **antes** de `PUT
+  .../{rule_id}` para não ser interceptada como `rule_id="reorder"` (mesmo
+  cuidado de ordenação de rotas Starlette já aplicado a `cards/{card_id}`
+  na ADR-0041, com teste de regressão dedicado). "Escrita restrita a admin"
+  já estava implementado desde o FID-01 (`auth.py::required_role`, checagem
+  por prefixo `/routing-rules`) — nenhuma mudança de RBAC foi necessária;
+  `preview`/`reorder` herdam a exigência automaticamente por caírem no
+  mesmo prefixo (`preview`, embora só leitura, também exige admin por esse
+  motivo — aceito para não introduzir exceção pontual no middleware).
+  Campos "Agente"/"Effort" seguem texto livre (não existe catálogo global
+  desses valores); "Modelo" vira `<select>` populado por `GET /v1/executors`
+  (dado real). Nova página satélite `/ui/regras-roteamento` — primeira do
+  projeto **sem** `?id=`, já que regras são configuração global, não de uma
+  demanda específica — linkada a partir de `/ui/console` até `/ui/configuracoes`
+  (FID-26) existir.
+- **Detalhes do card em 10 abas (ADR-0041, FID-14):** o wireframe §14 lista os
+  campos obrigatórios (§14.1) e os nomes das 10 abas (§14.2) em duas listas
+  separadas, sem cruzamento — o mapeamento campo→aba (Resumo, Plano,
+  Implementação, Arquivos, Testes, Review, Evidências, Dependências,
+  Execuções, Histórico) é decisão de design deste ADR, não citação literal do
+  wireframe. Objetivo/Contexto/Riscos/Evidências esperadas/Complexidade não
+  têm granularidade de card — só existem no `DemandBrief` da orquestração —
+  e são reaproveitados na aba Resumo com rótulo explícito "herdado da
+  demanda", por escolha confirmada com o usuário (reaproveitar rotulado, não
+  omitir, e não fabricar campo novo). Modelo selecionado e Nível de effort
+  também não são campos estáticos: só existem por tentativa
+  (`TentativaRegistro.executor`/`.effort`, ring `tentativas`), mostrados na
+  aba Execuções. **"Histórico de execução nunca sobrescrito" cumprido de
+  forma real**: novo endpoint `GET .../cards/{card_id}/events` expõe pela
+  primeira vez via HTTP o `BoardService.card_events` — log append-only já
+  coletado e persistido integralmente desde a ADR-0025/ADR-0019, mas nunca
+  servido — diferente dos rings `failures`/`tentativas`/`qa_checks`
+  (truncados em 5/10/10, usados nas abas Execuções/Testes, não na
+  Histórico). Novo `GET .../cards/{card_id}` devolve a ficha completa de um
+  único card. Cuidado de roteamento explícito: essa rota (path param de um
+  segmento) foi registrada **depois** de `cards/tree`, `cards/stats` e
+  `cards/by-status/{status}` para não sombreá-las — Starlette casa rotas por
+  ordem de registro — com teste dedicado para não repetir essa classe de bug.
+  Nova página satélite `/ui/card-detalhe?id=&card=`, reaproveitando o
+  componente `.tabs`/`.tab` já existente desde o design system (ADR-0034,
+  até agora só usado no console legado). `demanda-estrutura.html` (FID-13):
+  clique no nó da árvore agora navega para `/ui/card-detalhe`, fechando a
+  lacuna de deep-link que a ADR-0040 havia documentado como limitação
+  honesta.
+- **Estrutura da demanda em árvore (ADR-0040, FID-13):** o próprio wireframe §12 só
+  desenha 3 níveis (Épico/História/Card) — "Subtarefa" (citada na descrição do card)
+  não aparece em nenhum texto nem diagrama da seção-fonte. Usuário aprovou
+  explicitamente subir `PROFUNDIDADE_MAXIMA` de 3 para 4 em `hierarchy.py`: "Subtarefa"
+  não é um `CardType` novo, é o mesmo `TASK` com `parent_id` apontando para outro
+  `TASK`. `montar_arvore(cards)` — função pura nova, recursiva sobre `filhos()` (que
+  já existia) — monta a árvore completa pela primeira vez; até aqui `hierarchy.py`
+  (ADR-0025) só tinha primitivas de nível único. "Projeto" vira rótulo estático de
+  contexto no topo da tela, **não** um nó expansível: a árvore é de **uma demanda**
+  específica (uma orquestração), não do projeto inteiro — `Project` agrupa
+  orquestrações, não cards, e o wireframe nem desenha esse nó. "História" reaproveita
+  `CardType.FEATURE` (já usado com esse papel), sem enum novo. Dois endpoints novos:
+  `GET .../cards/tree` e `POST .../cards` (cria item em qualquer nível, reaproveitando
+  `BoardService.add_card` integralmente — `parent_id` inexistente/ciclo/profundidade
+  excedida devolvem `409` com a mesma mensagem da validação interna). Navegação do nó
+  volta para `/ui/detalhe?id=`, sem destacar o card específico (não existe deep-link a
+  card dentro do detalhe hoje — documentado, não escondido). Correção retroativa em
+  `demandas.html` (FID-11): "Visualizar cards" agora aponta para a Tela 10, não mais
+  para o detalhe legado. O componente `.tree` (criado no FID-07, nunca usado até
+  agora) finalmente tem uma tela consumindo-o.
+- **Cadastro de demanda completo (ADR-0039, FID-12):** `DemandBrief` ganha 11 campos
+  novos, todos aditivos (`solicitante`, `origem_da_demanda`, `sistemas_afetados`,
+  `apis_afetadas`, `banco_de_dados_afetado`, `infraestrutura_afetada`,
+  `dependencias_conhecidas`, `restricoes`, `evidencias_esperadas`,
+  `aprovacao_humana_obrigatoria`, `prazo`) — investigação prévia achou que só 8 dos
+  ~24 campos do wireframe §5.2 já tinham correspondência; "Prioridade" continua sendo
+  o mesmo valor de "Risco" (confirma o achado do FID-11), sem campo separado.
+  **`aprovacao_humana_obrigatoria` tem efeito real**: força
+  `plan.requires_human_approval` na criação, mesmo precedente que
+  `RoutingRuleAction.aprovacao_humana` (ADR-0028) já tinha — testado de ponta a ponta
+  com dado real. `orcamento_usd` passa a ser aceito já na criação (antes só via
+  `PUT .../budget`). `POST /v1/orchestrations` ganha um segundo caminho, documentado
+  como exceção deliberada ao "único caminho correto de criação" (ADR-0017): quando o
+  corpo já traz uma `demand_brief` completa, cria direto sem re-triagem — o
+  solicitante já preencheu a ficha à mão. Bug real identificado e corrigido antes de
+  finalizar: sem construir o `decision_input` a partir da ficha, o motor de decisão
+  ignoraria silenciosamente os domínios/impactos/risco escolhidos pelo usuário.
+  Página nova `/ui/demanda-nova` (não mexe em `nova.html`, página legada congelada
+  pela ADR-0036) com os 4 blocos do wireframe, "Salvar rascunho"/"Iniciar" como ações
+  distintas — sem disparar Autopilot automaticamente.
+- **Lista de demandas com filtros e ações (ADR-0038, FID-11):** investigação prévia
+  (mesmo padrão do FID-10) achou que 4 das 11 ações do wireframe §4.4 não têm nenhum
+  backend hoje (Editar, Duplicar, Priorizar, Bloquear) e que "Prioridade" não existe
+  como campo de demanda — só como espelho do `risco`. Usuário aprovou: 7 ações reais
+  com endpoint já existente + **Duplicar** implementado agora (`POST
+  .../orchestrations/{id}/duplicate`, re-triagem do zero pelo caminho de
+  `create_with_triage`, sem clonar cards/histórico) + Editar/Priorizar/Bloquear
+  desabilitadas com motivo explícito no tooltip, sem fingir funcionalidade. Filtro
+  "Prioridade" converge com "Risco" num único controle real (mesmo campo). **Risco de
+  performance identificado e evitado antes de codificar**: o jeito óbvio de calcular
+  "aprovação humana" (reaproveitar `list_all_approvals()`) hidrataria toda orquestração
+  do sistema a cada chamada de uma tabela paginada — resolvido com uma query nova e
+  direta (`orchestration_ids_with_pending_approval`, sobre índice já existente, sem
+  hidratar nenhum bundle). 6 filtros baratos (`project_id`/`status`/`q`/`executor`/
+  `created_from`/`created_to`) rodam em SQL; os 5 que dependem de `demand_brief` (JSON
+  sem índice) ou de aprovação pendente rodam em memória sobre o resultado já reduzido
+  pelos baratos — nunca sobre todas as orquestrações. `GET /v1/orchestrations` sem
+  `page` continua devolvendo tudo que bate no filtro (contrato preservado). Primeira
+  tabela paginada com filtros persistidos na URL (`history.replaceState`) do projeto.
+- **Dashboard operacional (ADR-0037, FID-10) — primeira das 16 seções da sidebar com
+  conteúdo real:** investigação prévia revelou que a maioria dos dados pedidos pelo
+  wireframe §3 não tem fonte real hoje — cada lacuna virou decisão explícita, duas
+  confirmadas com o usuário. **Sem campo de "variação"**: nenhuma série temporal dos
+  indicadores globais existe em lugar nenhum do sistema (`SloEvaluation`, o único
+  histórico com timestamp, é por orquestração, sobre outra coisa, e só gravado sob
+  demanda) — os 4 cards de indicador mostram só título, valor e link, sem número
+  fabricado. **Diagrama do fluxo via `mermaid.js` carregado por CDN** — escolha
+  explícita do usuário entre duas opções oferecidas; é a **primeira dependência
+  externa do frontend**, rompendo conscientemente o precedente "zero dependência" das
+  ADR-0034/0035/0036, escopada só a `dashboard.html` (testado que as outras 19
+  páginas continuam sem nenhuma lib externa). `HumanApproval` ganha o campo `tipo`
+  (migration nova), preenchido nos 3 pontos reais de criação automática de aprovação
+  (`estrategia`/`patch`/`fase_gate`) — **não** os 4 rótulos fictícios do wireframe
+  (Discovery/Arquitetura/Deploy/Aceite final), que não existem no runtime.
+  "Bloqueadas" reaproveita o status real `waiting_human` — não existe (nem este card
+  cria) nenhum status `blocked` de orquestração. `GET /v1/dashboard-summary` (escopado
+  por projeto) e `GET /v1/activity` (atividade global nova, query única sem N+1, ao
+  contrário da timeline por orquestração) são os dois endpoints novos.
+- **Sidebar de 16 seções e mapa de páginas (ADR-0036, FID-09) — fecha a Trilha B:**
+  último card do shell da interface, desbloqueando os 17 cards de tela restantes
+  (FID-10…FID-26). Nenhum card cobre hoje o conteúdo de nenhuma das 16 seções — este
+  card entrega infraestrutura de navegação (rotas + sidebar + mapa), não conteúdo: 16
+  arquivos HTML novos + 16 rotas explícitas (mesmo padrão das 4 páginas já existentes,
+  **não** um roteador client-side — preserva o precedente "zero bundler" das
+  ADR-0034/0035), cada um um placeholder honesto (título, "ainda não implementada —
+  acompanhe FID-XX", link para a página legada que cobre parcialmente aquele conteúdo
+  hoje, quando existe). `static/sidebar.js` — segundo JS compartilhado do projeto —
+  calcula a seção ativa a partir de `location.pathname`, sem estado extra no cliente.
+  Decisão crítica evitada antes de virar bug: as rotas são registradas por **nome
+  fixo** (`app.add_api_route` em laço com fábrica de handler), não um path curinga
+  `/ui/{secao}`, que interceptaria `tokens.css`/`components.css`/`header.js` antes do
+  `StaticFiles` mount — travado por teste dedicado. As 4 páginas legadas (`/ui/`,
+  `/ui/nova`, `/ui/detalhe`, `/ui/console`) **não** ganham a sidebar (cada uma mistura
+  conteúdo de várias seções, sem uma "seção ativa" única e honesta) — continuam
+  válidas, intocadas. `docs/mapa-paginas.md` novo, satisfazendo o entregável do
+  wireframe §40 (mapa das páginas + estrutura de rotas).
+- **Header compartilhado com os 9 elementos da spec (ADR-0035, FID-08):**
+  `static/header.js` — primeiro JS compartilhado do projeto (as 4 páginas eram
+  autocontidas até aqui). Diferente do design system (FID-07, puro reskin), este card
+  é funcionalidade nova com dados ao vivo — 9 elementos duplicados 4x seria pior que o
+  problema que o CSS compartilhado resolveu. O wireframe §2.3 não detalha 4 dos 9 itens
+  (notificações, busca, ambiente, perfil) — decisão: reaproveitar dado que já existe em
+  vez de inventar (notificações = aprovações pendentes; ambiente = só leitura, nenhuma
+  ação de "trocar" existe no resto do sistema; perfil = `actor`/`role` via novo
+  `GET /v1/me`, já que não há usuário nomeado no runtime, só token→papel). Backend
+  novo: `GET /v1/me`, `GET /v1/header-summary?project_id=` (execuções ativas/falhas/
+  aprovações pendentes, escopado ou global), `GET /v1/search?q=&project_id=` (busca
+  substring em demanda/card/documento), filtros `status`/`project_id` em
+  `GET /v1/approvals`. Cada página troca seu `<header>` duplicado por
+  `<header id="app-header">` + `ASOHeader.mount(...)` — resolve de passagem uma
+  inconsistência real pré-existente (campo de token `#tok` em uma página, `#token` nas
+  outras 3; handler `saveTok()` global vs. listener `#login`). `detalhe.html` ganha um
+  `.orquestracao-banner` separado do `<header>` para os breadcrumbs/título/fatos
+  daquela orquestração específica (conteúdo de página, não navegação do app).
+  Indicadores por polling de 20s (sem SSE global — só existe stream por orquestração
+  hoje). Sem regressão nos 3 testes que travam texto literal das páginas.
+- **Design system wireframe: tema claro, tokens e componentes reutilizáveis (ADR-0034,
+  FID-06➜07):** `static/tokens.css` + `static/components.css`, extraídos LITERALMENTE
+  (mesma regra, mesmo seletor, só recolorida — não um redesenho) do CSS 100% inline que
+  cada uma das 4 páginas de `/ui/*` duplicava por conta própria (com uma inconsistência
+  real de nome: `--panel2` em três arquivos, `--panel-2` no quarto). Zero mudança de
+  `<script>`/markup em qualquer página — o precedente da ADR-0013 (lógica de governança
+  no backend, tela só renderiza) fica intacto. Paleta clara neutra concreta (o wireframe
+  §2.1 só pede princípios — fundo claro, tons neutros, bordas visíveis — sem valores
+  hex): `--bg:#f8fafc`, `--accent:#0284c7` (mais escuro que o `#38bdf8` antigo, por
+  contraste), semânticas em tom 600. Biblioteca documentada em `docs/design-system.md`:
+  card, botão (dois padrões `button`/`.btn` preservados lado a lado), pill de status,
+  tabela, checklist, **árvore** (componente novo, wf §12, para uma tela futura), abas,
+  painel de logs/timeline, barra de progresso (3 nomes de classe históricos unificados),
+  kanban, overlay/modal, grid responsivo. Corrige de passagem o painel "ao vivo do
+  agente", que tinha fundo escuro fixo (`#0a1220`) independente do tema — virava um
+  retângulo incongruente numa página clara. Escopo deliberadamente contido: sem
+  header/sidebar ainda (isso é FID-08/FID-09, que dependem deste card).
+- **Comentário de revisão ancorado em arquivo/linha (ADR-0033, FID-06):** `ReviewComment`
+  (`governance/models.py`) ganha identidade própria — mesmo padrão de `PullRequest`/
+  `Incident` — de forma ADITIVA: `ReviewVerdict`/`ReviewAction`/`PullRequest.review_verdict`
+  continuam existindo e populados exatamente como a ADR-0017 deixou (nenhum consumidor
+  existente muda de comportamento). Reverte, só para este caso, a decisão "sem tabela
+  filha" da ADR-0017 — cada comentário tem ciclo de vida próprio de resolução
+  (`pendente`/`resolvido`), diferente do veredito agregado. Os 8 campos do wireframe
+  §20.3: `arquivo`, `linha`, `categoria`, `severidade` (`baixa|media|alta|critica`,
+  vocabulário de `QaCheck.gravidade` — campo **distinto** do `obrigatoria|sugestao` de
+  `ReviewAction.severidade`, como o wireframe pede), `descricao`, `sugestao`,
+  `obrigatorio`, `status`. O agente revisor passa a devolver um array `comentarios` ao
+  lado de `acoes` (fallback vazio quando só devolve `acoes`, comportamento anterior —
+  zero regressão). Uma rodada de review que aprova auto-resolve os comentários
+  obrigatórios pendentes da PR (reflete o ciclo do §15: correção → testes → nova revisão
+  →(aprovado) próxima etapa); `POST .../comments/{id}/resolve` cobre a resolução manual.
+  `card.correction_actions` passa a derivar dos comentários quando existem, com
+  fallback para o caminho legado (`acoes`) quando não existem. `merge_pr` ganha uma
+  segunda trava: recusa com qualquer comentário obrigatório pendente, mesmo com
+  `review_status` já `approved` (cobre aprovação humana com justificativa, que não
+  passa pela auto-resolução). `next_step` ganha o bloqueio
+  `pr_comentario_obrigatorio_nao_resolvido`, com `arquivo:linha`.
+- **Incident como entidade de primeira classe (ADR-0032, FID-05):** `Incident` +
+  `IncidentTimelineEntry` (`governance/models.py`) ganham identidade própria — mesmo
+  padrão de `PullRequest`/`CandidateRun`/`SloEvaluation` — em vez de mais um campo
+  dentro de `KanbanCard`; é a primeira entidade do projeto com `timeline` embutida,
+  porque um incidente é um objeto de vida longa que muda de estado, não um evento
+  imutável. `rollback_deploy` continua criando o `KanbanCard(Incident)` exatamente
+  como antes (zero regressão) e passa a vincular um `Incident`: gravidade derivada do
+  risco da demanda (`_RISCO_PARA_GRAVIDADE`, mesmo vocabulário baixa/media/alta/critica
+  de `QaCheck.gravidade`), snapshot do deploy revertido (ambiente/estágio/versão, sem
+  FK — `DeployRun` não tem id próprio). Ciclo de vida `aberto → investigando →
+  resolvido` (resolver exige causa raiz; incidente resolvido não reabre nem resolve de
+  novo). Endpoints `GET /incidents`, `GET /incidents/{id}`, `POST .../investigate`,
+  `POST .../resolve`. Sem backfill de cards `INCIDENT` anteriores — decisão consciente
+  documentada na ADR, mudança 100% aditiva.
+- **Limite de tentativas por card (ADR-0031, FID-04):** corrige um bug real —
+  `len(card.failures)` (ring travado em 5) era usado como contador de
+  tentativas; reroteamento manual repetido sobre um card `Failed` travava o
+  rótulo "tentativa N" em 5 para sempre, mesmo depois de dezenas de
+  reroteamentos. `KanbanCard.tentativa_atual` (contador autoritativo, nunca
+  truncado) substitui essa contagem; `max_tentativas` (`None` = usa o teto
+  global do processo) e `tentativas` (histórico completo por tentativa, sucesso
+  **e** falha, com modelo/effort/resultado) são novos. `RoutingRule.acao.
+  limite_tentativas` (persistido desde a ADR-0028 mas nunca aplicado) passa a
+  ser herdado por todos os cards nascidos numa orquestração cuja regra casou.
+- **Checklist de preparação e tarefa vinculada (ADR-0030, FID-03):** os 8 itens do
+  `fluxo.md` §10 (especificação lida, critérios de aceite analisados, código
+  afetado analisado, dependências verificadas, testes existentes identificados,
+  branch criada, plano de execução registrado, card desbloqueado) deixam de ser
+  implícitos — passam a ser marcados automaticamente durante a execução do card
+  (nunca manualmente: não há `POST`, só `GET /cards/{id}/checklist`), com autor e
+  timestamp. Bloqueio por dependência pendente (já existia desde a ADR-0018) ganha
+  criação automática e idempotente de uma tarefa vinculada
+  (`KanbanCard(type="Task", status="Backlog")`) para o operador acompanhar a
+  resolução. O checklist aparece na ficha de encerramento do card (§23).
+- **Pipeline de implantação multi-estágio (ADR-0029, FID-02):** `DeployRun.ambiente`
+  deixa de ser só uma string livre — o operador configura um pipeline de estágios
+  (`Environment`: chave/ordem/comando/health checks/rollback/exige aprovação humana,
+  `PUT .../deploy/pipeline`) com avanço governado (`POST .../deploy/run` recusa
+  pular um estágio antes do anterior concluir). Falha de implantação é classificada
+  em cinco diagnósticos do `fluxo.md` §19 (build/configuração/migration/pós-deploy/
+  crítica — crítica é sempre uma validação pós-deploy reprovada **em produção**,
+  fato, não heurística) e nunca fica sem próxima ação nomeada; falha crítica
+  recomenda rollback com a maior ênfase possível, mas nunca executa
+  automaticamente — continua exigindo `POST .../deploy/rollback` por `admin`.
+  Sem pipeline configurado (o padrão), o comportamento é idêntico ao monoambiente
+  da ADR-0023; o gate F6 (`deploy_aprovado`) só exige todos os estágios concluídos
+  quando há pipeline.
+- **Regras de roteamento SE/ENTÃO (ADR-0028, FID-01):** o operador agora declara
+  política de decisão — `RoutingRule` (condições sobre tipo/risco/complexidade/
+  domínios/impactos, ações de agente/modelo/effort/aprovação humana/quality
+  gates/limite de tentativas, precedência explícita) é avaliada **antes** do
+  `MultiAgentDecisionEngine`/`selecao.py`, que continuam servindo de fallback puro
+  quando nenhuma regra casa — nenhuma orquestração existente regride. Uma regra
+  casando nunca sobrescreve uma escolha explícita do operador nem rebaixa uma
+  aprovação humana já exigida pela heurística. CRUD via
+  `GET/POST/PUT/DELETE /v1/routing-rules`, escrita restrita a `admin`. Fecha a
+  maior lacuna funcional apontada em
+  [docs/plano-fidelidade-fluxo.md](docs/plano-fidelidade-fluxo.md).
 - **Custo real, orçamento com freio e sobrevivência a crash (ADR-0026,
   ADR-0027):** o runtime jogava fora o custo real que os agentes já
   informam (`observability/metrics.py` aproximava custo por tempo de

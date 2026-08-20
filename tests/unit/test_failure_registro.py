@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from aso.control.failure import ETAPA_CI, ETAPA_EXECUCAO, FailureRecord, registrar
+from aso.control.failure import (
+    ETAPA_CI,
+    ETAPA_EXECUCAO,
+    FailureRecord,
+    confianca_diagnostico,
+    registrar,
+)
 
 
 def test_failure_record_captura_comando_saida_executor_effort() -> None:
@@ -47,3 +53,16 @@ def test_ring_aceita_etapas_diferentes_no_mesmo_card() -> None:
     falhas = registrar(falhas, FailureRecord(etapa=ETAPA_EXECUCAO, mensagem="execução"))
     falhas = registrar(falhas, FailureRecord(etapa=ETAPA_CI, mensagem="ci"))
     assert [f["etapa"] for f in falhas] == [ETAPA_EXECUCAO, ETAPA_CI]
+
+
+# --------------------------------------------- confiança do diagnóstico (ADR-0048)
+
+
+def test_confianca_alta_quando_categoria_veio_da_bateria_nomeada() -> None:
+    record = FailureRecord(categoria="lint", mensagem="erro de formatação")
+    assert confianca_diagnostico(record) == "alta"
+
+
+def test_confianca_baixa_sem_categoria_cai_na_heuristica() -> None:
+    record = FailureRecord(mensagem="algo deu errado")
+    assert confianca_diagnostico(record) == "baixa"

@@ -1,0 +1,26 @@
+/* Tokens de design do ASO Runtime (wf §2.1) — ADR-0034.
+ * Fonte única dos tokens de cor/espaçamento/tipografia das 4 páginas em /ui/*.
+ * Tema claro neutro: fundo claro, tons neutros, bordas visíveis, pouca
+ * ornamentação (o wireframe não define valores hex — a paleta abaixo é a
+ * escolha concreta desta implementação, documentada em docs/design-system.md).
+ */
+:root {
+  --bg:#f8fafc;       /* fundo da página (slate-50) */
+  --panel:#ffffff;    /* fundo de cards/painéis/cabeçalho */
+  --panel-2:#f1f5f9;  /* fundo secundário — inputs, linhas de destaque, hover (slate-100) */
+  --border:#cbd5e1;   /* bordas visíveis (slate-300) — o wireframe pede "bordas visíveis"
+                          em vez de sombra para separar blocos */
+  --muted:#64748b;    /* texto secundário (slate-500) */
+  --fg:#0f172a;       /* texto principal (slate-900) */
+  --accent:#0284c7;   /* cor de destaque (sky-600) — mais escura que o antigo tema
+                          escuro para manter contraste AA sobre fundo claro */
+  --on-accent:#ffffff; /* texto sobre fundo --accent/--ok/--err/--info */
+  --ok:#16a34a;    --on-ok:#ffffff;    /* verde (green-600) */
+  --warn:#d97706;  --on-warn:#ffffff;  /* âmbar (amber-600) */
+  --err:#dc2626;   --on-err:#ffffff;   /* vermelho (red-600) */
+  --info:#4f46e5;  --on-info:#ffffff;  /* índigo (indigo-600) */
+  --radius:10px;
+  --gap:14px;
+  --font: ui-sans-serif, system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

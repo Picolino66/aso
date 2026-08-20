@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Documentos</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .md-preview { border:1px solid var(--border); border-radius:8px; padding:12px; background:var(--panel-2); min-height:120px; }
+    .md-preview h1, .md-preview h2, .md-preview h3 { margin:8px 0 4px; }
+    .md-preview p { margin:6px 0; }
+    .md-preview code { background:var(--panel); padding:1px 4px; border-radius:4px; }
+    .editor-grade { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:8px; }
+    .editor-grade textarea { min-height:220px; font-family:monospace; font-size:12px; }
+    .diff-saida { background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:10px; font-family:monospace; font-size:12px; white-space:pre-wrap; overflow-x:auto; }
+    .diff-saida .add { color:var(--ok); }
+    .diff-saida .rem { color:var(--err); }
+    .subitem { border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .subitem .cab { display:flex; justify-content:space-between; align-items:baseline; }
+    .secao-doc { margin-top:18px; }
+    .picker-item { padding:8px 0; border-bottom:1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <div id="semDemanda" hidden>
+        <section class="card">
+          <h2>Documentos</h2>
+          <p class="muted">Escolha uma demanda para ver os documentos dela.</p>
+          <div id="listaPicker"><div class="empty">Carregando…</div></div>
+        </section>
+      </div>
+
+      <div id="comDemanda" hidden>
+        <section class="card">
+          <div class="row between">
+            <h2 style="margin:0">Documentos</h2>
+            <a href="#" id="linkDemanda">← voltar para a demanda</a>
+          </div>
+          <table><tr><th>Versão</th><th>Documento</th><th>Autor</th><th>Status</th><th></th></tr>
+            <tbody id="linhasDocumentos"></tbody>
+          </table>
+        </section>
+
+        <section class="card secao-doc" id="painelDocumento" hidden>
+          <h3 id="tituloDocumento" style="margin-top:0"></h3>
+          <div id="conteudoDocumento"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    ASOHeader.mount(document.getElementById('app-header'), ID ? { orchestrationId: ID } : {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'documentos' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function lista(itens) {
+      if (!itens || !itens.length) return '<p class="muted">Nenhum item.</p>';
+      return '<ul class="simples">' + itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }
+    function campo(rotulo, valorHtml) {
+      return '<div class="campo"><div class="rotulo" style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600">' +
+        esc(rotulo) + '</div><div class="valor" style="font-size:13px;margin-top:2px">' + valorHtml + '</div></div>';
+    }
+
+    // Subconjunto simples de Markdown — não é um parser CommonMark completo
+    // (cabeçalhos #/##/###, **negrito**, *itálico*, `código`, listas "- item",
+    // links [texto](url), parágrafos). Suficiente para o wf §10.3 pedir
+    // "visualização renderizada" sem trazer uma dependência externa nova.
+    function renderizarMarkdown(md) {
+      const linhas = (md || '').split('\n');
+      let html = '';
+      let dentroDeLista = false;
+      function fecharLista() { if (dentroDeLista) { html += '</ul>'; dentroDeLista = false; } }
+      function inline(texto) {
+        let t = esc(texto);
+        t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+        t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+        t = t.replace(/\*([^*]+)\*/g, '<i>$1</i>');
+        t = t.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+        return t;
+      }
+      linhas.forEach(function (linha) {
+        const cab = linha.match(/^(#{1,3})\s+(.*)/);
+        const item = linha.match(/^-\s+(.*)/);
+        if (cab) {
+          fecharLista();
+          const nivel = cab[1].length;
+          html += '<h' + nivel + '>' + inline(cab[2]) + '</h' + nivel + '>';
+        } else if (item) {
+          if (!dentroDeLista) { html += '<ul>'; dentroDeLista = true; }
+          html += '<li>' + inline(item[1]) + '</li>';
+        } else if (linha.trim()) {
+          fecharLista();
+          html += '<p>' + inline(linha) + '</p>';
+        } else {
+          fecharLista();
+        }
+      });
+      fecharLista();
+      return html || '<p class="muted">(vazio)</p>';
+    }
+
+    async function carregarPicker() {
+      const container = document.getElementById('listaPicker');
+      try {
+        const orquestracoes = await api('/v1/orchestrations');
+        if (!orquestracoes.length) { container.innerHTML = '<div class="empty">Nenhuma demanda ainda.</div>'; return; }
+        container.innerHTML = orquestracoes.slice(0, 30).map(function (o) {
+          return '<div class="picker-item"><a href="/ui/documentos?id=' + encodeURIComponent(o.id) + '">' +
+            esc((o.user_request || o.id).slice(0, 80)) + '</a></div>';
+        }).join('');
+      } catch (e) { container.innerHTML = '<div class="empty">Falha ao carregar demandas.</div>'; }
+    }
+
+    let DOCS = [];
+    let SELECIONADO = null;
+
+    async function carregarLista() {
+      DOCS = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos');
+      document.getElementById('linhasDocumentos').innerHTML = DOCS.map(function (d) {
+        return '<tr><td>' + (d.versao || '—') + '</td><td>' + esc(d.rotulo) + '</td>' +
+          '<td>' + esc(d.autor || '—') + '</td><td>' + esc(d.status) + '</td>' +
+          '<td><a href="#" class="abrir-doc" data-tipo="' + esc(d.tipo) + '">Abrir</a></td></tr>';
+      }).join('');
+      Array.from(document.querySelectorAll('.abrir-doc')).forEach(function (a) {
+        a.addEventListener('click', function (e) { e.preventDefault(); abrirDocumento(a.dataset.tipo); });
+      });
+    }
+
+    async function abrirDocumento(tipo) {
+      SELECIONADO = tipo;
+      const doc = DOCS.find(function (d) { return d.tipo === tipo; });
+      document.getElementById('painelDocumento').hidden = false;
+      document.getElementById('tituloDocumento').textContent = doc.rotulo;
+      const container = document.getElementById('conteudoDocumento');
+      container.innerHTML = '<div class="empty">Carregando…</div>';
+      if (!doc.editavel) {
+        container.innerHTML = await painelSomenteLeitura(tipo);
+        return;
+      }
+      container.innerHTML = await painelEditavel(tipo);
+      wirePainelEditavel(tipo);
+    }
+
+    async function painelSomenteLeitura(tipo) {
+      const spec = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec');
+      const MAPA = {
+        especificacao_tecnica: spec.o_que_sera_construido,
+        plano_de_testes: spec.estrategia_de_testes,
+        plano_de_implantacao: spec.estrategia_de_implantacao,
+        plano_de_rollback: spec.plano_de_rollback,
+      };
+      const conteudo = tipo === 'checklist_de_seguranca'
+        ? lista(spec.checklist_seguranca)
+        : '<div class="md-preview">' + renderizarMarkdown(MAPA[tipo] || '') + '</div>';
+      return '<p class="muted">Servido pelo fluxo de especificação (já revisado) — edição acontece lá, não aqui.</p>' +
+        conteudo +
+        '<p style="margin-top:10px"><a href="/ui/demanda-detalhe?id=' + encodeURIComponent(ID) + '&aba=Documentos">Editar na Especificação →</a></p>';
+    }
+
+    async function painelEditavel(tipo) {
+      const [doc, historico, comentarios] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo + '/history'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo + '/comments'),
+      ]);
+      let html = '<h4 style="margin-top:0">Editor</h4>';
+      html += '<div class="editor-grade">' +
+        '<div><label for="mdEditor">Markdown</label><textarea id="mdEditor">' + esc(doc.conteudo_markdown) + '</textarea></div>' +
+        '<div><label>Visualização renderizada</label><div class="md-preview" id="mdPreview">' + renderizarMarkdown(doc.conteudo_markdown) + '</div></div>' +
+      '</div>';
+      html += '<label for="mdAutor">Autor</label><input id="mdAutor" value="' + esc(doc.autor) + '">';
+      html += '<label for="mdRefsCodigo">Referências a código (separadas por vírgula)</label><input id="mdRefsCodigo" value="' + esc((doc.referencias_codigo || []).join(', ')) + '">';
+      html += '<label for="mdRefsCards">Referências a cards (ids, separados por vírgula)</label><input id="mdRefsCards" value="' + esc((doc.referencias_cards || []).join(', ')) + '">';
+      html += '<label for="mdRefsDocs">Referências a outros documentos (tipos, separados por vírgula)</label><input id="mdRefsDocs" value="' + esc((doc.referencias_documentos || []).join(', ')) + '">';
+      html += '<div class="error" id="erroEditor" hidden></div>';
+      html += '<div class="row" style="gap:8px;margin-top:8px"><button id="salvarDoc" class="btn ok sm" type="button">Salvar nova versão</button>' +
+        '<button id="rodarRevisao" class="btn ghost sm" type="button">Rodar revisão</button></div>';
+      html += '<div id="resultadoRevisao"></div>';
+
+      html += '<h4>Histórico de versões e comparação</h4>';
+      if (historico.length) {
+        html += '<div class="row" style="gap:8px;align-items:center">De <select id="diffDe">' +
+          historico.map(function (v) { return '<option value="' + v.versao + '">v' + v.versao + '</option>'; }).join('') +
+          '</select> para <select id="diffPara">' +
+          historico.map(function (v) { return '<option value="' + v.versao + '"' + (v === historico[historico.length - 1] ? ' selected' : '') + '>v' + v.versao + '</option>'; }).join('') +
+          '</select> <button id="compararVersoes" class="btn ghost sm" type="button">Comparar</button></div>';
+        html += '<div id="diffResultado"></div>';
+        html += historico.slice().reverse().map(function (v) {
+          return '<div class="subitem"><div class="cab"><strong>v' + v.versao + '</strong> <span class="pill">' + esc(v.status) + '</span></div>' +
+            '<p class="muted" style="margin:4px 0">autor: ' + esc(v.autor) + ' · ' + esc(v.at) + '</p></div>';
+        }).join('');
+      } else {
+        html += '<p class="muted">Nenhuma versão salva ainda.</p>';
+      }
+
+      html += '<h4>Comentários</h4>';
+      html += comentarios.length ? comentarios.map(function (c) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(c.autor) + '</strong>' +
+          '<span class="pill' + (c.status === 'resolvido' ? ' ok' : '') + '">' + esc(c.status) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">' + esc(c.tipo) + ' · ' + esc(c.severidade) + (c.trecho_relacionado ? ' · trecho: "' + esc(c.trecho_relacionado) + '"' : '') + '</p>' +
+          '<p style="margin:2px 0">' + esc(c.descricao) + '</p>' +
+          (c.acao_solicitada ? '<p class="muted" style="margin:2px 0">Ação solicitada: ' + esc(c.acao_solicitada) + '</p>' : '') +
+          (c.resposta_do_autor ? '<p style="margin:2px 0">Resposta do autor: ' + esc(c.resposta_do_autor) + '</p>' : '') +
+          (c.status === 'pendente' ? '<button class="btn ghost sm resolver-comentario" data-id="' + c.id + '" type="button">Marcar como resolvido</button>' : '') +
+        '</div>';
+      }).join('') : '<p class="muted">Nenhum comentário ainda.</p>';
+      html += '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">' +
+        '<input id="comAutor" placeholder="autor" style="width:120px">' +
+        '<select id="comTipo"><option value="correcao">correção</option><option value="teste">teste</option><option value="seguranca">segurança</option>' +
+        '<option value="clareza">clareza</option><option value="escopo">escopo</option><option value="documentacao">documentação</option><option value="performance">performance</option></select>' +
+        '<select id="comSeveridade"><option value="baixa">baixa</option><option value="media" selected>média</option><option value="alta">alta</option><option value="critica">crítica</option></select>' +
+        '<input id="comTrecho" placeholder="trecho relacionado" style="width:160px">' +
+        '</div>' +
+        '<input id="comDescricao" placeholder="descrição do comentário" style="margin-top:6px">' +
+        '<input id="comAcao" placeholder="ação solicitada (opcional)" style="margin-top:6px">' +
+        '<button id="addComentario" class="btn ghost sm" type="button" style="margin-top:6px">+ comentário</button>';
+      return html;
+    }
+
+    function wirePainelEditavel(tipo) {
+      const editor = document.getElementById('mdEditor');
+      if (editor) editor.addEventListener('input', function () {
+        document.getElementById('mdPreview').innerHTML = renderizarMarkdown(editor.value);
+      });
+
+      const salvar = document.getElementById('salvarDoc');
+      if (salvar) salvar.addEventListener('click', async function () {
+        const erro = document.getElementById('erroEditor');
+        erro.hidden = true;
+        const corpo = {
+          conteudo_markdown: document.getElementById('mdEditor').value,
+          autor: document.getElementById('mdAutor').value.trim() || 'anônimo',
+          referencias_codigo: document.getElementById('mdRefsCodigo').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+          referencias_cards: document.getElementById('mdRefsCards').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+          referencias_documentos: document.getElementById('mdRefsDocs').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        };
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo, { method: 'PUT', body: JSON.stringify(corpo) });
+          await carregarLista();
+          await abrirDocumento(tipo);
+        } catch (e) { erro.textContent = 'Não foi possível salvar: ' + e.message; erro.hidden = false; }
+      });
+
+      const revisar = document.getElementById('rodarRevisao');
+      if (revisar) revisar.addEventListener('click', async function () {
+        const resultado = document.getElementById('resultadoRevisao');
+        resultado.innerHTML = '<p class="muted">Revisando…</p>';
+        try {
+          const doc = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo + '/review', { method: 'POST', body: JSON.stringify({}) });
+          resultado.innerHTML = campo('Resultado', '<span class="pill">' + esc(doc.status) + '</span>') +
+            (doc.revisao_resumo ? campo('Resumo', esc(doc.revisao_resumo)) : '') +
+            campo('Pontos verificados', lista(doc.revisao_pontos_verificados));
+          await carregarLista();
+        } catch (e) { resultado.innerHTML = '<p class="muted">Falha ao revisar: ' + e.message + '</p>'; }
+      });
+
+      const comparar = document.getElementById('compararVersoes');
+      if (comparar) comparar.addEventListener('click', async function () {
+        const de = document.getElementById('diffDe').value;
+        const para = document.getElementById('diffPara').value;
+        const saida = document.getElementById('diffResultado');
+        try {
+          const diff = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo + '/diff?de=' + de + '&para=' + para);
+          saida.innerHTML = '<div class="diff-saida">' + (diff.length ? diff.map(function (l) {
+            const classe = l.startsWith('+') ? 'add' : (l.startsWith('-') ? 'rem' : '');
+            return '<div class="' + classe + '">' + esc(l) + '</div>';
+          }).join('') : '<span class="muted">Sem diferenças entre as versões.</span>') + '</div>';
+        } catch (e) { saida.innerHTML = '<p class="muted">Falha ao comparar: ' + e.message + '</p>'; }
+      });
+
+      Array.from(document.querySelectorAll('.resolver-comentario')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const resposta = prompt('Resposta do autor (opcional):') || '';
+          try {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/comments/' + btn.dataset.id + '/resolve', {
+              method: 'POST', body: JSON.stringify({ resposta_do_autor: resposta }),
+            });
+            await abrirDocumento(tipo);
+          } catch (e) { alert('Falha ao resolver: ' + e.message); }
+        });
+      });
+
+      const addComentario = document.getElementById('addComentario');
+      if (addComentario) addComentario.addEventListener('click', async function () {
+        const descricao = document.getElementById('comDescricao').value.trim();
+        if (!descricao) { alert('Descrição é obrigatória.'); return; }
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/documentos/' + tipo + '/comments', {
+            method: 'POST',
+            body: JSON.stringify({
+              autor: document.getElementById('comAutor').value.trim() || 'anônimo',
+              tipo: document.getElementById('comTipo').value,
+              severidade: document.getElementById('comSeveridade').value,
+              trecho_relacionado: document.getElementById('comTrecho').value.trim(),
+              descricao: descricao,
+              acao_solicitada: document.getElementById('comAcao').value.trim(),
+            }),
+          });
+          await abrirDocumento(tipo);
+        } catch (e) { alert('Falha ao comentar: ' + e.message); }
+      });
+    }
+
+    async function carregar() {
+      if (!ID) {
+        document.getElementById('semDemanda').hidden = false;
+        await carregarPicker();
+        return;
+      }
+      document.getElementById('comDemanda').hidden = false;
+      document.getElementById('linkDemanda').href = '/ui/demanda-detalhe?id=' + encodeURIComponent(ID);
+      await carregarLista();
+    }
+    carregar();
+  </script>
+</body>
+</html>

@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -19,9 +19,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
+from aso.agents.models import AgentDefinitionError
 from aso.api.auth import AuthService, required_role
 from aso.bootstrap import build_candidate_providers, build_service
-from aso.control.models import ValidationCheck
+from aso.control.documento import DocumentoError
+from aso.control.models import Environment, ValidationCheck
 from aso.control.next_step import phase_catalog
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
@@ -30,18 +32,21 @@ from aso.control.project_service import (
     ProjectNotFoundError,
     ProjectValidationError,
 )
+from aso.control.routing_rules import RoutingAction, RoutingCondition, RoutingRuleError
+from aso.control.triage import DemandBrief
 from aso.execution.codex_discovery import CodexDiscoveryError
 from aso.execution.gate_validation import GateCommandError
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.execution.workspace import WorkspaceError, WorkspaceService
 from aso.governance.models import ContextPatch, SloEvaluation
+from aso.observability.aprendizado import recomendacoes_estruturadas
 from aso.observability.broker import EventBroker
 from aso.observability.logging import get_logger
 from aso.observability.metrics import MetricsService
 from aso.observability.ratelimit import RateLimiter
 from aso.observability.tracing import get_tracer
 from aso.shared.ids import gen_id
-from aso.shared.types import ExecutionMode, PatchType, Phase
+from aso.shared.types import CardType, ExecutionMode, PatchType, Phase, RiskLevel
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -55,6 +60,15 @@ class CreateOrchestrationBody(BaseModel):
     executor: str | None = None
     effort: str | None = None
     validation_command: str | None = None
+    # Tela 03 (Cadastro completo, wf §5.2, ADR-0039): quando presente, a ficha é
+    # usada tal como enviada — SEM re-triagem (o solicitante já preencheu a ficha
+    # à mão; rodar o agente de triagem por cima descartaria isso). Ausente
+    # (comportamento de sempre, ex. `nova.html`): a demanda em texto livre passa
+    # pela triagem normalmente (`create_with_triage`).
+    demand_brief: dict[str, Any] | None = None
+    # Tela 03: orçamento definido já na criação, em vez de só depois via
+    # `PUT .../budget`. `None` preserva o default de ambiente de sempre.
+    orcamento_usd: float | None = None
 
 
 class AnalyzeFolderBody(BaseModel):
@@ -80,6 +94,17 @@ class RetriageBody(BaseModel):
 
     executor: str | None = None
     effort: str | None = None
+
+
+class ClassificationBody(BaseModel):
+    """Edição pontual da classificação (Tela 05, wf §7, ADR-0044) — todos os campos
+    opcionais, só os informados mudam."""
+
+    tipo: str | None = None
+    risco: RiskLevel | None = None
+    complexidade: str | None = None
+    impactos: list[str] | None = None
+    dominios: list[str] | None = None
 
 
 class DiscoveryRunBody(BaseModel):
@@ -116,6 +141,37 @@ class SpecApproveBody(BaseModel):
     comentario: str = ""
 
 
+class DocumentoSaveBody(BaseModel):
+    """Salva uma nova versão de um documento (Tela 08, wf §10.3, ADR-0046)."""
+
+    conteudo_markdown: str
+    autor: str
+    referencias_codigo: list[str] = []
+    referencias_cards: list[str] = []
+    referencias_documentos: list[str] = []
+
+
+class DocumentoReviewBody(BaseModel):
+    """Roda o checklist do revisor sobre a versão corrente (wf §11, ADR-0046)."""
+
+    executor: str | None = None
+
+
+class DocumentoCommentBody(BaseModel):
+    """Comentário ancorado num documento — os 8 campos do wf §10.3/§11.3."""
+
+    autor: str
+    tipo: str
+    severidade: str
+    descricao: str
+    trecho_relacionado: str = ""
+    acao_solicitada: str = ""
+
+
+class DocumentoCommentResolveBody(BaseModel):
+    resposta_do_autor: str = ""
+
+
 class ValidationCheckBody(BaseModel):
     """Uma verificação nomeada da bateria do §12 (ADR-0022)."""
 
@@ -142,12 +198,36 @@ class DeployConfigBody(BaseModel):
 
 
 class DeployRunBody(BaseModel):
-    """Roda a implantação (POST .../deploy/run); tudo opcional."""
+    """Roda a implantação (POST .../deploy/run); tudo opcional.
+
+    `estagio` só tem efeito com pipeline configurado (§19, ADR-0029): nomeia qual
+    estágio rodar; omitido, resolve para o primeiro pendente (avanço governado).
+    """
 
     environment: str | None = None
+    estagio: str | None = None
     versao_app: str = ""
     commit: str = ""
     branch: str = ""
+
+
+class EnvironmentBody(BaseModel):
+    """Um estágio do pipeline de implantação (§19, wf §25, ADR-0029)."""
+
+    chave: str
+    nome: str = ""
+    ordem: int = 1
+    comando: str | None = None
+    health_checks: list[ValidationCheckBody] = []
+    rollback_command: str | None = None
+    requer_aprovacao_humana: bool = False
+
+
+class DeployPipelineBody(BaseModel):
+    """Configura o pipeline inteiro (PUT .../deploy/pipeline) — lista vazia volta
+    ao monoambiente legado (ADR-0023)."""
+
+    estagios: list[EnvironmentBody] = []
 
 
 class DeployApproveBody(BaseModel):
@@ -155,12 +235,28 @@ class DeployApproveBody(BaseModel):
 
     approved: bool
     comentario: str = ""
+    # Sub-tipo do aceite humano (Tela 26, wf §28.2, ADR-0050) — opcional.
+    tipo_aceite: str = ""
 
 
 class DeployRollbackBody(BaseModel):
     """Reverte a última implantação (ADR-0023, §21) — ação crítica, exige admin."""
 
     reason: str
+    # Estratégia escolhida (Tela 25, wf §27.1, ADR-0050) — opcional, descritiva.
+    estrategia: str = ""
+
+
+class IncidentInvestigateBody(BaseModel):
+    """Marca um incidente como em investigação (§21, ADR-0032)."""
+
+    detalhe: str = ""
+
+
+class IncidentResolveBody(BaseModel):
+    """Resolve um incidente com a causa raiz identificada (§21, ADR-0032)."""
+
+    causa_raiz: str
 
 
 class BudgetBody(BaseModel):
@@ -170,9 +266,12 @@ class BudgetBody(BaseModel):
 
 
 class QaCheckBody(BaseModel):
-    """Registra uma verificação manual de QA (§16, ADR-0025)."""
+    """Registra uma verificação manual de QA (§16, plano de teste do wf §22.1,
+    ADR-0049)."""
 
     cenario: str
+    titulo: str = ""
+    pre_condicoes: str = ""
     passos: list[str] = []
     ambiente: str = ""
     resultado_esperado: str = ""
@@ -189,6 +288,23 @@ class QaFailBody(BaseModel):
     resultado_obtido: str = ""
     evidencias: list[str] = []
     gravidade: str | None = None
+
+
+class BugReportBody(BaseModel):
+    """Registro manual de bug (Tela 21, wf §23, ADR-0049)."""
+
+    titulo: str
+    cenario: str = ""
+    passos_para_reproduzir: list[str] = []
+    ambiente: str = ""
+    resultado_atual: str = ""
+    resultado_esperado: str = ""
+    evidencias: list[str] = []
+    gravidade: str = "media"
+    impacto: str = ""
+    frequencia: str = ""
+    agente_sugerido: str = ""
+    retorno_de_fluxo: str = "retornar_implementacao"
 
 
 class RunReviewBody(BaseModel):
@@ -252,6 +368,63 @@ class ExecutorBody(BaseModel):
     is_default: bool = False
 
 
+class RoutingRuleBody(BaseModel):
+    """Corpo de criação/edição de uma regra de roteamento (§33, ADR-0028)."""
+
+    nome: str
+    descricao: str = ""
+    ativa: bool = True
+    precedencia: int = 100
+    condicoes: list[RoutingCondition] = []
+    acao: RoutingAction = RoutingAction()
+
+
+class RoutingRulePreviewBody(BaseModel):
+    """Corpo da pré-visualização (Tela 31, wf §33.2, ADR-0042) — regra ainda não
+    salva, só as condições (e opcionalmente a ação, ignorada pelo match)."""
+
+    condicoes: list[RoutingCondition] = []
+    acao: RoutingAction = RoutingAction()
+
+
+class RoutingRuleReorderBody(BaseModel):
+    """Nova ordem visual das regras (Tela 31, ADR-0042) — lista de ids."""
+
+    ordem: list[str]
+
+
+class AgentDefinitionBody(BaseModel):
+    """Corpo de criação/edição de uma definição de agente (Tela 30, wf §32,
+    ADR-0053) — ação crítica (fonte de verdade das permissões reais), exige
+    papel admin.
+
+    Os campos de lista usam `None` (ausente/omitido no JSON), não `[]`, como
+    default — bug real (code-review ultra): com default `[]`, um PUT que só
+    queria mudar `nome`/`ativo` e omitiu `ferramentas`/`permissoes` revogava
+    silenciosamente as permissões reais do papel (`AgentRegistry.seed_from_catalog`
+    aplica exatamente o que está aqui). `create_agent_definition` continua
+    tratando `None` como lista vazia (definição nova sem nada configurado ainda);
+    `update_agent_definition` trata `None` como "não mude este campo" — só uma
+    lista explícita (inclusive `[]` explícito) substitui o valor atual.
+    """
+
+    nome: str
+    tipo: str = ""
+    funcao: str = ""
+    plataforma: str = ""
+    role: str = ""
+    modelos_permitidos: list[str] | None = None
+    efforts_permitidos: list[str] | None = None
+    ferramentas: list[str] | None = None
+    permissoes: list[str] | None = None
+    projetos: list[str] | None = None
+    categorias_tarefa: list[str] | None = None
+    limite_custo_usd: float | None = None
+    limite_tentativas: int | None = None
+    exige_supervisao: bool = False
+    ativo: bool = True
+
+
 class FeedbackBody(BaseModel):
     text: str
     card_type: str = "Improvement"
@@ -271,6 +444,16 @@ class ApprovalBody(BaseModel):
     reason: str = ""
 
 
+class CreateCardBody(BaseModel):
+    """Tela 10 (Estrutura da demanda, wf §12, ADR-0040): cria um item em
+    qualquer nível da hierarquia."""
+
+    title: str
+    type: CardType = CardType.TASK
+    parent_id: str | None = None
+    description: str = ""
+
+
 class AssignAgentBody(BaseModel):
     agent: str
 
@@ -280,6 +463,24 @@ class MoveBody(BaseModel):
 
 
 class BlockBody(BaseModel):
+    reason: str = ""
+
+
+class PauseBody(BaseModel):
+    """Pausar/retomar (Tela 15, wf §17.2, ADR-0048)."""
+
+    pausado: bool = True
+
+
+class AddContextBody(BaseModel):
+    """Adicionar contexto (Tela 15, wf §17.2, ADR-0048)."""
+
+    texto: str
+
+
+class RequestHelpBody(BaseModel):
+    """Solicitar ajuda (Tela 15, wf §17.2, ADR-0048)."""
+
     reason: str = ""
 
 
@@ -414,6 +615,14 @@ def create_app(
             "openapi": "/openapi.json",
         }
 
+    @app.get("/v1/me")
+    def me(request: Request) -> Any:
+        """Identidade do principal autenticado (wf §2.3, "Perfil do usuário",
+        ADR-0035) — sem isto o frontend não tem como saber quem está logado além
+        de "existe um token salvo"."""
+        principal = request.state.principal
+        return {"actor": principal.actor, "role": principal.role}
+
     def _guard(orchestration_id: str) -> None:
         try:
             svc.get(orchestration_id)
@@ -503,17 +712,44 @@ def create_app(
         # sequência estava duplicada só aqui, e outros pontos de entrada — a CLI —
         # nasciam sem ela). Nunca levanta por conta da triagem em si — TriageService
         # garante o fallback heurístico.
+        #
+        # Exceção deliberada (Tela 03, Cadastro completo, wf §5.2, ADR-0039): se o
+        # corpo já traz uma `demand_brief` completa, o solicitante preencheu a
+        # ficha à mão — rodar o agente de triagem por cima descartaria isso. Neste
+        # caso vai direto a `create_orchestration`, sem re-triagem.
         try:
-            orch = svc.create_with_triage(
-                body.user_request,
-                project_id=body.project_id,
-                target_path=target_path,
-                execution_mode=mode,
-                executor=body.executor,
-                effort=body.effort,
-                validation_command=body.validation_command,
-                seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
-            )
+            if body.demand_brief is not None:
+                # Bug real (code-review ultra): faltava `decision_input=` aqui — a
+                # classificação preenchida à mão (tipo/complexidade/impactos/domínios)
+                # nunca chegava ao planejador nem a `_apply_routing_rule`, que viam
+                # um `DecisionInput` default (`domains=["backend"]`). `to_decision_input`
+                # é a mesma tradução que `create_with_triage` já usa.
+                brief = DemandBrief.model_validate(body.demand_brief)
+                orch = svc.create_orchestration(
+                    body.user_request,
+                    project_id=body.project_id,
+                    target_path=target_path,
+                    execution_mode=mode,
+                    executor=body.executor,
+                    effort=body.effort,
+                    validation_command=body.validation_command,
+                    seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
+                    decision_input=brief.to_decision_input(body.user_request),
+                    demand_brief=brief,
+                    orcamento_usd=body.orcamento_usd,
+                )
+            else:
+                orch = svc.create_with_triage(
+                    body.user_request,
+                    project_id=body.project_id,
+                    target_path=target_path,
+                    execution_mode=mode,
+                    executor=body.executor,
+                    effort=body.effort,
+                    validation_command=body.validation_command,
+                    seed_cards=body.execution_mode != ExecutionMode.FULL_PIPELINE,
+                    orcamento_usd=body.orcamento_usd,
+                )
         except (ProjectNotFoundError, ProjectValidationError, ProjectConflictError) as exc:
             _raise_project_error(exc)
         except GateCommandError as exc:
@@ -545,12 +781,41 @@ def create_app(
         page: int | None = Query(default=None, ge=1),
         page_size: int = Query(default=50, ge=1, le=500),
         project_id: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        q: str | None = Query(default=None),
+        executor: str | None = Query(default=None),
+        created_from: str | None = Query(default=None),
+        created_to: str | None = Query(default=None),
+        tipo: str | None = Query(default=None),
+        risco: str | None = Query(default=None),
+        complexidade: str | None = Query(default=None),
+        impacto: str | None = Query(default=None),
+        aprovacao_humana: bool | None = Query(default=None),
     ) -> Any:
+        """Tela 02 (Lista de demandas, wf §4.2, ADR-0038): 10 dos 11 filtros do
+        wireframe (o 11º, "Prioridade", reaproveita `risco` — não existe
+        prioridade de demanda como conceito próprio, só a de card, derivada do
+        risco)."""
+        filtros: dict[str, Any] = {
+            "project_id": project_id,
+            "status": status,
+            "q": q,
+            "executor": executor,
+            "created_from": created_from,
+            "created_to": created_to,
+            "tipo": tipo,
+            "risco": risco,
+            "complexidade": complexidade,
+            "impacto": impacto,
+            "aprovacao_humana": aprovacao_humana,
+        }
         if page is None:
-            items = svc.list_all(project_id=project_id)
+            # Sem página pedida: devolve tudo que bate nos filtros (mesmo
+            # contrato de sempre — `page` é o único gatilho de paginação).
+            items = svc.list_all(**filtros)
             response.headers["X-Total-Count"] = str(len(items))
             return items
-        result = svc.list_orchestrations_page(page=page, page_size=page_size, project_id=project_id)
+        result = svc.list_orchestrations_page(page=page, page_size=page_size, **filtros)
         response.headers["X-Total-Count"] = str(result["total"])
         return result["items"]
 
@@ -594,6 +859,35 @@ def create_app(
                 orchestration_id, status=status, card_type=card_type, assignee=assignee
             )
         return svc.get_cards(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/tree")
+    def get_card_tree(orchestration_id: str) -> Any:
+        """Tela 10 (Estrutura da demanda, wf §12, ADR-0040)."""
+        return _card_op(orchestration_id, lambda: svc.get_card_tree(orchestration_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/kanban")
+    def get_kanban_board(orchestration_id: str) -> Any:
+        """Tela 11 (Kanban operacional, wf §13/§35, ADR-0047): as 16 colunas reais
+        (rótulo do wireframe quando existe), cards com os 11 campos do §13.3 já
+        resolvidos, e o grafo de transições válidas."""
+        _guard(orchestration_id)
+        return svc.kanban_board(orchestration_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards", status_code=201)
+    def create_card(orchestration_id: str, body: CreateCardBody) -> Any:
+        """Tela 10 (wf §12, ADR-0040): cria um item em qualquer nível,
+        respeitando a hierarquia (`parent_id` inexistente, ciclo ou profundidade
+        excedida devolvem 409 — mesma validação de `BoardService.add_card`)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.create_card(
+                orchestration_id,
+                title=body.title,
+                type=body.type,
+                parent_id=body.parent_id,
+                description=body.description,
+            ),
+        )
 
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/run")
     def run_card(orchestration_id: str, card_id: str) -> Any:
@@ -645,6 +939,159 @@ def create_app(
             return svc.delete_executor(name)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    # ---- Regras de roteamento (§33, ADR-0028) --------------------------------
+
+    @app.get("/v1/routing-rules")
+    def list_routing_rules(only_active: bool = Query(default=False)) -> Any:
+        """Regras SE/ENTÃO avaliadas antes da heurística do decision engine."""
+        return svc.list_routing_rules(only_active=only_active)
+
+    @app.post("/v1/routing-rules", status_code=201)
+    def create_routing_rule(body: RoutingRuleBody, request: Request) -> Any:
+        """Cria uma regra de roteamento (ação crítica — exige papel admin)."""
+        try:
+            return svc.create_routing_rule(
+                nome=body.nome,
+                descricao=body.descricao,
+                ativa=body.ativa,
+                precedencia=body.precedencia,
+                condicoes=body.condicoes,
+                acao=body.acao,
+                actor=_actor(request),
+            )
+        except RoutingRuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @app.post("/v1/routing-rules/preview")
+    def preview_routing_rule(body: RoutingRulePreviewBody) -> Any:
+        """Quais demandas já existentes casariam com esta regra ainda não salva
+        (Tela 31, wf §33.2, ADR-0042)."""
+        try:
+            return svc.preview_routing_rule(condicoes=body.condicoes, acao=body.acao)
+        except RoutingRuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @app.put("/v1/routing-rules/reorder")
+    def reorder_routing_rules(body: RoutingRuleReorderBody) -> Any:
+        """Reordena por arrasta-e-solta, reatribuindo `precedencia` (Tela 31,
+        ADR-0042). Registrada ANTES de `PUT .../{rule_id}` — `reorder` é um
+        segmento literal e seria interceptado como `rule_id="reorder"` se viesse
+        depois (Starlette casa rotas por ordem de registro; mesmo cuidado já
+        aplicado a `cards/{card_id}` na ADR-0041)."""
+        try:
+            return svc.reorder_routing_rules(body.ordem)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    @app.put("/v1/routing-rules/{rule_id}")
+    def update_routing_rule(rule_id: str, body: RoutingRuleBody) -> Any:
+        """Atualiza uma regra existente (ação crítica — exige papel admin)."""
+        try:
+            return svc.update_routing_rule(
+                rule_id,
+                nome=body.nome,
+                descricao=body.descricao,
+                ativa=body.ativa,
+                precedencia=body.precedencia,
+                condicoes=body.condicoes,
+                acao=body.acao,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except RoutingRuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @app.delete("/v1/routing-rules/{rule_id}")
+    def delete_routing_rule(rule_id: str) -> Any:
+        """Remove uma regra de roteamento (ação crítica — exige papel admin)."""
+        try:
+            svc.delete_routing_rule(rule_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        return {"deleted": rule_id}
+
+    # ---- Catálogo de agentes (Tela 30, wf §32, ADR-0053) ---------------------
+
+    @app.get("/v1/agent-definitions")
+    def list_agent_definitions(only_active: bool = Query(default=False)) -> Any:
+        """13 campos por agente — fonte de verdade das permissões reais."""
+        return svc.list_agent_definitions(only_active=only_active)
+
+    @app.get("/v1/agent-definitions/roles")
+    def get_agent_real_roles() -> Any:
+        """Papéis reais do AgentRegistry, para vincular uma definição só a um
+        `role` que de fato existe — registrada ANTES de `/{definition_id}`
+        (segmento literal, mesmo cuidado de `routing-rules/reorder`, ADR-0042)."""
+        return svc.get_agent_real_roles()
+
+    @app.get("/v1/agent-definitions/{definition_id}")
+    def get_agent_definition(definition_id: str) -> Any:
+        try:
+            return svc.get_agent_definition(definition_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+
+    @app.post("/v1/agent-definitions", status_code=201)
+    def create_agent_definition(body: AgentDefinitionBody, request: Request) -> Any:
+        """Cria uma definição de agente (ação crítica — exige papel admin)."""
+        try:
+            return svc.create_agent_definition(
+                nome=body.nome,
+                tipo=body.tipo,
+                funcao=body.funcao,
+                plataforma=body.plataforma,
+                role=body.role,
+                modelos_permitidos=body.modelos_permitidos,
+                efforts_permitidos=body.efforts_permitidos,
+                ferramentas=body.ferramentas,
+                permissoes=body.permissoes,
+                projetos=body.projetos,
+                categorias_tarefa=body.categorias_tarefa,
+                limite_custo_usd=body.limite_custo_usd,
+                limite_tentativas=body.limite_tentativas,
+                exige_supervisao=body.exige_supervisao,
+                ativo=body.ativo,
+                actor=_actor(request),
+            )
+        except AgentDefinitionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @app.put("/v1/agent-definitions/{definition_id}")
+    def update_agent_definition(definition_id: str, body: AgentDefinitionBody) -> Any:
+        """Atualiza uma definição existente (ação crítica — exige papel admin)."""
+        try:
+            return svc.update_agent_definition(
+                definition_id,
+                nome=body.nome,
+                tipo=body.tipo,
+                funcao=body.funcao,
+                plataforma=body.plataforma,
+                role=body.role,
+                modelos_permitidos=body.modelos_permitidos,
+                efforts_permitidos=body.efforts_permitidos,
+                ferramentas=body.ferramentas,
+                permissoes=body.permissoes,
+                projetos=body.projetos,
+                categorias_tarefa=body.categorias_tarefa,
+                limite_custo_usd=body.limite_custo_usd,
+                limite_tentativas=body.limite_tentativas,
+                exige_supervisao=body.exige_supervisao,
+                ativo=body.ativo,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except AgentDefinitionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    @app.delete("/v1/agent-definitions/{definition_id}")
+    def delete_agent_definition(definition_id: str) -> Any:
+        """Remove uma definição de agente (ação crítica — exige papel admin)."""
+        try:
+            svc.delete_agent_definition(definition_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        return {"deleted": definition_id}
 
     # ---- Projetos (agrupadores do Kanban Macro) ------------------------------
 
@@ -849,15 +1296,54 @@ def create_app(
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy/pipeline")
+    def get_deploy_pipeline(orchestration_id: str) -> Any:
+        """Status derivado por estágio (§19, wf §25, ADR-0029) — lista vazia =
+        monoambiente legado, nenhum pipeline configurado."""
+        _guard(orchestration_id)
+        return svc.get_deploy_pipeline(orchestration_id)
+
+    @app.put("/v1/orchestrations/{orchestration_id}/deploy/pipeline")
+    def set_deploy_pipeline(
+        orchestration_id: str, body: DeployPipelineBody, request: Request
+    ) -> Any:
+        """Configura o pipeline de estágios; lista vazia volta ao monoambiente
+        legado (ADR-0023)."""
+        _guard(orchestration_id)
+        try:
+            return svc.set_deploy_pipeline(
+                orchestration_id,
+                [
+                    Environment(
+                        chave=e.chave,
+                        nome=e.nome,
+                        ordem=e.ordem,
+                        comando=e.comando,
+                        health_checks=[ValidationCheck(**c.model_dump()) for c in e.health_checks],
+                        rollback_command=e.rollback_command,
+                        requer_aprovacao_humana=e.requer_aprovacao_humana,
+                    )
+                    for e in body.estagios
+                ],
+                actor=_actor(request),
+            )
+        except GateCommandError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
     @app.post("/v1/orchestrations/{orchestration_id}/deploy/run")
     def run_deploy(orchestration_id: str, body: DeployRunBody, request: Request) -> Any:
         """Roda a implantação — exige comando configurado e o quality gate mais
-        recente aprovado (§18); o resultado decide aceite automático ou humano."""
+        recente aprovado (§18); o resultado decide aceite automático ou humano.
+        Com pipeline configurado, `body.estagio` escolhe qual estágio rodar
+        (omitido, resolve o primeiro pendente — avanço governado, §19)."""
         return _card_op(
             orchestration_id,
             lambda: svc.run_deploy(
                 orchestration_id,
                 environment=body.environment,
+                estagio=body.estagio,
                 versao_app=body.versao_app,
                 commit=body.commit,
                 branch=body.branch,
@@ -882,6 +1368,7 @@ def create_app(
                 orchestration_id,
                 approved=body.approved,
                 comentario=body.comentario,
+                tipo_aceite=body.tipo_aceite,
                 actor=_actor(request),
             ),
         )
@@ -892,7 +1379,90 @@ def create_app(
         return _card_op(
             orchestration_id,
             lambda: svc.rollback_deploy(
-                orchestration_id, reason=body.reason, actor=_actor(request)
+                orchestration_id,
+                reason=body.reason,
+                estrategia=body.estrategia,
+                actor=_actor(request),
+            ),
+        )
+
+    # --- Telas 22/24/25/27 (aprovação, saúde, rollback, encerramento — ADR-0050) ---
+
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy/approval-checklist")
+    def get_deploy_approval_checklist(orchestration_id: str) -> Any:
+        """Checklist de 9 itens + avaliação de risco (Tela 22, wf §24)."""
+        _guard(orchestration_id)
+        return svc.get_deploy_approval_checklist(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy/health")
+    def get_deploy_health(orchestration_id: str) -> Any:
+        """Saúde de 4 níveis + decisão sugerida (Tela 24, wf §26)."""
+        return _card_op(orchestration_id, lambda: svc.get_deploy_health(orchestration_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/deploy/rollback-checklist")
+    def get_rollback_checklist(orchestration_id: str) -> Any:
+        """Checklist de 6 itens do rollback (Tela 25, wf §27)."""
+        return _card_op(orchestration_id, lambda: svc.get_rollback_checklist(orchestration_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/closure")
+    def get_demand_closure(orchestration_id: str) -> Any:
+        """Relatório de encerramento da demanda, 13 blocos + métricas (Tela 27, wf §29)."""
+        _guard(orchestration_id)
+        return svc.get_demand_closure(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/closure/export")
+    def export_demand_closure(orchestration_id: str) -> Any:
+        """Markdown pronto para download (botão 'Exportar relatório', wf §29.2)."""
+        _guard(orchestration_id)
+        markdown = svc.export_demand_closure(orchestration_id)
+        return Response(
+            content=markdown,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="encerramento-{orchestration_id}.md"'
+            },
+        )
+
+    # --- incidentes (§21, wf §27/§38, ADR-0032) ---
+
+    @app.get("/v1/orchestrations/{orchestration_id}/incidents")
+    def list_incidents(orchestration_id: str) -> Any:
+        """Incidentes da orquestração — abertos automaticamente por rollback (§21)."""
+        _guard(orchestration_id)
+        return svc.list_incidents(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/incidents/{incident_id}")
+    def get_incident(orchestration_id: str, incident_id: str) -> Any:
+        _guard(orchestration_id)
+        incident = svc.get_incident(orchestration_id, incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incidente inexistente")
+        return incident
+
+    @app.post("/v1/orchestrations/{orchestration_id}/incidents/{incident_id}/investigate")
+    def investigate_incident(
+        orchestration_id: str,
+        incident_id: str,
+        body: IncidentInvestigateBody,
+        request: Request,
+    ) -> Any:
+        """Marca o incidente como em investigação."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.investigate_incident(
+                orchestration_id, incident_id, detalhe=body.detalhe, actor=_actor(request)
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/incidents/{incident_id}/resolve")
+    def resolve_incident(
+        orchestration_id: str, incident_id: str, body: IncidentResolveBody, request: Request
+    ) -> Any:
+        """Resolve o incidente com a causa raiz identificada."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.resolve_incident(
+                orchestration_id, incident_id, causa_raiz=body.causa_raiz, actor=_actor(request)
             ),
         )
 
@@ -900,6 +1470,13 @@ def create_app(
     def get_qa_checks(orchestration_id: str, card_id: str) -> Any:
         """Histórico de verificações manuais de QA do card (§16, ring de 10)."""
         return _card_op(orchestration_id, lambda: svc.get_qa_checks(orchestration_id, card_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/checklist")
+    def get_preparation_checklist(orchestration_id: str, card_id: str) -> Any:
+        """Checklist de preparação para implementação (§10, ADR-0030) — só leitura."""
+        return _card_op(
+            orchestration_id, lambda: svc.get_preparation_checklist(orchestration_id, card_id)
+        )
 
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa")
     def register_qa_check(
@@ -912,6 +1489,8 @@ def create_app(
                 orchestration_id,
                 card_id,
                 cenario=body.cenario,
+                titulo=body.titulo,
+                pre_condicoes=body.pre_condicoes,
                 passos=body.passos,
                 ambiente=body.ambiente,
                 resultado_esperado=body.resultado_esperado,
@@ -949,10 +1528,36 @@ def create_app(
         _guard(orchestration_id)
         return svc.get_learning_report(orchestration_id)
 
+    @app.get("/v1/orchestrations/{orchestration_id}/learning/recommendations")
+    def get_learning_recommendations(orchestration_id: str) -> Any:
+        """8 recomendações estruturadas da Tela 29 (wf §31.3, ADR-0052) — 6 com
+        justificativa quando disparadas, 2 permanentemente desabilitadas."""
+        _guard(orchestration_id)
+        return recomendacoes_estruturadas(svc.get_learning_report(orchestration_id))
+
     @app.get("/v1/learning")
-    def get_learning_report_global() -> Any:
-        """Mesmo relatório, consolidado entre todas as orquestrações (§24)."""
-        return svc.get_learning_report_global()
+    def get_learning_report_global(
+        projeto: str | None = Query(default=None),
+        data_de: str | None = Query(default=None),
+        data_ate: str | None = Query(default=None),
+    ) -> Any:
+        """Mesmo relatório, consolidado entre orquestrações (§24) — recorte por
+        projeto e período (Tela 29, wf §31, ADR-0052)."""
+        return svc.get_learning_report_global(
+            project_id=projeto, data_de=data_de, data_ate=data_ate
+        )
+
+    @app.get("/v1/learning/recommendations")
+    def get_learning_recommendations_global(
+        projeto: str | None = Query(default=None),
+        data_de: str | None = Query(default=None),
+        data_ate: str | None = Query(default=None),
+    ) -> Any:
+        """8 recomendações estruturadas cross-demanda (Tela 29, wf §31.3, ADR-0052)."""
+        relatorio = svc.get_learning_report_global(
+            project_id=projeto, data_de=data_de, data_ate=data_ate
+        )
+        return recomendacoes_estruturadas(relatorio)
 
     @app.put("/v1/orchestrations/{orchestration_id}/budget")
     def set_budget(orchestration_id: str, body: BudgetBody, request: Request) -> Any:
@@ -1038,6 +1643,32 @@ def create_app(
             orchestration_id, executor=body.executor, effort=body.effort, actor=_actor(request)
         )
 
+    @app.patch("/v1/orchestrations/{orchestration_id}/classification")
+    def update_classification(
+        orchestration_id: str, body: ClassificationBody, request: Request
+    ) -> Any:
+        """Edição pontual da classificação, com auditoria antes/depois (Tela 05,
+        wf §7, ADR-0044)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.update_classification(
+                orchestration_id,
+                tipo=body.tipo,
+                risco=body.risco,
+                complexidade=body.complexidade,
+                impactos=body.impactos,
+                dominios=body.dominios,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/recommendation")
+    def get_recommendation(orchestration_id: str) -> Any:
+        """Painel de recomendação (Tela 13, wf §15, ADR-0044) — o que o motor
+        decidiria hoje para esta demanda; não persiste nada."""
+        _guard(orchestration_id)
+        return svc.preview_recommendation(orchestration_id)
+
     @app.get("/v1/orchestrations/{orchestration_id}/discovery")
     def get_discovery(orchestration_id: str) -> Any:
         """Relatório de discovery atual (§3 do fluxo.md, ADR-0020)."""
@@ -1049,6 +1680,12 @@ def create_app(
         """Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5."""
         _guard(orchestration_id)
         return svc.get_discovery_history(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/discovery/approval-criteria")
+    def get_discovery_approval_criteria(orchestration_id: str) -> Any:
+        """Tela 07 (wf §9, ADR-0045): checklist de critérios + motivos da escalada."""
+        _guard(orchestration_id)
+        return svc.get_discovery_approval_criteria(orchestration_id)
 
     @app.post("/v1/orchestrations/{orchestration_id}/discovery/run")
     def run_discovery(orchestration_id: str, body: DiscoveryRunBody) -> Any:
@@ -1114,6 +1751,105 @@ def create_app(
             ),
         )
 
+    # ---- Documentos (Tela 08/09, wf §10/§11, ADR-0046) -----------------------
+
+    @app.get("/v1/orchestrations/{orchestration_id}/documentos")
+    def list_documentos(orchestration_id: str) -> Any:
+        """Lista de documentos (wf §10.2) — os 8 tipos novos + os 5 já cobertos
+        pela especificação, em modo leitura."""
+        _guard(orchestration_id)
+        return svc.list_documentos(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/documentos/{tipo}")
+    def get_documento(orchestration_id: str, tipo: str) -> Any:
+        return _documento_op(orchestration_id, lambda: svc.get_documento(orchestration_id, tipo))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/documentos/{tipo}/history")
+    def get_documento_history(orchestration_id: str, tipo: str) -> Any:
+        """Histórico de versões (wf §10.3) — ring de até 5."""
+        return _documento_op(
+            orchestration_id, lambda: svc.get_documento_history(orchestration_id, tipo)
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/documentos/{tipo}/diff")
+    def diff_documento(orchestration_id: str, tipo: str, de: int, para: int) -> Any:
+        """Comparação de versões (wf §10.3)."""
+        return _documento_op(
+            orchestration_id,
+            lambda: svc.diff_documento(orchestration_id, tipo, de=de, para=para),
+        )
+
+    @app.put("/v1/orchestrations/{orchestration_id}/documentos/{tipo}")
+    def save_documento(orchestration_id: str, tipo: str, body: DocumentoSaveBody) -> Any:
+        """Salva uma nova versão (edição manual, wf §10.3)."""
+        return _documento_op(
+            orchestration_id,
+            lambda: svc.save_documento(
+                orchestration_id,
+                tipo,
+                conteudo_markdown=body.conteudo_markdown,
+                autor=body.autor,
+                referencias_codigo=body.referencias_codigo,
+                referencias_cards=body.referencias_cards,
+                referencias_documentos=body.referencias_documentos,
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/documentos/{tipo}/review")
+    def review_documento(
+        orchestration_id: str, tipo: str, body: DocumentoReviewBody, request: Request
+    ) -> Any:
+        """Checklist do revisor (wf §11) — os quatro desfechos do §11.2."""
+        return _documento_op(
+            orchestration_id,
+            lambda: svc.review_documento(
+                orchestration_id, tipo, executor=body.executor, actor=_actor(request)
+            ),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/documentos/{tipo}/comments")
+    def list_documento_comments(orchestration_id: str, tipo: str) -> Any:
+        return _documento_op(
+            orchestration_id, lambda: svc.list_documento_comments(orchestration_id, tipo)
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/documentos/{tipo}/comments", status_code=201)
+    def create_documento_comment(
+        orchestration_id: str, tipo: str, body: DocumentoCommentBody, request: Request
+    ) -> Any:
+        """Comentário ancorado (wf §10.3/§11.3) — os 8 campos literais do wireframe."""
+        return _documento_op(
+            orchestration_id,
+            lambda: svc.create_documento_comment(
+                orchestration_id,
+                tipo,
+                autor=body.autor,
+                tipo_comentario=body.tipo,
+                severidade=body.severidade,
+                descricao=body.descricao,
+                trecho_relacionado=body.trecho_relacionado,
+                acao_solicitada=body.acao_solicitada,
+                actor=_actor(request),
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/documentos/comments/{comment_id}/resolve")
+    def resolve_documento_comment(
+        orchestration_id: str,
+        comment_id: str,
+        body: DocumentoCommentResolveBody,
+        request: Request,
+    ) -> Any:
+        return _documento_op(
+            orchestration_id,
+            lambda: svc.resolve_documento_comment(
+                orchestration_id,
+                comment_id,
+                resposta_do_autor=body.resposta_do_autor,
+                actor=_actor(request),
+            ),
+        )
+
     @app.post("/v1/orchestrations/{orchestration_id}/advance-phase")
     def advance_phase(orchestration_id: str) -> Any:
         """Avança para a próxima fase (governado)."""
@@ -1151,6 +1887,21 @@ def create_app(
         _guard(orchestration_id)
         return svc.cards_by_status(orchestration_id, status)
 
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}")
+    def get_card(orchestration_id: str, card_id: str) -> Any:
+        """Tela 12 (Detalhes do card, wf §14, ADR-0041): ficha completa de um
+        único card — usada pelas abas Resumo/Plano/Implementação/Arquivos/
+        Testes/Dependências/Execuções. Registrada depois de todas as rotas
+        literais de um segmento sob `cards/` (`tree`, `stats`, `by-status/...`)
+        para não sombreá-las — Starlette casa rotas na ordem de registro."""
+        return _card_op(orchestration_id, lambda: svc.get_card(orchestration_id, card_id))
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/events")
+    def get_card_events(orchestration_id: str, card_id: str) -> Any:
+        """Tela 12 (aba Histórico, ADR-0041): log de movimentações do card,
+        append-only, nunca truncado — diferente dos rings de tentativas/falhas."""
+        return _card_op(orchestration_id, lambda: svc.get_card_events(orchestration_id, card_id))
+
     @app.get("/v1/orchestrations/{orchestration_id}/adrs")
     def list_adrs(
         orchestration_id: str,
@@ -1181,6 +1932,86 @@ def create_app(
     @app.get("/v1/metrics")
     def global_metrics() -> Any:
         return metrics.global_metrics()
+
+    # --- Header (wf §2.3, ADR-0035) ---
+    @app.get("/v1/header-summary")
+    def header_summary(project_id: str | None = Query(default=None)) -> Any:
+        """Execuções ativas, falhas e aprovações pendentes — escopadas ao
+        `project_id` quando informado, senão globais."""
+        return svc.header_summary(project_id=project_id)
+
+    @app.get("/v1/search")
+    def search(
+        q: str = Query(default=""),
+        project_id: str | None = Query(default=None),
+        limit: int = Query(default=30, ge=1, le=100),
+    ) -> Any:
+        """Busca global (wf §2.3, "Campo de busca"): demanda, card ou documento."""
+        return svc.search(q, project_id=project_id, limit=limit)
+
+    # --- Dashboard (wf §3.3, Tela 01, ADR-0037) ---
+    @app.get("/v1/dashboard-summary")
+    def dashboard_summary(project_id: str | None = Query(default=None)) -> Any:
+        """Demandas ativas/em execução/bloqueadas/falhas, cards por status e
+        aprovações pendentes por tipo — escopados ao `project_id` quando informado."""
+        return svc.dashboard_summary(project_id=project_id)
+
+    @app.get("/v1/activity")
+    def recent_activity(limit: int = Query(default=20, ge=1, le=100)) -> Any:
+        """Atividade recente global (tipo, ator, horário) — diferente da timeline
+        por orquestração."""
+        return svc.recent_activity(limit=limit)
+
+    @app.get("/v1/audit")
+    def audit_page(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=50, ge=1, le=200),
+        projeto: str | None = Query(default=None),
+        demanda: str | None = Query(default=None),
+        agente: str | None = Query(default=None),
+        etapa: str | None = Query(default=None),
+        resultado: str | None = Query(default=None),
+        data_de: str | None = Query(default=None),
+        data_ate: str | None = Query(default=None),
+    ) -> Any:
+        """Auditoria cross-demanda com os 6 filtros do wf §30.3 (Tela 28, ADR-0051)."""
+        return svc.audit_page(
+            page=page,
+            page_size=page_size,
+            project_id=projeto,
+            orchestration_id=demanda,
+            agente=agente,
+            etapa=etapa,
+            resultado=resultado,
+            data_de=data_de,
+            data_ate=data_ate,
+        )
+
+    @app.get("/v1/audit/export")
+    def export_audit(
+        projeto: str | None = Query(default=None),
+        demanda: str | None = Query(default=None),
+        agente: str | None = Query(default=None),
+        etapa: str | None = Query(default=None),
+        resultado: str | None = Query(default=None),
+        data_de: str | None = Query(default=None),
+        data_ate: str | None = Query(default=None),
+    ) -> Any:
+        """CSV do resultado filtrado (wf §30.3, "Exportação")."""
+        csv_text = svc.export_audit(
+            project_id=projeto,
+            orchestration_id=demanda,
+            agente=agente,
+            etapa=etapa,
+            resultado=resultado,
+            data_de=data_de,
+            data_ate=data_ate,
+        )
+        return Response(
+            content=csv_text,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="auditoria.csv"'},
+        )
 
     @app.get("/v1/orchestrations/{orchestration_id}/metrics")
     def orchestration_metrics(orchestration_id: str) -> Any:
@@ -1379,6 +2210,25 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    # --- comentários de revisão ancorados em arquivo/linha (wf §20.3, ADR-0033) ---
+
+    @app.get("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/comments")
+    def list_review_comments(orchestration_id: str, pr_id: str) -> Any:
+        """Comentários da PR — alimenta a lista de correções obrigatórias da tela 19."""
+        return _card_op(orchestration_id, lambda: svc.list_review_comments(orchestration_id, pr_id))
+
+    @app.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/comments/{comment_id}/resolve")
+    def resolve_review_comment(
+        orchestration_id: str, pr_id: str, comment_id: str, request: Request
+    ) -> Any:
+        """Resolução manual — além da auto-resolução quando uma rodada aprova."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.resolve_review_comment(
+                orchestration_id, pr_id, comment_id, actor=_actor(request)
+            ),
+        )
+
     @app.post("/v1/orchestrations/{orchestration_id}/rollback", status_code=202)
     def rollback(orchestration_id: str, body: RollbackBody) -> Any:
         _guard(orchestration_id)
@@ -1413,6 +2263,15 @@ def create_app(
         _guard(orchestration_id)
         return svc.cancel(orchestration_id)
 
+    @app.post("/v1/orchestrations/{orchestration_id}/duplicate", status_code=201)
+    def duplicate_orchestration(orchestration_id: str, request: Request) -> Any:
+        """Duplicar (Tela 02, wf §4.4, ADR-0038): nova orquestração a partir do
+        `user_request`/projeto/execução da origem, re-triada do zero."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.duplicate_orchestration(orchestration_id, actor=_actor(request)),
+        )
+
     @app.post("/v1/orchestrations/{orchestration_id}/resume")
     def resume(orchestration_id: str) -> Any:
         _guard(orchestration_id)
@@ -1440,6 +2299,21 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    def _documento_op(orchestration_id: str, fn: Any) -> Any:
+        """Mesmo padrão de `_card_op`, com `DocumentoError` (tipo/vocabulário
+        inválido) mapeado para 400 — checado ANTES de `ValueError` genérico, já
+        que `DocumentoError` é subclasse dele (mesmo cuidado de `RoutingRuleError`,
+        ADR-0028)."""
+        _guard(orchestration_id)
+        try:
+            return fn()
+        except DocumentoError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/assign-agent")
     def assign_agent(orchestration_id: str, card_id: str, body: AssignAgentBody) -> Any:
         return _card_op(
@@ -1448,8 +2322,12 @@ def create_app(
 
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/move")
     def move_card(orchestration_id: str, card_id: str, body: MoveBody) -> Any:
+        """Movimentação manual (Tela 11, wf §35, ADR-0047) — valida a transição
+        contra a máquina de estados; automação interna do runtime não passa por
+        aqui (chama `BoardService`/`svc.move_card` sem validação)."""
         return _card_op(
-            orchestration_id, lambda: svc.move_card(orchestration_id, card_id, body.to_column)
+            orchestration_id,
+            lambda: svc.move_card_validado(orchestration_id, card_id, body.to_column),
         )
 
     @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/block")
@@ -1486,6 +2364,127 @@ def create_app(
         causa."""
         return _card_op(orchestration_id, lambda: svc.route_card(orchestration_id, card_id))
 
+    # ---- Controles em voo (Tela 15, wf §17.2, ADR-0048) -----------------------
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/pause")
+    def pause_card(orchestration_id: str, card_id: str, body: PauseBody, request: Request) -> Any:
+        """Pausar/retomar — impede a próxima execução, não interrompe uma em
+        andamento (reinterpretação honesta, ver ADR-0048)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.pause_card(
+                orchestration_id, card_id, pausado=body.pausado, actor=_actor(request)
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/add-context")
+    def add_card_context(
+        orchestration_id: str, card_id: str, body: AddContextBody, request: Request
+    ) -> Any:
+        """Adicionar contexto — entra no próximo prompt do agente."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.add_card_context(
+                orchestration_id, card_id, body.texto, actor=_actor(request)
+            ),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/increase-effort")
+    def increase_card_effort(orchestration_id: str, card_id: str, request: Request) -> Any:
+        """Aumentar effort — reaproveita `proximo_effort` (mesma função do
+        roteamento automático de falha)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.increase_card_effort(orchestration_id, card_id, actor=_actor(request)),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/transfer-model")
+    def transfer_card_model(orchestration_id: str, card_id: str, request: Request) -> Any:
+        """Trocar modelo — reaproveita `proximo_executor` (mesma função do
+        roteamento automático de falha)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.transfer_card_model(orchestration_id, card_id, actor=_actor(request)),
+        )
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/request-help")
+    def request_card_help(orchestration_id: str, card_id: str, body: RequestHelpBody) -> Any:
+        """Solicitar ajuda — reaproveita `request_approval` (ação rotulada)."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.request_card_help(orchestration_id, card_id, reason=body.reason),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/changed-files")
+    def get_card_changed_files(orchestration_id: str, card_id: str) -> Any:
+        """Arquivos alterados (Tela 15, wf §17.1) — diff real da branch do card."""
+        return _card_op(
+            orchestration_id, lambda: svc.get_card_changed_files(orchestration_id, card_id)
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/failure-diagnostics")
+    def get_card_failure_diagnostics(orchestration_id: str, card_id: str) -> Any:
+        """Tela 17 (wf §19): falhas com diagnóstico e confiança calculados na leitura."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.get_card_failure_diagnostics(orchestration_id, card_id),
+        )
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/diff-stats")
+    def get_card_diff_stats(orchestration_id: str, card_id: str) -> Any:
+        """Resumo do review — commits/arquivos/linhas (Tela 18, wf §20.1, ADR-0049)."""
+        return _card_op(
+            orchestration_id, lambda: svc.get_card_diff_stats(orchestration_id, card_id)
+        )
+
+    # --- bugs manuais (Tela 21, wf §23, ADR-0049) ---
+
+    @app.get("/v1/orchestrations/{orchestration_id}/bug-reports")
+    def list_bug_reports(orchestration_id: str) -> Any:
+        """Todos os bugs registrados manualmente na orquestração."""
+        _guard(orchestration_id)
+        return svc.list_bug_reports(orchestration_id)
+
+    @app.get("/v1/orchestrations/{orchestration_id}/bug-reports/{bug_report_id}")
+    def get_bug_report(orchestration_id: str, bug_report_id: str) -> Any:
+        _guard(orchestration_id)
+        report = svc.get_bug_report(orchestration_id, bug_report_id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Registro de bug inexistente")
+        return report
+
+    @app.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/bug-reports")
+    def list_bug_reports_do_card(orchestration_id: str, card_id: str) -> Any:
+        """Bugs registrados contra este card (`card_original_id`)."""
+        _guard(orchestration_id)
+        return svc.list_bug_reports(orchestration_id, card_id)
+
+    @app.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/bug-reports")
+    def create_bug_report(
+        orchestration_id: str, card_id: str, body: BugReportBody, request: Request
+    ) -> Any:
+        """Registro manual de bug (Tela 21, wf §23) — cria o card Bug vinculado."""
+        return _card_op(
+            orchestration_id,
+            lambda: svc.create_bug_report(
+                orchestration_id,
+                card_id,
+                titulo=body.titulo,
+                cenario=body.cenario,
+                passos_para_reproduzir=body.passos_para_reproduzir,
+                ambiente=body.ambiente,
+                resultado_atual=body.resultado_atual,
+                resultado_esperado=body.resultado_esperado,
+                evidencias=body.evidencias,
+                gravidade=body.gravidade,
+                impacto=body.impacto,
+                frequencia=body.frequencia,
+                agente_sugerido=body.agente_sugerido,
+                retorno_de_fluxo=body.retorno_de_fluxo,
+                actor=_actor(request),
+            ),
+        )
+
     # --- approvals (§28.7) ---
     @app.post("/v1/orchestrations/{orchestration_id}/approvals", status_code=201)
     def create_approval(orchestration_id: str, body: ApprovalBody) -> Any:
@@ -1500,8 +2499,17 @@ def create_app(
         return svc.list_approvals(orchestration_id)
 
     @app.get("/v1/approvals")
-    def list_approvals() -> Any:
-        return svc.list_all_approvals()
+    def list_approvals(
+        status: str | None = Query(default=None),
+        project_id: str | None = Query(default=None),
+    ) -> Any:
+        approvals = svc.list_all_approvals()
+        if status is not None:
+            approvals = [a for a in approvals if a.status == status]
+        if project_id is not None:
+            ids = {o.id for o in svc.list_all(project_id=project_id)}
+            approvals = [a for a in approvals if a.orchestration_id in ids]
+        return approvals
 
     @app.get("/v1/approvals/{approval_id}")
     def get_approval(approval_id: str) -> Any:
@@ -1585,6 +2593,70 @@ def create_app(
     def ui_console() -> FileResponse:
         """Console técnico completo (abas de auditoria) — mantido para operação avançada."""
         return FileResponse(_STATIC_DIR / "index.html")
+
+    @app.get("/ui/demanda-nova", include_in_schema=False)
+    def ui_demanda_nova() -> FileResponse:
+        """Tela 03 — cadastro completo de demanda (wf §5.2, ADR-0039)."""
+        return FileResponse(_STATIC_DIR / "demanda-nova.html")
+
+    @app.get("/ui/demanda-estrutura", include_in_schema=False)
+    def ui_demanda_estrutura() -> FileResponse:
+        """Tela 10 — estrutura da demanda em árvore (wf §12, ADR-0040)."""
+        return FileResponse(_STATIC_DIR / "demanda-estrutura.html")
+
+    @app.get("/ui/card-detalhe", include_in_schema=False)
+    def ui_card_detalhe() -> FileResponse:
+        """Tela 12 — detalhes do card com 10 abas (wf §14, ADR-0041)."""
+        return FileResponse(_STATIC_DIR / "card-detalhe.html")
+
+    @app.get("/ui/regras-roteamento", include_in_schema=False)
+    def ui_regras_roteamento() -> FileResponse:
+        """Tela 31 — editor visual de regras de roteamento (wf §33, ADR-0042)."""
+        return FileResponse(_STATIC_DIR / "regras-roteamento.html")
+
+    @app.get("/ui/demanda-detalhe", include_in_schema=False)
+    def ui_demanda_detalhe() -> FileResponse:
+        """Tela 04 — detalhes da demanda com 11 abas e progresso (wf §6, ADR-0043)."""
+        return FileResponse(_STATIC_DIR / "demanda-detalhe.html")
+
+    # Sidebar de 16 seções (wf §2.4, ADR-0036) — ver docs/mapa-paginas.md para o
+    # card FID que implementa o conteúdo de cada uma. Registradas como rotas
+    # explícitas de nome fixo (mesmo padrão das 4 acima, geradas em laço só para
+    # não repetir 16 funções quase idênticas) — NUNCA um path curinga: um
+    # `/ui/{secao}` interceptaria `/ui/tokens.css`/`components.css`/`header.js`/
+    # `sidebar.js` antes deles chegarem ao mount de `StaticFiles` abaixo.
+    _SIDEBAR_SECOES = (
+        "dashboard",
+        "demandas",
+        "esteira",
+        "kanban",
+        "agentes",
+        "modelos",
+        "documentos",
+        "aprovacoes",
+        "execucoes",
+        "testes",
+        "code-reviews",
+        "implantacoes",
+        "incidentes",
+        "auditoria",
+        "metricas",
+        "configuracoes",
+    )
+
+    def _ui_secao_handler(nome_arquivo: str) -> Callable[[], FileResponse]:
+        def handler() -> FileResponse:
+            return FileResponse(_STATIC_DIR / nome_arquivo)
+
+        return handler
+
+    for _secao in _SIDEBAR_SECOES:
+        app.add_api_route(
+            f"/ui/{_secao}",
+            _ui_secao_handler(f"{_secao}.html"),
+            methods=["GET"],
+            include_in_schema=False,
+        )
 
     # Montagem de arquivos estáticos (CSS/JS/etc.), se houver.
     if _STATIC_DIR.is_dir():

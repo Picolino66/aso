@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Detalhes do card</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .campo { margin-bottom:12px; }
+    .campo .rotulo { font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:600; }
+    .campo .valor { font-size:13px; margin-top:2px; }
+    .campo .herdado { font-size:11px; color:var(--muted); margin-left:6px; }
+    .grade2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .tabpane { display:none; }
+    .tabpane.active { display:block; }
+    ul.simples { margin:4px 0 0; padding-left:18px; }
+    ul.simples li { font-size:13px; margin:2px 0; }
+    .subitem { border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .subitem .cab { display:flex; justify-content:space-between; align-items:baseline; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <div>
+            <h2 style="margin:0" id="tituloCard">Carregando…</h2>
+            <p class="muted" style="margin:4px 0 0">
+              <code id="idCard"></code> ·
+              <a href="#" id="linkDemanda">ver demanda</a> ·
+              <a href="#" id="linkArvore">ver estrutura</a>
+            </p>
+          </div>
+        </div>
+        <div class="tabs" id="abas"></div>
+        <div id="conteudoAbas"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    const CARD = new URLSearchParams(location.search).get('card');
+    ASOHeader.mount(document.getElementById('app-header'), { orchestrationId: ID });
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function lista(itens) {
+      if (!itens || !itens.length) return '<p class="muted">Nenhum item.</p>';
+      return '<ul class="simples">' + itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }
+    function campo(rotulo, valorHtml, herdado) {
+      return '<div class="campo"><div class="rotulo">' + esc(rotulo) +
+        (herdado ? '<span class="herdado">' + esc(herdado) + '</span>' : '') +
+        '</div><div class="valor">' + valorHtml + '</div></div>';
+    }
+    // wf §39: "a interface deve destacar riscos críticos" — mesmo tom de cor de demandas.html.
+    const TOM_RISCO = { low: '', medium: 'info', high: 'warn', critical: 'err' };
+    function pillRisco(risco) {
+      if (!risco) return '—';
+      return '<span class="pill ' + (TOM_RISCO[risco] || '') + '">' + esc(risco) + '</span>';
+    }
+
+    if (!ID || !CARD) { location.href = '/ui/demandas'; }
+    document.getElementById('linkDemanda').href = '/ui/detalhe?id=' + encodeURIComponent(ID);
+    document.getElementById('linkArvore').href = '/ui/demanda-estrutura?id=' + encodeURIComponent(ID);
+
+    // As 10 abas originais (wf §14.2, ADR-0041) + "Falhas" (wf §17/§19, ADR-0048)
+    // — o wireframe não amarra cada campo obrigatório a uma aba específica; o
+    // mapeamento é decisão de design, reaproveitando dado real em vez de
+    // inventar campo novo.
+    const ABAS = [
+      'Resumo', 'Plano', 'Implementação', 'Arquivos', 'Testes',
+      'Review', 'Evidências', 'Dependências', 'Execuções', 'Falhas', 'Histórico',
+    ];
+    let abaAtual = ABAS[0];
+    let CARD_DATA = null, BRIEF = null, EVENTS = [], PULLS = [], COMMENTS_BY_PR = {}, RUNS = [], TODOS_CARDS = [];
+    let GATE_RESULTS = [], CHANGED_FILES = [], LOG_LINES = [], FAILURE_DIAGNOSTICS = [];
+    let DIFF_STATS = null, BUG_REPORTS = [];
+
+    // Doze eixos do checklist do revisor (wf §20.2) — rótulos fixos do
+    // wireframe, mostrados ao lado do `pontos_verificados` REAL (texto livre
+    // do agente revisor), nunca cruzados/marcados um a um: cruzar exigiria
+    // casar texto livre do LLM com rótulo fixo, o que fabricaria uma precisão
+    // que não existe (ADR-0049).
+    const EIXOS_CODE_REVIEW = [
+      'Correção', 'Aderência aos requisitos', 'Qualidade', 'Clareza', 'Manutenibilidade',
+      'Segurança', 'Tratamento de erros', 'Performance', 'Padrões', 'Cobertura de testes',
+      'Risco de regressão', 'Escopo',
+    ];
+
+    function renderAbas() {
+      document.getElementById('abas').innerHTML = ABAS.map(function (a) {
+        return '<div class="tab' + (a === abaAtual ? ' active' : '') + '" data-aba="' + esc(a) + '">' + esc(a) + '</div>';
+      }).join('');
+      Array.from(document.querySelectorAll('#abas .tab')).forEach(function (el) {
+        el.addEventListener('click', function () { abaAtual = el.dataset.aba; renderAbas(); renderConteudo(); });
+      });
+    }
+
+    function tituloDeCard(cardId) {
+      const c = TODOS_CARDS.find(function (c) { return c.id === cardId; });
+      return c ? c.title : cardId;
+    }
+
+    function abaResumo() {
+      const c = CARD_DATA;
+      return '<div class="grade2">' +
+        '<div>' +
+          campo('Código', '<code>' + esc(c.id) + '</code>') +
+          campo('Tipo', esc(c.type)) +
+          campo('Status', esc(c.status)) +
+          campo('Prioridade / risco', pillRisco(c.priority)) +
+          campo('Complexidade', esc(BRIEF ? BRIEF.complexidade : '—'), 'herdado da demanda') +
+          campo('Agente responsável', esc(c.assignee || '—')) +
+          campo('Executor', esc(c.executor || '—')) +
+        '</div>' +
+        '<div>' +
+          campo('Objetivo', esc(BRIEF ? (BRIEF.objetivo || '—') : '—'), 'herdado da demanda') +
+          campo('Contexto', esc(BRIEF ? (BRIEF.problema || '—') : '—'), 'herdado da demanda (problema relatado)') +
+          campo('Riscos', lista(BRIEF ? BRIEF.riscos : []), 'herdado da demanda') +
+          campo('Descrição', esc(c.description || '—')) +
+        '</div>' +
+      '</div>';
+    }
+
+    function abaPlano() {
+      const c = CARD_DATA;
+      return campo('Critérios de aceite', lista(c.acceptance_criteria)) +
+        campo('Checklist de preparação', (c.preparation_checklist || []).length
+          ? '<ul class="simples">' + c.preparation_checklist.map(function (i) {
+              return '<li>' + (i.concluido ? '✓ ' : '· ') + esc(i.item) + '</li>';
+            }).join('') + '</ul>'
+          : '<p class="muted">Nenhum item.</p>') +
+        campo('Ações de correção pendentes', lista(c.correction_actions));
+    }
+
+    function abaImplementacao() {
+      const c = CARD_DATA;
+      return campo('Worktree', esc(c.worktree || '—')) +
+        campo('Branch', esc(c.branch || '—')) +
+        campo('Motivo de bloqueio', esc(c.block_reason || '—')) +
+        campo('PRs vinculadas', lista(c.linked_prs));
+    }
+
+    function abaArquivos() {
+      const c = CARD_DATA;
+      return campo('Arquivos e módulos envolvidos', lista(c.linked_files)) +
+        campo('Requisitos vinculados', lista(c.linked_requirements)) +
+        campo('ADRs vinculadas', lista(c.linked_adrs)) +
+        campo('Contratos vinculados', lista(c.linked_contracts));
+    }
+
+    function pillDeStatusQa(status) {
+      return status === 'passou' ? 'ok' : status === 'falhou' ? 'err' : 'warn';
+    }
+
+    function abaTestes() {
+      const checks = CARD_DATA.qa_checks || [];
+      // Plano de teste manual (Tela 20, wf §22.1) — código/título/pré-condições.
+      let html = '<h3 style="margin-top:0">Plano de teste manual</h3>';
+      html += checks.length ? checks.slice().reverse().map(function (q, i) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(q.codigo || ('#' + i)) + ' — ' + esc(q.titulo || q.cenario) + '</strong>' +
+          '<span class="pill ' + pillDeStatusQa(q.status) + '">' + esc(q.status) + '</span></div>' +
+          (q.pre_condicoes ? '<p class="muted" style="margin:2px 0">Pré-condições: ' + esc(q.pre_condicoes) + '</p>' : '') +
+          '<p class="muted" style="margin:4px 0">Cenário: ' + esc(q.cenario) + ' · Ambiente: ' + esc(q.ambiente || '—') + ' · Responsável: ' + esc(q.responsavel || '—') + '</p>' +
+          '<p class="muted" style="margin:4px 0">Esperado: ' + esc(q.resultado_esperado || '—') + ' · Obtido: ' + esc(q.resultado_obtido || '—') + '</p>' +
+          (q.evidencias && q.evidencias.length ? lista(q.evidencias) : '') +
+          '</div>';
+      }).join('') : '<p class="muted">Nenhuma verificação de QA registrada ainda.</p>';
+
+      html += '<h3>Registrar novo cenário</h3>';
+      html += '<form id="formQa" class="grade2">' +
+        '<div>' +
+          '<input id="qaTitulo" placeholder="Título" style="width:100%;margin-bottom:6px">' +
+          '<textarea id="qaCenario" placeholder="Cenário" style="width:100%;margin-bottom:6px" required></textarea>' +
+          '<textarea id="qaPreCondicoes" placeholder="Pré-condições" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<textarea id="qaPassos" placeholder="Passos (um por linha)" style="width:100%;margin-bottom:6px"></textarea>' +
+        '</div><div>' +
+          '<input id="qaAmbiente" placeholder="Ambiente" style="width:100%;margin-bottom:6px">' +
+          '<textarea id="qaEsperado" placeholder="Resultado esperado" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<select id="qaGravidade" style="width:100%;margin-bottom:6px">' +
+            '<option value="baixa">Gravidade: baixa</option><option value="media" selected>Gravidade: média</option>' +
+            '<option value="alta">Gravidade: alta</option><option value="critica">Gravidade: crítica</option>' +
+          '</select>' +
+          '<button class="btn ok sm" type="submit">Registrar cenário</button>' +
+        '</div>' +
+        '<div class="error" id="erroQa" hidden style="grid-column:1/-1"></div>' +
+      '</form>';
+
+      // Quality gates (Tela 16, wf §18.2) são por FASE da orquestração, não por
+      // card — mostra o resultado da fase deste card, rotulado honestamente.
+      const gate = GATE_RESULTS.filter(function (g) { return g.phase === CARD_DATA.phase; }).pop();
+      html += '<h3>Quality gates da fase ' + esc(CARD_DATA.phase) + '</h3>';
+      if (!gate) {
+        html += '<p class="muted">Quality gate desta fase ainda não rodou.</p>';
+      } else {
+        html += '<table><tr><th>Validação</th><th>Status</th><th>Duração</th><th>Evidência</th></tr>' +
+          gate.criteria.map(function (c) {
+            return '<tr><td>' + esc(c.name) + '</td>' +
+              '<td><span class="pill ' + (c.status === 'PASSED' ? 'ok' : c.status === 'FAILED' ? 'err' : 'warn') + '">' + esc(c.status) + '</span></td>' +
+              '<td>' + (c.duration_ms != null ? Math.round(c.duration_ms) + ' ms' : '—') + '</td>' +
+              '<td>' + esc((c.evidence || []).join('; ') || '—') + '</td></tr>';
+          }).join('') + '</table>';
+      }
+
+      // Bugs registrados manualmente (Tela 21, wf §23).
+      html += '<h3>Bugs registrados</h3>';
+      html += BUG_REPORTS.length ? BUG_REPORTS.slice().reverse().map(function (r) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(r.titulo) + '</strong>' +
+          '<span class="pill warn">' + esc(r.gravidade) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">' + esc(r.cenario || '—') + '</p>' +
+          '<p class="muted" style="margin:2px 0">Retorno de fluxo: ' + esc(RETORNOS_DE_FLUXO[r.retorno_de_fluxo] || r.retorno_de_fluxo) +
+          ' · <a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(r.card_id) + '">ver card do bug</a></p>' +
+          '</div>';
+      }).join('') : '<p class="muted">Nenhum bug registrado a partir deste card ainda.</p>';
+      html += '<button id="abrirFormBug" class="btn ghost sm" type="button">+ Registrar bug</button>';
+      html += '<form id="formBug" class="grade2" hidden style="margin-top:10px">' +
+        '<div>' +
+          '<input id="bugTitulo" placeholder="Título" style="width:100%;margin-bottom:6px" required>' +
+          '<textarea id="bugCenario" placeholder="Cenário" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<textarea id="bugPassos" placeholder="Passos para reproduzir (um por linha)" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<input id="bugAmbiente" placeholder="Ambiente" style="width:100%;margin-bottom:6px">' +
+          '<textarea id="bugResultadoAtual" placeholder="Resultado atual" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<textarea id="bugResultadoEsperado" placeholder="Resultado esperado" style="width:100%;margin-bottom:6px"></textarea>' +
+        '</div><div>' +
+          '<textarea id="bugEvidencias" placeholder="Evidências (uma por linha)" style="width:100%;margin-bottom:6px"></textarea>' +
+          '<select id="bugGravidade" style="width:100%;margin-bottom:6px">' +
+            '<option value="baixa">Gravidade: baixa</option><option value="media" selected>Gravidade: média</option>' +
+            '<option value="alta">Gravidade: alta</option><option value="critica">Gravidade: crítica</option>' +
+          '</select>' +
+          '<input id="bugImpacto" placeholder="Impacto" style="width:100%;margin-bottom:6px">' +
+          '<input id="bugFrequencia" placeholder="Frequência" style="width:100%;margin-bottom:6px">' +
+          '<input id="bugAgenteSugerido" placeholder="Agente sugerido" style="width:100%;margin-bottom:6px">' +
+          '<select id="bugRetorno" style="width:100%;margin-bottom:6px">' +
+            Object.keys(RETORNOS_DE_FLUXO).map(function (k) { return '<option value="' + k + '">' + esc(RETORNOS_DE_FLUXO[k]) + '</option>'; }).join('') +
+          '</select>' +
+          '<button class="btn err sm" type="submit">Registrar bug</button>' +
+        '</div>' +
+        '<div class="error" id="erroBug" hidden style="grid-column:1/-1"></div>' +
+      '</form>';
+      return html;
+    }
+
+    const RETORNOS_DE_FLUXO = {
+      retornar_implementacao: 'Retornar para implementação',
+      retornar_infraestrutura: 'Retornar para infraestrutura',
+      retornar_banco_de_dados: 'Retornar para banco de dados',
+      retornar_documentacao: 'Retornar para documentação',
+      retornar_arquitetura: 'Retornar para arquitetura',
+      card_independente: 'Criar card independente',
+    };
+
+    function linhas(texto) {
+      return String(texto || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+    }
+
+    function wireTestesFormularios() {
+      const erroQa = document.getElementById('erroQa');
+      const formQa = document.getElementById('formQa');
+      if (formQa) formQa.addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        erroQa.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/qa', {
+            method: 'POST',
+            body: JSON.stringify({
+              titulo: document.getElementById('qaTitulo').value,
+              cenario: document.getElementById('qaCenario').value,
+              pre_condicoes: document.getElementById('qaPreCondicoes').value,
+              passos: linhas(document.getElementById('qaPassos').value),
+              ambiente: document.getElementById('qaAmbiente').value,
+              resultado_esperado: document.getElementById('qaEsperado').value,
+              gravidade: document.getElementById('qaGravidade').value,
+            }),
+          });
+          await carregarCardEAbas();
+        } catch (e) { erroQa.textContent = 'Não foi possível: ' + e.message; erroQa.hidden = false; }
+      });
+
+      const abrirBug = document.getElementById('abrirFormBug');
+      const formBug = document.getElementById('formBug');
+      if (abrirBug) abrirBug.addEventListener('click', function () { formBug.hidden = !formBug.hidden; });
+      const erroBug = document.getElementById('erroBug');
+      if (formBug) formBug.addEventListener('submit', async function (ev) {
+        ev.preventDefault();
+        erroBug.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/bug-reports', {
+            method: 'POST',
+            body: JSON.stringify({
+              titulo: document.getElementById('bugTitulo').value,
+              cenario: document.getElementById('bugCenario').value,
+              passos_para_reproduzir: linhas(document.getElementById('bugPassos').value),
+              ambiente: document.getElementById('bugAmbiente').value,
+              resultado_atual: document.getElementById('bugResultadoAtual').value,
+              resultado_esperado: document.getElementById('bugResultadoEsperado').value,
+              evidencias: linhas(document.getElementById('bugEvidencias').value),
+              gravidade: document.getElementById('bugGravidade').value,
+              impacto: document.getElementById('bugImpacto').value,
+              frequencia: document.getElementById('bugFrequencia').value,
+              agente_sugerido: document.getElementById('bugAgenteSugerido').value,
+              retorno_de_fluxo: document.getElementById('bugRetorno').value,
+            }),
+          });
+          await carregarCardEAbas();
+        } catch (e) { erroBug.textContent = 'Não foi possível: ' + e.message; erroBug.hidden = false; }
+      });
+    }
+
+    function abaReview() {
+      const c = CARD_DATA;
+      let html = '';
+      if (c.status === 'NeedsFix') {
+        html += '<div class="pill warn" style="display:inline-block;margin-bottom:12px">' +
+          'Aguardando correção — o ciclo obrigatório do wf §19.2 exige passar pelos testes ' +
+          'automáticos (mover para Testing) antes de uma nova revisão.</div>';
+      }
+      if (!PULLS.length) return html + '<p class="muted">Nenhuma PR aberta a partir deste card.</p>';
+      html += PULLS.map(function (pr) {
+        const comentarios = COMMENTS_BY_PR[pr.id] || [];
+        const v = pr.review_verdict || {};
+        const pontos = v.pontos_verificados || [];
+        const gate = GATE_RESULTS.filter(function (g) { return g.phase === c.phase; }).pop();
+
+        // Resumo (Tela 18, wf §20.1).
+        let resumo = '<h3 style="margin-top:0">Resumo</h3><div class="grade2"><div>' +
+          campo('Autor', esc(c.assignee || c.executor || '—')) +
+          campo('Revisor', esc(pr.reviewed_by || '—')) +
+          campo('Pull request', esc(pr.title || pr.branch)) +
+          campo('Branch', esc(pr.branch)) +
+          '</div><div>' +
+          campo('Commits', String(DIFF_STATS ? DIFF_STATS.commits : 0)) +
+          campo('Arquivos alterados', String(DIFF_STATS ? DIFF_STATS.arquivos_alterados : CHANGED_FILES.length)) +
+          campo('Linhas', DIFF_STATS ? ('+' + DIFF_STATS.linhas_adicionadas + ' / -' + DIFF_STATS.linhas_removidas) : '—') +
+          campo('Resultado dos testes', gate ? '<span class="pill ' + (gate.status === 'PASSED' ? 'ok' : 'err') + '">' + esc(gate.status) + '</span>' : '—') +
+          '</div></div>';
+
+        // Checklist (wf §20.2) — rótulos fixos + pontos_verificados real, lado a lado.
+        let checklist = '<h3>Checklist do revisor</h3><div class="grade2"><div>' +
+          '<div class="rotulo">Eixos avaliados (wf §20.2)</div>' + lista(EIXOS_CODE_REVIEW) +
+          '</div><div>' +
+          '<div class="rotulo">Pontos efetivamente verificados pelo revisor</div>' +
+          (pontos.length ? lista(pontos) : '<p class="muted">Revisor não relatou pontos verificados.</p>') +
+          '</div></div>';
+
+        // Comentários (wf §20.3) — todos os 8 campos pedidos.
+        let comentariosHtml = '<h3>Comentários</h3>' + (comentarios.length
+          ? comentarios.map(function (com) {
+              return '<div class="subitem"><div class="cab"><strong>' + esc(com.arquivo) + ':' + esc(com.linha) + '</strong>' +
+                '<span class="pill ' + (com.status === 'resolvido' ? 'ok' : '') + '">' + esc(com.status) + '</span></div>' +
+                '<p class="muted" style="margin:4px 0">Categoria: ' + esc(com.categoria) + ' · Severidade: ' + esc(com.severidade) +
+                (com.obrigatorio ? ' · <span class="pill warn">obrigatório</span>' : ' · opcional') + '</p>' +
+                '<p style="margin:2px 0">' + esc(com.descricao) + '</p>' +
+                (com.sugestao ? '<p class="muted" style="margin:2px 0">Sugestão: ' + esc(com.sugestao) + '</p>' : '') +
+                '</div>';
+            }).join('')
+          : '<p class="muted">Sem comentários de revisão.</p>');
+
+        // Resultado (wf §20.4) — vocabulário real do veredito do agente.
+        let resultado = '<h3>Resultado</h3>' + campo('Veredito', '<span class="pill">' + esc(v.veredito || pr.review_status || '—') + '</span>') +
+          campo('Resumo do revisor', esc(v.resumo || '—'));
+
+        return '<div class="subitem" style="margin-bottom:16px">' + resumo + checklist + comentariosHtml + resultado + '</div>';
+      }).join('');
+      return html;
+    }
+
+    function abaEvidencias() {
+      const doBrief = BRIEF ? (BRIEF.evidencias_esperadas || []) : [];
+      const doQa = (CARD_DATA.qa_checks || []).flatMap(function (q) { return q.evidencias || []; });
+      const doHistorico = EVENTS.flatMap(function (e) { return e.evidence || []; });
+      return campo('Evidências esperadas', lista(doBrief), 'herdado da demanda') +
+        campo('Evidências coletadas em verificações de QA', lista(doQa)) +
+        campo('Evidências registradas no histórico do card', lista(doHistorico));
+    }
+
+    function abaDependencias() {
+      const c = CARD_DATA;
+      const deps = (c.dependencies || []).map(tituloDeCard);
+      const bloq = (c.blocked_by || []).map(tituloDeCard);
+      return campo('Depende de', lista(deps)) +
+        campo('Bloqueado por (pendente)', lista(bloq)) +
+        campo('Card de acompanhamento de bloqueio', c.dependency_task_id
+          ? '<a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(c.dependency_task_id) + '">' + esc(tituloDeCard(c.dependency_task_id)) + '</a>'
+          : '—');
+    }
+
+    function abaExecucoes() {
+      const c = CARD_DATA;
+      const ultimaTentativa = (c.tentativas && c.tentativas.length) ? c.tentativas[c.tentativas.length - 1] : null;
+      const inicio = ultimaTentativa ? ultimaTentativa.at : null;
+
+      let html = '<h3 style="margin-top:0">Painel de execução</h3>';
+      html += '<div class="grade2">' +
+        '<div>' +
+          campo('Agente', esc(c.assignee || '—')) +
+          campo('Effort atual', esc(c.effort_override || (ultimaTentativa && ultimaTentativa.effort) || '—') + (c.effort_override ? ' <span class="pill">override manual</span>' : '')) +
+          campo('Status', esc(c.status)) +
+        '</div>' +
+        '<div>' +
+          campo('Branch', esc(c.branch || '—')) +
+          campo('Início (última tentativa)', esc(inicio || '—')) +
+          campo('Modelo (override manual)', esc(c.executor_override || '—')) +
+        '</div>' +
+      '</div>';
+
+      html += '<h3>Controles em voo</h3>';
+      html += '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<button id="ctlPausar" class="btn ' + (c.pausado ? 'ok' : 'ghost') + ' sm" type="button">' + (c.pausado ? 'Retomar' : 'Pausar') + '</button>' +
+        '<button id="ctlCancelar" class="btn err sm" type="button">Cancelar</button>' +
+        '<button id="ctlEffort" class="btn ghost sm" type="button">Aumentar effort</button>' +
+        '<button id="ctlModelo" class="btn ghost sm" type="button">Trocar modelo</button>' +
+        '<button id="ctlContexto" class="btn ghost sm" type="button">Adicionar contexto</button>' +
+        '<button id="ctlAjuda" class="btn ghost sm" type="button">Solicitar ajuda</button>' +
+        '<button id="ctlTransferir" class="btn ghost sm" type="button">Transferir para outro agente</button>' +
+        '<button id="ctlBloquear" class="btn ghost sm" type="button">Marcar como bloqueado</button>' +
+      '</div>' +
+      '<div class="error" id="erroControle" hidden></div>';
+      if (c.contexto_adicional && c.contexto_adicional.length) {
+        html += campo('Contexto adicionado pelo operador', lista(c.contexto_adicional));
+      }
+
+      html += '<h3>Log da execução</h3>';
+      html += LOG_LINES.length
+        ? '<ul class="simples">' + LOG_LINES.map(function (l) { return '<li>' + esc(l.text || JSON.stringify(l)) + '</li>'; }).join('') + '</ul>'
+        : '<p class="muted">Sem log ao vivo capturado para este card ainda (instantâneo — recarregue a página para atualizar).</p>';
+
+      html += '<h3>Arquivos alterados</h3>' + lista(CHANGED_FILES);
+
+      html += '<h3>Tentativas (modelo / effort / resultado)</h3>';
+      const tentativas = c.tentativas || [];
+      html += tentativas.length ? tentativas.slice().reverse().map(function (t) {
+        return '<div class="subitem"><div class="cab"><strong>#' + esc(t.numero) + ' — ' + esc(t.executor || '—') + '</strong>' +
+          '<span class="pill ' + (t.resultado === 'sucesso' ? 'ok' : 'err') + '">' + esc(t.resultado) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">Effort: ' + esc(t.effort || '—') + (t.diagnostico ? ' · ' + esc(t.diagnostico) : '') + '</p></div>';
+      }).join('') : '<p class="muted">Nenhuma tentativa registrada.</p>';
+      html += '<h3>Corridas de candidatos</h3>';
+      html += RUNS.length ? RUNS.slice().reverse().map(function (r) {
+        return '<div class="subitem">Recomendado: <strong>' + esc(r.recommended_branch || '—') + '</strong>' +
+          ' · ' + (r.candidates || []).length + ' candidato(s)</div>';
+      }).join('') : '<p class="muted">Nenhuma corrida de candidatos.</p>';
+      return html;
+    }
+
+    function wireExecucoesControles() {
+      const erro = document.getElementById('erroControle');
+      function falhou(e) { erro.textContent = 'Não foi possível: ' + e.message; erro.hidden = false; }
+      async function atualizarEabrir() { await carregarCardEAbas(); }
+
+      const pausar = document.getElementById('ctlPausar');
+      if (pausar) pausar.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/pause', {
+            method: 'POST', body: JSON.stringify({ pausado: !CARD_DATA.pausado }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const cancelar = document.getElementById('ctlCancelar');
+      if (cancelar) cancelar.addEventListener('click', async function () {
+        if (!confirm('Cancelar este card?')) return;
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/cancel', {
+            method: 'POST', body: JSON.stringify({ reason: 'cancelado manualmente pelo operador' }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const effort = document.getElementById('ctlEffort');
+      if (effort) effort.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/increase-effort', { method: 'POST' });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const modelo = document.getElementById('ctlModelo');
+      if (modelo) modelo.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/transfer-model', { method: 'POST' });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const contexto = document.getElementById('ctlContexto');
+      if (contexto) contexto.addEventListener('click', async function () {
+        const texto = prompt('Contexto adicional para o próximo prompt do agente:');
+        if (!texto) return;
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/add-context', {
+            method: 'POST', body: JSON.stringify({ texto: texto }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const ajuda = document.getElementById('ctlAjuda');
+      if (ajuda) ajuda.addEventListener('click', async function () {
+        const motivo = prompt('Motivo da solicitação de ajuda:') || '';
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/request-help', {
+            method: 'POST', body: JSON.stringify({ reason: motivo }),
+          });
+          alert('Solicitação registrada como aprovação pendente.');
+        } catch (e) { falhou(e); }
+      });
+      const transferir = document.getElementById('ctlTransferir');
+      if (transferir) transferir.addEventListener('click', async function () {
+        const agente = prompt('Nome do novo agente responsável:');
+        if (!agente) return;
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/assign-agent', {
+            method: 'POST', body: JSON.stringify({ agent: agente }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const bloquear = document.getElementById('ctlBloquear');
+      if (bloquear) bloquear.addEventListener('click', async function () {
+        const motivo = prompt('Motivo do bloqueio:') || '';
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/block', {
+            method: 'POST', body: JSON.stringify({ reason: motivo }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+    }
+
+    function abaFalhas() {
+      const c = CARD_DATA;
+      let html = campo('Tentativa atual', String(c.tentativa_atual));
+      html += '<h3>Diagnóstico automático</h3>';
+      html += FAILURE_DIAGNOSTICS.length ? FAILURE_DIAGNOSTICS.slice().reverse().map(function (f) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(f.diagnostico) + '</strong>' +
+          '<span class="pill' + (f.confianca === 'alta' ? ' ok' : '') + '">confiança ' + esc(f.confianca) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">tentativa ' + esc(f.tentativa) + ' · ' + esc(f.etapa || '—') + '</p>' +
+          '<p style="margin:2px 0">' + esc(f.mensagem || '—') + '</p>' +
+        '</div>';
+      }).join('') : '<p class="muted">Nenhuma falha registrada.</p>';
+
+      // wf §39: "toda falha deve indicar a próxima ação" — já fica no evento (aba
+      // Histórico), reexibido aqui para não obrigar o usuário a trocar de aba.
+      const ultimoComProximaAcao = EVENTS.slice().reverse().find(function (e) { return e.next_action; });
+      if (ultimoComProximaAcao) {
+        html += '<p class="muted" style="margin:4px 0">Próxima ação recomendada: ' +
+          esc(ultimoComProximaAcao.next_action) + '</p>';
+      }
+
+      html += '<h3>Decisão do orquestrador</h3>';
+      html += '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<button id="decMesmoAgente" class="btn ghost sm" type="button">Manter o mesmo agente</button>' +
+        '<button id="decTrocarAgente" class="btn ghost sm" type="button">Trocar agente</button>' +
+        '<button id="decTrocarModelo" class="btn ghost sm" type="button">Trocar modelo</button>' +
+        '<button id="decAumentarEffort" class="btn ghost sm" type="button">Aumentar effort</button>' +
+        '<button class="btn ghost sm" type="button" disabled title="Sem suporte real hoje — não existe mecanismo de investigação separada da demanda principal no runtime">Criar investigação separada</button>' +
+        '<button id="decEscalarHumano" class="btn ghost sm" type="button">Solicitar revisão humana</button>' +
+        '<button id="decBloquear" class="btn err sm" type="button" title="Bloqueia este CARD — não existe bloqueio de demanda inteira no runtime hoje">Bloquear (card)</button>' +
+      '</div>' +
+      '<div class="error" id="erroDecisao" hidden></div>';
+      return html;
+    }
+
+    function wireFalhasDecisoes() {
+      const erro = document.getElementById('erroDecisao');
+      function falhou(e) { erro.textContent = 'Não foi possível: ' + e.message; erro.hidden = false; }
+      async function atualizarEabrir() { await carregarCardEAbas(); }
+
+      const mesmo = document.getElementById('decMesmoAgente');
+      if (mesmo) mesmo.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/run', { method: 'POST' });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const trocarAgente = document.getElementById('decTrocarAgente');
+      if (trocarAgente) trocarAgente.addEventListener('click', async function () {
+        const agente = prompt('Nome do novo agente:');
+        if (!agente) return;
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/assign-agent', {
+            method: 'POST', body: JSON.stringify({ agent: agente }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const trocarModelo = document.getElementById('decTrocarModelo');
+      if (trocarModelo) trocarModelo.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/transfer-model', { method: 'POST' });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const aumentarEffort = document.getElementById('decAumentarEffort');
+      if (aumentarEffort) aumentarEffort.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/increase-effort', { method: 'POST' });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+      const escalar = document.getElementById('decEscalarHumano');
+      if (escalar) escalar.addEventListener('click', async function () {
+        const motivo = prompt('Motivo da escalada:') || '';
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/request-help', {
+            method: 'POST', body: JSON.stringify({ reason: motivo }),
+          });
+          alert('Escalado — aprovação pendente registrada.');
+        } catch (e) { falhou(e); }
+      });
+      const bloquear = document.getElementById('decBloquear');
+      if (bloquear) bloquear.addEventListener('click', async function () {
+        const motivo = prompt('Motivo do bloqueio:') || '';
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/block', {
+            method: 'POST', body: JSON.stringify({ reason: motivo }),
+          });
+          await atualizarEabrir();
+        } catch (e) { falhou(e); }
+      });
+    }
+
+    // wf §39: "todo retorno de fluxo deve ser visualmente identificado". Não existe um
+    // campo booleano de "retorno" no CardEvent — a ordem "feliz" do pipeline é heurística,
+    // documentada aqui: NeedsFix/Blocked/Failed são sempre retorno/exceção; fora isso,
+    // retorno = mover para uma coluna que vem ANTES na ordem abaixo.
+    const ORDEM_FLUXO_FELIZ = [
+      'Backlog', 'Ready', 'Planning', 'InProgress', 'WaitingAgent', 'WaitingHuman',
+      'Review', 'Testing', 'Deploying', 'Validating', 'Done',
+    ];
+    const COLUNAS_DE_RETORNO = ['NeedsFix', 'Blocked', 'Failed'];
+    function ehRetornoDeFluxo(de, para) {
+      if (!de || !para) return false;
+      if (COLUNAS_DE_RETORNO.indexOf(para) !== -1) return true;
+      const iDe = ORDEM_FLUXO_FELIZ.indexOf(de), iPara = ORDEM_FLUXO_FELIZ.indexOf(para);
+      return iDe !== -1 && iPara !== -1 && iPara < iDe;
+    }
+
+    function abaHistorico() {
+      if (!EVENTS.length) return '<p class="muted">Nenhuma movimentação registrada ainda.</p>';
+      return '<p class="muted">Log completo (' + EVENTS.length + ' evento(s)) — nunca truncado.</p>' +
+        EVENTS.slice().reverse().map(function (e) {
+          const retorno = ehRetornoDeFluxo(e.from_status, e.to_status);
+          return '<div class="subitem"><div class="cab"><strong>' + esc(e.from_status || '—') + ' → ' + esc(e.to_status || '—') +
+            (retorno ? ' <span class="pill warn" title="Retorno de fluxo">↩ retorno</span>' : '') + '</strong>' +
+            '<span class="muted">' + esc(e.created_at) + '</span></div>' +
+            '<p class="muted" style="margin:4px 0">' + esc(e.actor) + (e.reason ? ' · ' + esc(e.reason) : '') + '</p>' +
+            (e.result ? '<p style="margin:2px 0">' + esc(e.result) + '</p>' : '') +
+            (e.next_action ? '<p class="muted" style="margin:2px 0">Próxima ação: ' + esc(e.next_action) + '</p>' : '') +
+            (e.evidence && e.evidence.length ? lista(e.evidence) : '') +
+            '</div>';
+        }).join('');
+    }
+
+    const RENDER_ABA = {
+      'Resumo': abaResumo, 'Plano': abaPlano, 'Implementação': abaImplementacao,
+      'Arquivos': abaArquivos, 'Testes': abaTestes, 'Review': abaReview,
+      'Evidências': abaEvidencias, 'Dependências': abaDependencias,
+      'Execuções': abaExecucoes, 'Falhas': abaFalhas, 'Histórico': abaHistorico,
+    };
+
+    function wireAbaAtual() {
+      if (abaAtual === 'Execuções') wireExecucoesControles();
+      if (abaAtual === 'Falhas') wireFalhasDecisoes();
+      if (abaAtual === 'Testes') wireTestesFormularios();
+    }
+
+    function renderConteudo() {
+      const container = document.getElementById('conteudoAbas');
+      try {
+        container.innerHTML = RENDER_ABA[abaAtual]();
+        wireAbaAtual();
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Falha ao renderizar a aba.</div>';
+      }
+    }
+
+    async function carregarCardEAbas() {
+      CARD_DATA = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD));
+      document.getElementById('tituloCard').textContent = CARD_DATA.title;
+      document.getElementById('idCard').textContent = CARD_DATA.id;
+
+      const [brief, events, pulls, runs, todosCards, gates, changedFiles, diagnostics, log, diffStats, bugReports] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/brief').catch(function () { return null; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/events'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/candidate-runs?card_id=' + encodeURIComponent(CARD)),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/quality-gates').catch(function () { return []; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/changed-files').catch(function () { return []; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/failure-diagnostics').catch(function () { return []; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/agent-log?limit=500').catch(function () { return { lines: [] }; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/diff-stats').catch(function () { return null; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards/' + encodeURIComponent(CARD) + '/bug-reports').catch(function () { return []; }),
+      ]);
+      BRIEF = brief; EVENTS = events; TODOS_CARDS = todosCards; RUNS = runs;
+      GATE_RESULTS = gates; CHANGED_FILES = changedFiles; FAILURE_DIAGNOSTICS = diagnostics;
+      DIFF_STATS = diffStats; BUG_REPORTS = bugReports;
+      // Log ao vivo é da orquestração inteira (não filtrado por card no backend) —
+      // filtra aqui pelo card em foco; instantâneo (sem polling), consistente com
+      // o resto desta página, que sempre foi fetch único.
+      LOG_LINES = (log.lines || []).filter(function (l) { return l.card_id === CARD; });
+      PULLS = pulls.filter(function (p) { return p.card_id === CARD; });
+      COMMENTS_BY_PR = {};
+      for (const pr of PULLS) {
+        try {
+          COMMENTS_BY_PR[pr.id] = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls/' + encodeURIComponent(pr.id) + '/comments');
+        } catch (e) { COMMENTS_BY_PR[pr.id] = []; }
+      }
+      renderAbas();
+      renderConteudo();
+    }
+
+    async function carregar() {
+      try {
+        await carregarCardEAbas();
+      } catch (e) {
+        document.getElementById('tituloCard').textContent = 'Falha ao carregar o card';
+        document.getElementById('conteudoAbas').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+      }
+    }
+
+    carregar();
+  </script>
+</body>
+</html>

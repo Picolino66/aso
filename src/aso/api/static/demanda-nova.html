@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Nova demanda</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    main { max-width:760px; }
+    fieldset { border:1px solid var(--border); border-radius:8px; padding:14px; margin:0 0 var(--gap); }
+    legend { padding:0 6px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+    .campo { margin-bottom:12px; }
+    .ajuda { font-size:11px; color:var(--muted); margin-top:3px; }
+    textarea.lista { min-height:64px; }
+    .acoes-form { display:flex; gap:9px; justify-content:flex-end; margin-top:16px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <h2>Nova demanda — cadastro completo</h2>
+        <p class="muted">wf §5.2 — 4 blocos. Campos de lista aceitam um item por linha.</p>
+
+        <div id="erro" class="error" hidden></div>
+
+        <fieldset>
+          <legend>Informações gerais</legend>
+          <div class="campo"><label for="titulo">Título *</label><input id="titulo" placeholder="Resumo curto da demanda"></div>
+          <div class="campo"><label for="descricao">Descrição</label><textarea id="descricao" placeholder="Descreva a demanda em detalhe…"></textarea></div>
+          <div class="row">
+            <div class="campo"><label for="project_id">Projeto</label><select id="project_id"><option value="">Sem projeto</option></select></div>
+            <div class="campo"><label for="tipo">Tipo</label>
+              <select id="tipo">
+                <option value="funcionalidade">Funcionalidade</option>
+                <option value="correcao">Correção</option>
+                <option value="refatoracao">Refatoração</option>
+                <option value="arquitetura">Arquitetura</option>
+                <option value="infraestrutura">Infraestrutura</option>
+                <option value="investigacao">Investigação</option>
+                <option value="documentacao">Documentação</option>
+                <option value="seguranca">Segurança</option>
+                <option value="desempenho">Desempenho</option>
+                <option value="produto">Produto</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="campo"><label for="solicitante">Solicitante</label><input id="solicitante" placeholder="Quem está pedindo"></div>
+            <div class="campo"><label for="origem_da_demanda">Origem da demanda</label><input id="origem_da_demanda" placeholder="Ex.: ticket #123, reunião…"></div>
+          </div>
+          <div class="campo"><label for="resultado_esperado">Resultado esperado</label><textarea id="resultado_esperado" placeholder="O que deve ser observável ao final"></textarea></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Contexto técnico</legend>
+          <div class="campo">
+            <label for="dominios">Domínios técnicos afetados</label>
+            <select id="dominios" multiple size="5">
+              <option value="backend">Backend</option>
+              <option value="frontend">Frontend</option>
+              <option value="database">Banco de dados</option>
+              <option value="architecture">Arquitetura</option>
+              <option value="contract">Contrato/API</option>
+              <option value="security">Segurança</option>
+              <option value="tests">Testes</option>
+              <option value="docs">Documentação</option>
+              <option value="devops">DevOps</option>
+            </select>
+            <div class="ajuda">Alimenta a seleção de equipe do motor de decisão (§14) — não é um campo do wireframe, mas sem ele o motor não sabe quais agentes acionar.</div>
+          </div>
+          <div class="row">
+            <div class="campo"><label for="sistemas_afetados">Sistemas afetados</label><textarea class="lista" id="sistemas_afetados"></textarea></div>
+            <div class="campo"><label for="modulos_afetados">Módulos afetados</label><textarea class="lista" id="modulos_afetados"></textarea></div>
+          </div>
+          <div class="row">
+            <div class="campo"><label for="apis_afetadas">APIs afetadas</label><textarea class="lista" id="apis_afetadas"></textarea></div>
+            <div class="campo"><label for="banco_de_dados_afetado">Banco de dados afetado</label><textarea class="lista" id="banco_de_dados_afetado"></textarea></div>
+          </div>
+          <div class="row">
+            <div class="campo"><label for="infraestrutura_afetada">Infraestrutura afetada</label><textarea class="lista" id="infraestrutura_afetada"></textarea></div>
+            <div class="campo"><label for="dependencias_conhecidas">Dependências conhecidas</label><textarea class="lista" id="dependencias_conhecidas"></textarea></div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Critérios</legend>
+          <div class="campo"><label for="criterios_de_aceite">Critérios de aceite</label><textarea class="lista" id="criterios_de_aceite"></textarea></div>
+          <div class="row">
+            <div class="campo"><label for="restricoes">Restrições</label><textarea class="lista" id="restricoes"></textarea></div>
+            <div class="campo"><label for="riscos">Riscos conhecidos</label><textarea class="lista" id="riscos"></textarea></div>
+          </div>
+          <div class="campo"><label for="evidencias_esperadas">Evidências esperadas</label><textarea class="lista" id="evidencias_esperadas"></textarea></div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Configuração inicial</legend>
+          <div class="row">
+            <div class="campo"><label for="risco" title="wf §4.2/§5.2 pedem 'Prioridade' e 'Risco' separados, mas não existe prioridade de demanda além do risco (ADR-0038/ADR-0039) — os dois convergem aqui.">Prioridade / Risco</label>
+              <select id="risco">
+                <option value="low">Baixa</option>
+                <option value="medium" selected>Média</option>
+                <option value="high">Alta</option>
+                <option value="critical">Crítica</option>
+              </select>
+            </div>
+            <div class="campo"><label for="complexidade">Complexidade</label>
+              <select id="complexidade">
+                <option value="simples">Simples</option>
+                <option value="intermediaria" selected>Intermediária</option>
+                <option value="complexa">Complexa</option>
+                <option value="estrategica">Estratégica</option>
+              </select>
+            </div>
+          </div>
+          <div class="campo">
+            <label for="impactos">Impacto</label>
+            <select id="impactos" multiple size="5">
+              <option value="architecture">Arquitetura</option>
+              <option value="contract">Contrato</option>
+              <option value="security">Segurança</option>
+              <option value="database">Banco de dados</option>
+              <option value="deploy">Deploy</option>
+              <option value="secrets">Segredos</option>
+              <option value="database_reset">Reset de banco</option>
+              <option value="branch_main">Branch principal</option>
+            </select>
+          </div>
+          <div class="row">
+            <div class="campo"><label for="prazo">Prazo</label><input id="prazo" type="date">
+              <div class="ajuda">Sem efeito no motor hoje — nenhum gate/freio o utiliza (ADR-0039).</div>
+            </div>
+            <div class="campo"><label for="orcamento_usd">Orçamento ou limite de custo (USD)</label><input id="orcamento_usd" type="number" min="0" step="0.01" placeholder="Padrão do ambiente"></div>
+          </div>
+          <div class="campo">
+            <label><input id="aprovacao_humana_obrigatoria" type="checkbox" style="width:auto"> Aprovação humana obrigatória</label>
+            <div class="ajuda">Força confirmação humana mesmo que o motor, sozinho, aprovaria automaticamente.</div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Execução</legend>
+          <div class="row">
+            <div class="campo"><label for="execution_mode">Modo de execução</label>
+              <select id="execution_mode">
+                <option value="code-execution">Execução direta</option>
+                <option value="full-pipeline" selected>Pipeline completo F1–F7</option>
+              </select>
+            </div>
+            <div class="campo"><label for="executor">Agente / modelo</label><select id="executor"><option value="">Padrão</option></select></div>
+          </div>
+          <div class="campo"><label for="validation_command">Comando de validação (obrigatório na execução direta)</label><input id="validation_command" placeholder="Ex.: pytest -q"></div>
+        </fieldset>
+
+        <div class="acoes-form">
+          <a href="/ui/demandas" class="btn ghost" style="text-decoration:none;display:inline-flex;align-items:center;padding:8px 12px">Cancelar</a>
+          <button id="salvarRascunho" class="ghost" type="button">Salvar rascunho</button>
+          <button id="iniciar" class="ok" type="button">Iniciar</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+
+    function linhas(id) {
+      return document
+        .getElementById(id)
+        .value.split('\n')
+        .map(function (s) { return s.trim(); })
+        .filter(Boolean);
+    }
+    function selecionados(id) {
+      return Array.from(document.getElementById(id).selectedOptions).map(function (o) { return o.value; });
+    }
+
+    async function carregarProjetos() {
+      try {
+        const projetos = await api('/v1/projects');
+        const select = document.getElementById('project_id');
+        projetos.forEach(function (p) {
+          const opt = document.createElement('option');
+          opt.value = p.id; opt.textContent = p.name;
+          select.appendChild(opt);
+        });
+      } catch (e) { /* catálogo indisponível — segue sem projeto */ }
+    }
+    async function carregarExecutores() {
+      try {
+        const catalogo = await api('/v1/executors');
+        const select = document.getElementById('executor');
+        (catalogo || []).forEach(function (ex) {
+          const opt = document.createElement('option');
+          opt.value = ex.name; opt.textContent = ex.name;
+          select.appendChild(opt);
+        });
+      } catch (e) { /* catálogo indisponível — segue só com "Padrão" */ }
+    }
+
+    function montarDemandBrief() {
+      return {
+        tipo: document.getElementById('tipo').value,
+        objetivo: document.getElementById('descricao').value.trim(),
+        resultado_esperado: document.getElementById('resultado_esperado').value.trim(),
+        solicitante: document.getElementById('solicitante').value.trim(),
+        origem_da_demanda: document.getElementById('origem_da_demanda').value.trim(),
+        dominios: selecionados('dominios'),
+        modulos_afetados: linhas('modulos_afetados'),
+        sistemas_afetados: linhas('sistemas_afetados'),
+        apis_afetadas: linhas('apis_afetadas'),
+        banco_de_dados_afetado: linhas('banco_de_dados_afetado'),
+        infraestrutura_afetada: linhas('infraestrutura_afetada'),
+        dependencias_conhecidas: linhas('dependencias_conhecidas'),
+        criterios_de_aceite: linhas('criterios_de_aceite'),
+        restricoes: linhas('restricoes'),
+        riscos: linhas('riscos'),
+        evidencias_esperadas: linhas('evidencias_esperadas'),
+        risco: document.getElementById('risco').value,
+        complexidade: document.getElementById('complexidade').value,
+        impactos: selecionados('impactos'),
+        aprovacao_humana_obrigatoria: document.getElementById('aprovacao_humana_obrigatoria').checked,
+        prazo: document.getElementById('prazo').value || null,
+      };
+    }
+
+    function montarUserRequest() {
+      const titulo = document.getElementById('titulo').value.trim();
+      const descricao = document.getElementById('descricao').value.trim();
+      return descricao ? (titulo + '\n\n' + descricao) : titulo;
+    }
+
+    function mostrarErro(msg) {
+      const el = document.getElementById('erro');
+      el.textContent = msg;
+      el.hidden = false;
+    }
+
+    async function criar(iniciarDepois) {
+      document.getElementById('erro').hidden = true;
+      const titulo = document.getElementById('titulo').value.trim();
+      if (!titulo) { mostrarErro('Informe o título da demanda.'); return; }
+      const mode = document.getElementById('execution_mode').value;
+      const validation = document.getElementById('validation_command').value.trim();
+      if (mode === 'code-execution' && !validation) {
+        mostrarErro('Comando de validação é obrigatório na execução direta.');
+        return;
+      }
+      const orcamentoRaw = document.getElementById('orcamento_usd').value;
+      const body = {
+        user_request: montarUserRequest(),
+        project_id: document.getElementById('project_id').value || null,
+        execution_mode: mode,
+        executor: document.getElementById('executor').value || null,
+        validation_command: validation || null,
+        demand_brief: montarDemandBrief(),
+        orcamento_usd: orcamentoRaw ? parseFloat(orcamentoRaw) : null,
+      };
+      try {
+        const orch = await api('/v1/orchestrations', { method: 'POST', body: JSON.stringify(body) });
+        if (iniciarDepois) {
+          try { await api('/v1/orchestrations/' + orch.id + '/analyze-folder', { method: 'POST', body: JSON.stringify({}) }); }
+          catch (e) { /* docs-first best-effort — a orquestração já existe, segue para o detalhe */ }
+        }
+        location.href = '/ui/detalhe?id=' + orch.id;
+      } catch (e) { mostrarErro('Não foi possível salvar: ' + e.message); }
+    }
+
+    document.getElementById('salvarRascunho').addEventListener('click', function () { criar(false); });
+    document.getElementById('iniciar').addEventListener('click', function () { criar(true); });
+
+    carregarProjetos();
+    carregarExecutores();
+  </script>
+</body>
+</html>

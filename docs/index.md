@@ -36,6 +36,8 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [Kanban](kanban.md) · [Agentes](agents.md) · [Contexto](context.md) · [Quality Gates](quality-gates.md) · [Snapshots](snapshots.md)
 - [Operações (runbook)](operations.md) · [Deploy & Rollback](deploy.md) · [CHANGELOG](../CHANGELOG.md)
 - [MVP-1](mvp/mvp-1.md)
+- [Plano de fidelidade ao fluxo/wireframe](plano-fidelidade-fluxo.md) — diagnóstico ≈55% e backlog FID-01…FID-27
+- [Design system (`/ui/*`)](design-system.md) · [Mapa de páginas e rotas](mapa-paginas.md)
 
 ### Estrutura agentic
 - [`specs/`](../specs/README.md) · [`tasks/`](../tasks/README.md) · [`agents/`](../agents/README.md) · [`skills/`](../skills/README.md)

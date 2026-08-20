@@ -13,7 +13,12 @@ import json
 import shlex
 from pathlib import Path
 
-from aso.control.discovery import DiscoveryReport, DiscoveryService, exige_aprovacao_discovery
+from aso.control.discovery import (
+    DiscoveryReport,
+    DiscoveryService,
+    avaliar_criterios_aprovacao,
+    exige_aprovacao_discovery,
+)
 from aso.control.models import AgentAssignment
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
@@ -197,3 +202,90 @@ def test_exige_aprovacao_discovery_matriz() -> None:
     assert exige_aprovacao_discovery(confianca_alta, seguranca) is True
     assert exige_aprovacao_discovery(confianca_alta, contract) is True
     assert exige_aprovacao_discovery(confianca_baixa, baixo) is True  # confiança baixa já basta
+
+
+# --------------------------------------------------- painel de execução (Tela 06, ADR-0045)
+
+
+def test_investigar_com_agente_registra_timing_e_log_reais() -> None:
+    bruto = '{"problema": "x", "confianca": "alta"}'
+    relatorio = _investigar(DiscoveryService(_cli(bruto)), AgentAssignment(executor="discoverer"))
+    assert relatorio.started_at is not None
+    assert relatorio.finished_at is not None
+    assert relatorio.duration_ms is not None
+    assert relatorio.duration_ms >= 0
+    assert len(relatorio.log) == 2
+    assert "discoverer" in relatorio.log[0]
+    assert "Concluído" in relatorio.log[1]
+
+
+def test_investigar_com_falha_do_agente_registra_log_de_falha() -> None:
+    relatorio = _investigar(
+        DiscoveryService(ExecutorCatalog([])), AgentAssignment(executor="fantasma")
+    )
+    assert relatorio.started_at is not None
+    assert relatorio.finished_at is not None
+    assert any("Falha" in linha for linha in relatorio.log)
+
+
+def test_investigar_sem_assignment_nao_gera_log() -> None:
+    relatorio = _investigar(DiscoveryService(_cli("não deveria rodar")), None)
+    assert relatorio.started_at is None
+    assert relatorio.log == []
+
+
+# --------------------------------------------- checklist de aprovação (Tela 07, ADR-0045)
+
+
+def test_avaliar_criterios_aprovacao_tem_os_sete_rotulos_do_wireframe() -> None:
+    brief = DemandBrief(risco=RiskLevel.LOW, impactos=[])
+    report = DiscoveryReport(confianca="alta")
+    resultado = avaliar_criterios_aprovacao(report, brief)
+    nomes = [c["nome"] for c in resultado["criterios"]]
+    assert nomes == [
+        "Baixo risco",
+        "Escopo claro",
+        "Sem mudança relevante de arquitetura",
+        "Sem risco de perda de dados",
+        "Sem impacto financeiro significativo",
+        "Padrões já aprovados",
+        "Alta confiança do agente",
+    ]
+    assert resultado["aprovacao_automatica"] is True
+    assert resultado["motivos_escalada"] == []
+
+
+def test_avaliar_criterios_aprovacao_so_tres_sao_verificados() -> None:
+    brief = DemandBrief(risco=RiskLevel.LOW, impactos=[])
+    report = DiscoveryReport(confianca="alta")
+    resultado = avaliar_criterios_aprovacao(report, brief)
+    verificados = {c["nome"] for c in resultado["criterios"] if c["verificado"]}
+    assert verificados == {
+        "Baixo risco",
+        "Sem mudança relevante de arquitetura",
+        "Sem risco de perda de dados",
+        "Alta confiança do agente",
+    }
+    nao_verificados = {
+        c["nome"]: c["atendido"] for c in resultado["criterios"] if not c["verificado"]
+    }
+    assert set(nao_verificados.values()) == {None}
+
+
+def test_avaliar_criterios_aprovacao_motivos_reais_por_risco_alto() -> None:
+    brief = DemandBrief(risco=RiskLevel.CRITICAL, impactos=[])
+    report = DiscoveryReport(confianca="alta")
+    resultado = avaliar_criterios_aprovacao(report, brief)
+    assert resultado["aprovacao_automatica"] is False
+    assert any("Risco da demanda: critical" in m for m in resultado["motivos_escalada"])
+
+
+def test_avaliar_criterios_aprovacao_motivos_para_impacto_sem_linha_dedicada() -> None:
+    """'security'/'contract'/'deploy' não têm linha própria entre os 7 rótulos do
+    wireframe, mas continuam contribuindo para a escalada e aparecem em motivos."""
+    brief = DemandBrief(risco=RiskLevel.LOW, impactos=["security", "contract"])
+    report = DiscoveryReport(confianca="alta")
+    resultado = avaliar_criterios_aprovacao(report, brief)
+    assert resultado["aprovacao_automatica"] is False
+    assert "Impacto sensível: contract." in resultado["motivos_escalada"]
+    assert "Impacto sensível: security." in resultado["motivos_escalada"]

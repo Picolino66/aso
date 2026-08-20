@@ -92,6 +92,26 @@ class ValidationCheck(BaseModel):
     bloqueante: bool = True
 
 
+class Environment(BaseModel):
+    """Um estágio do pipeline de implantação (§19 do fluxo.md, wf §25) — ADR-0029.
+
+    Configuração pura, não estado: o status corrente de cada estágio é derivado a
+    partir de `Orchestration.deploy_runs` (`control/deploy.py::status_do_pipeline`),
+    não guardado aqui. `comando`/`health_checks`/`rollback_command` ausentes caem no
+    padrão da orquestração (`deploy_command`/`deploy_health_checks`/
+    `deploy_rollback_command`) — mesma cadeia de precedência "etapa → padrão" já
+    usada para executor/effort.
+    """
+
+    chave: str  # desenvolvimento|testes|homologacao|staging|producao (ou custom)
+    nome: str = ""
+    ordem: int = 1
+    comando: str | None = None
+    health_checks: list[ValidationCheck] = Field(default_factory=list)
+    rollback_command: str | None = None
+    requer_aprovacao_humana: bool = False
+
+
 class AgentAssignment(BaseModel):
     """Executor escolhido para uma etapa específica da esteira (ADR-0014).
 
@@ -132,6 +152,17 @@ class Orchestration(BaseModel):
     # Ring de até 5 versões da especificação da solução (§5/§6, ADR-0021) — mesmo
     # raciocínio de `discovery_reports`. Lista vazia = especificação nunca gerada.
     spec_documents: list[dict[str, Any]] = Field(default_factory=list)
+    # Documentos da Tela 08 (wf §10, ADR-0046) — um ring por tipo (chave = tipo do
+    # documento, valor = mesmo formato de ring de `discovery_reports`/
+    # `spec_documents`, generalizado para N tipos em vez de 1). Só os 8 tipos sem
+    # representação anterior vivem aqui — os outros 5 do wireframe continuam em
+    # `spec_documents`, nunca duplicados.
+    documentos: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    # Comentários ancorados em documentos (wf §10.3/§11.3, ADR-0046) — lista plana
+    # (não um ring: comentário não é versionado, tem ciclo de vida próprio de
+    # pendente→resolvido, mesmo raciocínio de `validation_checks`/
+    # `deploy_health_checks`: lista JSON direta na orquestração, sem tabela nova).
+    documento_comentarios: list[dict[str, Any]] = Field(default_factory=list)
     validation_command: str | None = None
     # Bateria nomeada do §12 (ADR-0022). Vazia = a orquestração ainda usa só o
     # `validation_command` legado — `checks_efetivos` (control/validation.py)
@@ -152,11 +183,24 @@ class Orchestration(BaseModel):
     # raciocínio de discovery_reports/spec_documents. Lista vazia = nunca
     # implantou — não regride o gate de F6 de nenhuma orquestração existente.
     deploy_runs: list[dict[str, Any]] = Field(default_factory=list)
+    # Pipeline de estágios (§19, wf §25, ADR-0029) — lista de `Environment`
+    # (control/models.py, serializados como dict pelo mesmo motivo de deploy_runs:
+    # `DeployRun`/`Environment` vivem em control/deploy.py, que importa deste
+    # módulo — tipar aqui criaria import circular). Vazia = implantação monoambiente
+    # legada (`deploy_environment`/`deploy_command` continuam valendo sozinhos, sem
+    # nenhuma mudança de comportamento) — só ativa quando `PUT deploy/pipeline` grava
+    # ao menos um estágio.
+    deploy_pipeline: list[dict[str, Any]] = Field(default_factory=list)
     # Orçamento com freio (§1.2/§3.2 do plano7.md, ADR-0026): `None` = sem teto,
     # comportamento idêntico a toda orquestração anterior a este incremento — o
     # teto é opt-in. `ASO_ORCAMENTO_PADRAO_USD` preenche o default de orquestrações
     # novas em `create_orchestration`, não aqui (Pydantic não lê env em default).
     orcamento_usd: float | None = None
+    # Regra de roteamento que casou na criação/replanejamento (§33, ADR-0028) —
+    # `RoutingRuleResult.model_dump()`. `None` = nenhuma regra casou (ou nenhuma
+    # regra existe), decisão seguiu 100% a heurística — comportamento de toda
+    # orquestração anterior a este incremento, preservado.
+    routing_rule_applied: dict[str, Any] | None = None
     workspace_prepared: bool = False
     execution_mode: ExecutionMode = ExecutionMode.FULL_PIPELINE
     # A esteira começa em F1 (discovery) e avança até F7 sob o autopilot.
@@ -169,7 +213,13 @@ class Orchestration(BaseModel):
 
 
 class DecisionInput(BaseModel):
-    """Entrada do MultiAgentDecisionEngine (§14)."""
+    """Entrada do MultiAgentDecisionEngine (§14).
+
+    `tipo`/`complexidade` chegam vazios por padrão (nenhuma orquestração anterior à
+    ADR-0028 os preenchia) — `MultiAgentDecisionEngine` continua ignorando os dois; só
+    `control/routing_rules.py::contexto_de_decision_input` os lê, para avaliar
+    `RoutingRule.condicoes` sem precisar do `DemandBrief` inteiro.
+    """
 
     user_request: str
     current_phase: Phase = Phase.F4
@@ -180,6 +230,8 @@ class DecisionInput(BaseModel):
     impacts: list[str] = Field(
         default_factory=list, description="Ex.: architecture, contract, security, database, deploy"
     )
+    tipo: str = ""
+    complexidade: str = ""
 
 
 class PlannedAgent(BaseModel):

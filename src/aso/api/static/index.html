@@ -4,94 +4,44 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ASO Runtime — Console</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
   <style>
-    /* ===== Design tokens ===== */
-    :root {
-      --bg:#0f172a; --panel:#1e293b; --panel-2:#0b1220; --border:#334155;
-      --muted:#94a3b8; --fg:#e2e8f0; --accent:#38bdf8;
-      --ok:#22c55e; --warn:#f59e0b; --err:#ef4444; --info:#818cf8;
-      --radius:10px; --gap:14px; --font: ui-sans-serif, system-ui, sans-serif;
-    }
-    * { box-sizing:border-box; }
-    body { margin:0; font-family:var(--font); background:var(--bg); color:var(--fg); }
-    header { padding:14px 24px; background:var(--panel); display:flex; align-items:center; gap:14px; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5; }
-    header h1 { font-size:18px; margin:0; }
-    header .sub { color:var(--muted); font-size:13px; }
     main { display:grid; grid-template-columns:320px 1fr; gap:var(--gap); padding:var(--gap) 24px; align-items:start; }
-    /* ===== Components ===== */
-    .card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:var(--gap); }
-    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 10px; }
-    .btn { background:var(--accent); color:#08131f; border:0; border-radius:8px; padding:8px 12px; font-weight:600; cursor:pointer; font-size:13px; }
-    .btn.ghost { background:var(--border); color:var(--fg); }
-    .btn.sm { padding:4px 8px; font-size:12px; }
-    .btn.ok { background:var(--ok); } .btn.err { background:var(--err); color:#fff; }
-    .btn[disabled] { background:var(--border); color:var(--muted); opacity:.5; cursor:not-allowed; }
-    .reason { margin-top:6px; font-size:12px; color:var(--err); background:rgba(239,68,68,.1); padding:4px 6px; border-radius:6px; }
-    input, textarea, select { width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--fg); border-radius:8px; padding:8px; margin-bottom:8px; font-family:inherit; }
+    /* Console técnico: TODO h2 é um rótulo pequeno em maiúsculas (inclusive dentro de
+       modais) — mais denso que o h2 grande usado nas demais páginas. */
+    h2, .modal h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:0 0 10px; }
+    input, textarea, select { margin-bottom:8px; }
     ul { list-style:none; padding:0; margin:0; }
     li.orch { padding:8px; border-radius:8px; cursor:pointer; border:1px solid transparent; }
     li.orch:hover { background:var(--panel-2); }
     li.orch.active { border-color:var(--accent); background:var(--panel-2); }
-    .muted { color:var(--muted); font-size:12px; }
-    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .between { justify-content:space-between; }
-    .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; background:var(--border); color:var(--fg); }
-    .pill.ok { background:rgba(34,197,94,.2); color:var(--ok); }
-    .pill.err { background:rgba(239,68,68,.2); color:var(--err); }
-    .pill.warn { background:rgba(245,158,11,.2); color:var(--warn); }
-    .pill.info { background:rgba(129,140,248,.2); color:var(--info); }
-    .tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:var(--gap); flex-wrap:wrap; }
-    .tab { padding:8px 12px; cursor:pointer; border-bottom:2px solid transparent; color:var(--muted); font-size:13px; }
-    .tab.active { color:var(--fg); border-color:var(--accent); }
-    table { width:100%; border-collapse:collapse; font-size:13px; }
-    th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:top; }
-    th { color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
-    .board { display:flex; gap:12px; overflow-x:auto; padding-bottom:8px; }
-    .col { min-width:190px; background:var(--panel-2); border:1px solid var(--border); border-radius:var(--radius); padding:10px; }
-    .col h3 { font-size:12px; margin:0 0 8px; color:var(--muted); }
-    .kcard { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px; margin-bottom:8px; font-size:13px; }
-    .kcard .t { font-size:11px; color:var(--muted); }
+    .kcard { font-size:13px; }
     .metrics span { margin-right:14px; } .metrics b { color:var(--fg); }
-    .tl { max-height:340px; overflow:auto; font-size:12px; }
-    .tl div { padding:3px 0; border-bottom:1px solid #1f2b3e; }
-    a { color:var(--accent); }
-    .empty { color:var(--muted); padding:16px; text-align:center; }
-    code { background:var(--panel-2); padding:1px 5px; border-radius:4px; font-size:12px; }
     .diffgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:10px; margin-top:8px; }
     .diffcol { border:1px solid var(--border); border-radius:8px; overflow:hidden; background:var(--panel-2); }
     .diffcol.reco { border-color:var(--ok); }
     .diffhead { padding:6px 10px; font-size:12px; border-bottom:1px solid var(--border); background:var(--panel); }
     .diffcol pre { margin:0; padding:8px 10px; overflow-x:auto; font-size:11.5px; line-height:1.55;
-      font-family:ui-monospace,Menlo,Consolas,monospace; max-height:340px; overflow-y:auto; }
+      font-family:var(--mono); max-height:340px; overflow-y:auto; }
     .dl { display:block; white-space:pre; }
-    .dl.add { color:var(--ok); background:rgba(34,197,94,.08); }
-    .dl.del { color:var(--err); background:rgba(239,68,68,.08); }
+    .dl.add { color:var(--ok); background:rgba(22,163,74,.08); }
+    .dl.del { color:var(--err); background:rgba(220,38,38,.08); }
     .dl.hunk { color:var(--info); }
     .dl.meta { color:var(--muted); }
     /* ===== Modal (navegador de pastas) ===== */
-    .overlay { position:fixed; inset:0; background:rgba(2,6,23,.7); display:flex; align-items:center; justify-content:center; z-index:20; }
-    .modal { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); width:min(680px,92vw); max-height:82vh; display:flex; flex-direction:column; padding:16px; }
-    .modal h2 { margin:0 0 10px; }
+    .modal { width:min(680px,92vw); max-height:82vh; padding:16px; }
     .fslist { flex:1; overflow:auto; border:1px solid var(--border); border-radius:8px; background:var(--panel-2); }
-    .fsrow { padding:8px 10px; cursor:pointer; border-bottom:1px solid #1f2b3e; font-size:13px; }
+    .fsrow { padding:8px 10px; cursor:pointer; border-bottom:1px solid var(--border); font-size:13px; }
     .fsrow:hover { background:var(--panel); }
-    .fscur { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; color:var(--muted); word-break:break-all; margin:6px 0; }
+    .fscur { font-family:var(--mono); font-size:12px; color:var(--muted); word-break:break-all; margin:6px 0; }
     .docstatus { margin-top:8px; font-size:12px; }
     .docstatus .pill { margin-right:6px; }
-    .progressbar { height:10px; border-radius:999px; overflow:hidden; background:var(--panel-2); border:1px solid var(--border); margin:12px 0 8px; }
-    .progressbar > div { height:100%; width:0; background:var(--accent); transition:width .12s ease; }
-    .analysisfile { min-height:36px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12px; overflow-wrap:anywhere; color:var(--fg); }
+    .analysisfile { min-height:36px; font-family:var(--mono); font-size:12px; overflow-wrap:anywhere; color:var(--fg); }
   </style>
 </head>
 <body>
-  <header>
-    <h1>⚙️ ASO Runtime</h1>
-    <span class="sub">Console · API v1 · <a href="/docs" target="_blank">/docs</a></span>
-    <span style="flex:1"></span>
-    <input id="tok" placeholder="token (Bearer)" style="width:200px;margin:0" />
-    <button class="btn ghost sm" onclick="saveTok()">Entrar</button>
-    <button class="btn ghost sm" onclick="renderSettings()">⚙ Config</button>
-  </header>
+  <header id="app-header"></header>
   <main>
     <div>
       <div class="card">
@@ -123,7 +73,13 @@
     <div id="detail"><div class="card"><div class="empty">Selecione ou crie uma orquestração.</div></div></div>
   </main>
 
+  <script src="/ui/header.js"></script>
   <script>
+    ASOHeader.mount(document.getElementById('app-header'), {
+      subtitulo: 'Console · API v1',
+      extraHtml: '<a href="/docs" target="_blank" style="color:var(--accent)">/docs</a>' +
+        '<button class="btn ghost sm" onclick="renderSettings()">⚙ Config</button>',
+    });
     const token = () => localStorage.getItem('aso_token') || '';
     const api = (p, opts={}) => {
       const h = Object.assign({}, opts.headers || {});
@@ -132,7 +88,6 @@
     };
     const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
     const del = (p) => api(p, { method:'DELETE' });
-    function saveTok() { localStorage.setItem('aso_token', document.getElementById('tok').value.trim()); loadOrchestrations(); loadExecs(); }
     const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const statusPill = (s) => {
@@ -165,7 +120,7 @@
       d.innerHTML = `
         <div class="card">
           <h2>⚙ Configurações · Executores (agentes)</h2>
-          <div class="muted" style="margin-bottom:8px">Defina os agentes selecionáveis por etapa. As <b>chaves de API ficam só em variáveis de ambiente</b> — aqui você informa o <b>nome da env var</b> que guarda a chave (o valor nunca é gravado).</div>
+          <div class="muted" style="margin-bottom:8px">Defina os agentes selecionáveis por etapa. As <b>chaves de API ficam só em variáveis de ambiente</b> — aqui você informa o <b>nome da env var</b> que guarda a chave (o valor nunca é gravado). Política de roteamento SE/ENTÃO: <a href="/ui/regras-roteamento">editor de regras de roteamento</a>.</div>
           <div class="row" style="margin-bottom:8px"><button class="btn sm" onclick="syncExecutors()">Sincronizar Codex disponível</button></div>
           ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Runtime</th><th>Chave (env)</th><th></th></tr>
             ${execs.map(e=>`<tr>
@@ -1036,7 +991,6 @@
     }
     async function runPhase(id) { await post(`/v1/orchestrations/${id}/run-phase`, _sel()); currentTab='approvals'; await openOrch(id); }
 
-    document.getElementById('tok').value = token();
     document.getElementById('orchPath').addEventListener('input', invalidateWorkspaceAnalysis);
     loadOrchestrations();
     loadExecs();

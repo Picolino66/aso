@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Aprovações</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <h2 style="margin:0">Aprovações</h2>
+        <p class="muted">
+          Solicitações de aprovação humana reais, cruzando todas as demandas — não os 4
+          rótulos fictícios do wireframe (Discovery/Arquitetura/Deploy/Aceite final); a
+          origem real (<code>tipo</code>) é uma das 3 automáticas do runtime ou "manual".
+          Checklist de aprovação de implantação (9 itens, wf §24) fica na aba "Deploys" de
+          cada demanda.
+        </p>
+        <table><tr><th>Demanda</th><th>Ação</th><th>Origem</th><th>Risco</th><th>Status</th><th></th></tr>
+          <tbody id="linhas"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'aprovacoes' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    async function carregar() {
+      const [aprovacoes, orquestracoes] = await Promise.all([
+        api('/v1/approvals?status=pending'),
+        api('/v1/orchestrations'),
+      ]);
+      function demanda(oid) {
+        const o = orquestracoes.find(function (o) { return o.id === oid; });
+        return o ? (o.user_request || o.id).slice(0, 60) : oid;
+      }
+      const porId = {};
+      aprovacoes.forEach(function (a) { porId[a.id] = a; });
+
+      document.getElementById('linhas').innerHTML = aprovacoes.length ? aprovacoes.map(function (a) {
+        return '<tr data-id="' + esc(a.id) + '"><td><a href="/ui/demanda-detalhe?id=' + encodeURIComponent(a.orchestration_id) + '">' + esc(demanda(a.orchestration_id)) + '</a></td>' +
+          '<td>' + esc(a.action) + (a.reason ? ' <span class="muted">— ' + esc(a.reason) + '</span>' : '') + '</td>' +
+          '<td><span class="pill ' + (a.tipo === 'manual' ? 'warn' : '') + '">' + esc(a.tipo === 'manual' ? 'manual' : 'automática (' + a.tipo + ')') + '</span></td>' +
+          '<td><span class="pill ' + (a.risk === 'high' || a.risk === 'critical' ? 'err' : '') + '">' + esc(a.risk) + '</span></td>' +
+          '<td><span class="pill warn">' + esc(a.status) + '</span></td>' +
+          '<td><button class="btn ok sm btn-aprovar" type="button" data-id="' + esc(a.id) + '">Aprovar</button> ' +
+          '<button class="btn err sm btn-rejeitar" type="button" data-id="' + esc(a.id) + '">Rejeitar</button></td></tr>';
+      }).join('') : '<tr><td colspan="6"><div class="empty">Nenhuma aprovação pendente.</div></td></tr>';
+
+      // Critérios usados (wf §39: "toda aprovação deve mostrar os critérios utilizados") —
+      // não existe um checklist pronto no backend para este tipo de aprovação (só payload
+      // solto), então o resumo é composto aqui a partir de action/reason/tipo/risk/payload.
+      function resumoCriterios(a) {
+        const linhas = [
+          'Ação: ' + a.action,
+          'Origem: ' + (a.tipo === 'manual' ? 'manual' : 'automática (' + a.tipo + ')'),
+          'Risco: ' + a.risk,
+        ];
+        if (a.reason) linhas.push('Motivo: ' + a.reason);
+        if (a.payload && Object.keys(a.payload).length) {
+          linhas.push('Contexto: ' + JSON.stringify(a.payload));
+        }
+        return linhas.join('\n');
+      }
+
+      Array.from(document.querySelectorAll('.btn-aprovar')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const a = porId[btn.dataset.id];
+          if (!confirm('Aprovar esta ação? Esta decisão é irreversível.\n\n' + resumoCriterios(a))) return;
+          try { await api('/v1/approvals/' + encodeURIComponent(btn.dataset.id) + '/approve', { method: 'POST' }); await carregar(); }
+          catch (e) { alert('Não foi possível: ' + e.message); }
+        });
+      });
+      Array.from(document.querySelectorAll('.btn-rejeitar')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const a = porId[btn.dataset.id];
+          if (!confirm('Rejeitar esta ação? Esta decisão é irreversível.\n\n' + resumoCriterios(a))) return;
+          try { await api('/v1/approvals/' + encodeURIComponent(btn.dataset.id) + '/reject', { method: 'POST' }); await carregar(); }
+          catch (e) { alert('Não foi possível: ' + e.message); }
+        });
+      });
+    }
+    carregar();
+  </script>
+</body>
+</html>

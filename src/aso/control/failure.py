@@ -162,6 +162,16 @@ def diagnosticar(record: FailureRecord) -> str:
     return DIAG_DESCONHECIDO
 
 
+def confianca_diagnostico(record: FailureRecord) -> str:
+    """Confiança do diagnóstico (Tela 17, wf §19.3, ADR-0048) — categórica, nunca um
+    percentual: `record.categoria` preenchida é fato (veio da bateria nomeada, §12),
+    confiança "alta"; caindo na heurística por palavra-chave (§4.3), confiança
+    "baixa" — mesmo raciocínio já usado para a confiança da recomendação de
+    roteamento (ADR-0044, `OrchestrationService.preview_recommendation`): sinal
+    real vira categoria, nunca um número inventado."""
+    return "alta" if record.categoria else "baixa"
+
+
 # --------------------------------------------------------------------------- decisão
 
 ACAO_MESMO_AGENTE = "mesmo_agente"

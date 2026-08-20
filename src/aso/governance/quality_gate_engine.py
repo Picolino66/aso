@@ -6,6 +6,7 @@ bloqueia o avanço de fase. Cada critério é um predicado sobre o payload do co
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -57,7 +58,12 @@ class QualityGateEngine:
         warnings: list[str] = []
 
         for crit in gate.criteria:
+            inicio = time.monotonic()
             ok, evidence = crit.predicate(context)
+            # Duração real (Tela 16, wf §18.2, ADR-0048) — mede o predicado inteiro,
+            # inclusive quando ele roda um comando externo (validate_gate_command);
+            # predicados em memória ficam com um valor pequeno real, não zero fabricado.
+            duracao_ms = (time.monotonic() - inicio) * 1000
             status = GateStatus.PASSED if ok else GateStatus.FAILED
             results.append(
                 GateCriterionResult(
@@ -65,6 +71,7 @@ class QualityGateEngine:
                     status=status,
                     evidence=[evidence] if evidence else [],
                     failure_reason=None if ok else evidence,
+                    duration_ms=duracao_ms,
                 )
             )
             if not ok:

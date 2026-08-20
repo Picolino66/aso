@@ -46,13 +46,26 @@ def test_profundidade_tres_aceita() -> None:
     assert profundidade(svc._cards, task.id) == 3  # noqa: SLF001 — acesso interno em teste
 
 
-def test_profundidade_quatro_recusa() -> None:
+def test_profundidade_quatro_aceita_subtarefa() -> None:
+    """Tela 10 (wf §12, ADR-0040): a 4ª volta de Task é o que a UI rotula
+    "Subtarefa" — não é um CardType novo, é TASK com `parent_id` apontando para
+    outro TASK. `PROFUNDIDADE_MAXIMA` subiu de 3 para 4 para acomodar isso."""
     svc = BoardService()
     epic = svc.add_card(_card(tipo=CardType.EPIC, title="Epic"))
     feature = svc.add_card(_card(tipo=CardType.FEATURE, title="Feature", parent_id=epic.id))
     task = svc.add_card(_card(tipo=CardType.TASK, title="Task", parent_id=feature.id))
+    subtarefa = svc.add_card(_card(tipo=CardType.TASK, title="Subtarefa", parent_id=task.id))
+    assert profundidade(svc._cards, subtarefa.id) == 4  # noqa: SLF001
+
+
+def test_profundidade_cinco_recusa() -> None:
+    svc = BoardService()
+    epic = svc.add_card(_card(tipo=CardType.EPIC, title="Epic"))
+    feature = svc.add_card(_card(tipo=CardType.FEATURE, title="Feature", parent_id=epic.id))
+    task = svc.add_card(_card(tipo=CardType.TASK, title="Task", parent_id=feature.id))
+    subtarefa = svc.add_card(_card(tipo=CardType.TASK, title="Subtarefa", parent_id=task.id))
     with pytest.raises(ValueError, match="profundidade"):
-        svc.add_card(_card(title="Subtarefa demais", parent_id=task.id))
+        svc.add_card(_card(title="Subtarefa demais", parent_id=subtarefa.id))
 
 
 def test_parent_id_inexistente_recusa() -> None:

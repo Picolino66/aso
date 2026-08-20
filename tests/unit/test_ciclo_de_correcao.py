@@ -74,6 +74,90 @@ def test_aprovacao_posterior_limpa_correction_actions() -> None:
     assert card_atualizado.correction_actions == []
 
 
+def test_reprovado_com_so_comentarios_antigos_resolvidos_ainda_usa_acoes_do_veredito() -> None:
+    """Bug real (code-review ultra): o fallback para `verdito.acoes` só disparava
+    quando a PR nunca tinha comentário nenhum (`if comentarios_da_pr:`) — uma PR
+    com comentários de uma rodada ANTERIOR já resolvidos faz `comentarios_da_pr`
+    não-vazio, mas o filtro `obrigatorio and pendente` dá `[]`, e o veredito atual
+    (com ações obrigatórias reais) era descartado, deixando NeedsFix sem
+    orientação nenhuma."""
+    svc = OrchestrationService()
+    orch_id, pr_id, card_id = _orch_com_pr_e_card(svc)
+    b = svc._bundle(orch_id)  # noqa: SLF001
+    pr = svc._find_pr(b, pr_id)  # noqa: SLF001
+    card = b.board_service.get_card(card_id)
+    # Rodada anterior: veredito aprovado resolveu o único comentário que existia.
+    primeiro_veredito = ReviewVerdict(
+        veredito="aprovado_com_sugestoes",
+        resumo="ok com ressalva",
+        comentarios=[],
+        revisor="codex-gpt-5-medium",
+        origem="agente",
+    )
+    svc._apply_review_verdict(b, pr, card, primeiro_veredito, actor="operador")  # noqa: SLF001
+
+    # Nova rodada: reprovado, com ações obrigatórias reais, mas SEM comentário
+    # novo nesta rodada — `comentarios_da_pr` continua vazio (não houve comentário
+    # em nenhuma rodada aqui), então este teste cobre exatamente o `else` original.
+    segundo_veredito = ReviewVerdict(
+        veredito="alteracoes_obrigatorias",
+        resumo="quebrou o teste X",
+        acoes=[ReviewAction(descricao="Corrigir teste X", severidade="obrigatoria")],
+        revisor="codex-gpt-5-medium",
+        origem="agente",
+    )
+
+    resultado = svc._apply_review_verdict(  # noqa: SLF001
+        b, pr, card, segundo_veredito, actor="operador"
+    )
+
+    assert resultado.review_status == "changes_requested"
+    card_atualizado = svc.get_cards(orch_id)[0]
+    assert card_atualizado.correction_actions == ["Corrigir teste X"]
+
+
+def test_reprovado_com_comentario_antigo_resolvido_e_sem_comentario_novo_usa_veredito() -> None:
+    """Mesmo bug, cenário em que `comentarios_da_pr` FICA não-vazio (comentário de
+    rodada anterior, já resolvido) — este é o caso que a condição antiga
+    (`if comentarios_da_pr:`) tratava errado, pegando o ramo do filtro (que dá
+    `[]`) em vez do fallback."""
+    svc = OrchestrationService()
+    orch_id, pr_id, card_id = _orch_com_pr_e_card(svc)
+    b = svc._bundle(orch_id)  # noqa: SLF001
+    pr = svc._find_pr(b, pr_id)  # noqa: SLF001
+    card = b.board_service.get_card(card_id)
+    primeiro_veredito = ReviewVerdict(
+        veredito="alteracoes_obrigatorias",
+        resumo="ajuste de nome",
+        acoes=[ReviewAction(descricao="Renomear variável", severidade="obrigatoria")],
+        revisor="codex-gpt-5-medium",
+        origem="agente",
+    )
+    svc._apply_review_verdict(b, pr, card, primeiro_veredito, actor="operador")  # noqa: SLF001
+    # Resolve manualmente o comentário obrigatório da rodada 1 (fluxo real: o
+    # agente corrigiu, e alguém marcou o comentário como resolvido).
+    for c in b.review_comments:
+        if c.pr_id == pr.id:
+            c.status = "resolvido"
+
+    segundo_veredito = ReviewVerdict(
+        veredito="alteracoes_obrigatorias",
+        resumo="quebrou outro teste",
+        acoes=[ReviewAction(descricao="Corrigir teste Y", severidade="obrigatoria")],
+        comentarios=[],  # nenhum comentário NOVO nesta rodada
+        revisor="codex-gpt-5-medium",
+        origem="agente",
+    )
+
+    resultado = svc._apply_review_verdict(  # noqa: SLF001
+        b, pr, card, segundo_veredito, actor="operador"
+    )
+
+    assert resultado.review_status == "changes_requested"
+    card_atualizado = svc.get_cards(orch_id)[0]
+    assert card_atualizado.correction_actions == ["Corrigir teste Y"]
+
+
 def test_aprovado_mas_risco_exige_humano_nao_move_para_needs_fix() -> None:
     """Veredito aprovado que fica `pending` (risco alto) não é reprovação — o card
     não deve ir para `NeedsFix`."""

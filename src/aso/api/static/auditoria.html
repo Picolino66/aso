@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Auditoria</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .filtros { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px,1fr)); gap:8px; margin:10px 0; align-items:end; }
+    .filtros label { display:block; font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:2px; }
+    .filtros input, .filtros select { width:100%; }
+    .subitem { border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .subitem .cab { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:6px; }
+    .campos-extra { font-size:12px; color:var(--muted); margin-top:4px; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <h2 style="margin:0">Auditoria</h2>
+          <a id="linkExportar" href="#" target="_blank">⬇ Exportar CSV (resultado filtrado) →</a>
+        </div>
+        <p class="muted">Registro de todas as ações da esteira (wf §30) — fonte é o histórico de movimentação do card, nunca sobrescrito. Modelo/Effort/Etapa/Identificador da execução só existem em registros nascidos de uma execução real de agente; movimentação manual e registros antigos ficam honestamente em branco nesses campos.</p>
+
+        <form id="formFiltros" class="filtros">
+          <div><label>Data de</label><input id="fDataDe" type="date"></div>
+          <div><label>Data até</label><input id="fDataAte" type="date"></div>
+          <div><label>Projeto</label><select id="fProjeto"><option value="">Todos</option></select></div>
+          <div><label>Demanda</label><select id="fDemanda"><option value="">Todas</option></select></div>
+          <div><label>Agente</label><input id="fAgente" placeholder="ex.: automation, system"></div>
+          <div><label>Etapa</label>
+            <select id="fEtapa"><option value="">Todas</option>
+              <option value="F1">F1</option><option value="F2">F2</option><option value="F3">F3</option>
+              <option value="F4">F4</option><option value="F5">F5</option><option value="F6">F6</option>
+              <option value="F7">F7</option>
+            </select>
+          </div>
+          <div><label>Resultado</label><input id="fResultado" placeholder="texto livre"></div>
+          <div><button class="btn ok sm" type="submit">Filtrar</button></div>
+        </form>
+
+        <p class="muted" id="resumoTotal"></p>
+        <div id="linhas"><div class="empty">Carregando…</div></div>
+        <div class="row" style="gap:8px;margin-top:10px">
+          <button id="btnAnterior" class="btn ghost sm" type="button">← Anterior</button>
+          <span class="muted" id="paginaAtual"></span>
+          <button id="btnProxima" class="btn ghost sm" type="button">Próxima →</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    ASOHeader.mount(document.getElementById('app-header'), {});
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'auditoria' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path) {
+      const headers = {};
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, { headers: headers });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    let PAGINA = 1;
+    const TAMANHO_PAGINA = 50;
+
+    function filtrosAtuais() {
+      const params = new URLSearchParams();
+      const dataDe = document.getElementById('fDataDe').value;
+      const dataAte = document.getElementById('fDataAte').value;
+      const projeto = document.getElementById('fProjeto').value;
+      const demanda = document.getElementById('fDemanda').value;
+      const agente = document.getElementById('fAgente').value.trim();
+      const etapa = document.getElementById('fEtapa').value;
+      const resultado = document.getElementById('fResultado').value.trim();
+      if (dataDe) params.set('data_de', dataDe);
+      if (dataAte) params.set('data_ate', dataAte);
+      if (projeto) params.set('projeto', projeto);
+      if (demanda) params.set('demanda', demanda);
+      if (agente) params.set('agente', agente);
+      if (etapa) params.set('etapa', etapa);
+      if (resultado) params.set('resultado', resultado);
+      return params;
+    }
+
+    function atualizarLinkExportar() {
+      const params = filtrosAtuais();
+      document.getElementById('linkExportar').href = '/v1/audit/export?' + params.toString();
+    }
+
+    async function carregarOpcoesDeFiltro() {
+      const [projetos, orquestracoes] = await Promise.all([
+        api('/v1/projects').catch(function () { return []; }),
+        api('/v1/orchestrations').catch(function () { return []; }),
+      ]);
+      const selProjeto = document.getElementById('fProjeto');
+      projetos.forEach(function (p) {
+        selProjeto.innerHTML += '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
+      });
+      const selDemanda = document.getElementById('fDemanda');
+      orquestracoes.slice(0, 100).forEach(function (o) {
+        selDemanda.innerHTML += '<option value="' + esc(o.id) + '">' + esc((o.user_request || o.id).slice(0, 60)) + '</option>';
+      });
+    }
+
+    async function carregarPagina() {
+      atualizarLinkExportar();
+      const params = filtrosAtuais();
+      params.set('page', String(PAGINA));
+      params.set('page_size', String(TAMANHO_PAGINA));
+      const container = document.getElementById('linhas');
+      container.innerHTML = '<div class="empty">Carregando…</div>';
+      try {
+        const pagina = await api('/v1/audit?' + params.toString());
+        document.getElementById('resumoTotal').textContent = pagina.total + ' registro(s) encontrado(s).';
+        document.getElementById('paginaAtual').textContent = 'Página ' + pagina.page;
+        document.getElementById('btnAnterior').disabled = pagina.page <= 1;
+        document.getElementById('btnProxima').disabled = pagina.page * pagina.page_size >= pagina.total;
+        container.innerHTML = pagina.items.length ? pagina.items.map(function (a) {
+          return '<div class="subitem"><div class="cab"><strong>' + esc(a.type) + '</strong>' +
+            '<span class="muted">' + esc(a.created_at) + '</span></div>' +
+            '<p class="muted" style="margin:4px 0">Card: <a href="/ui/card-detalhe?id=' + encodeURIComponent(a.orchestration_id) + '&card=' + encodeURIComponent(a.card_id) + '">' + esc(a.card_titulo) + '</a>' +
+            ' · Demanda: <a href="/ui/demanda-detalhe?id=' + encodeURIComponent(a.orchestration_id) + '">' + esc(a.demanda) + '</a>' +
+            (a.project_id ? ' · Projeto: ' + esc(a.project_id) : '') + '</p>' +
+            '<p style="margin:2px 0">Agente: ' + esc(a.actor) + (a.model ? ' · Modelo: ' + esc(a.model) : '') +
+            (a.effort ? ' · Effort: ' + esc(a.effort) : '') + (a.phase ? ' · Etapa: ' + esc(a.phase) : '') + '</p>' +
+            (a.reason ? '<p class="muted" style="margin:2px 0">Motivo: ' + esc(a.reason) + '</p>' : '') +
+            (a.result ? '<p style="margin:2px 0">Resultado: ' + esc(a.result) + '</p>' : '') +
+            (a.evidence && a.evidence.length ? '<p class="muted" style="margin:2px 0">Evidências: ' + esc(a.evidence.join('; ')) + '</p>' : '') +
+            (a.next_action ? '<p class="muted" style="margin:2px 0">Próxima ação: ' + esc(a.next_action) + '</p>' : '') +
+            '<p class="campos-extra">Identificador da execução: ' + esc(a.execution_id || '—') + '</p>' +
+            '</div>';
+        }).join('') : '<div class="empty">Nenhum registro para os filtros aplicados.</div>';
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Falha ao carregar: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    document.getElementById('formFiltros').addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      PAGINA = 1;
+      carregarPagina();
+    });
+    document.getElementById('btnAnterior').addEventListener('click', function () {
+      if (PAGINA > 1) { PAGINA -= 1; carregarPagina(); }
+    });
+    document.getElementById('btnProxima').addEventListener('click', function () {
+      PAGINA += 1; carregarPagina();
+    });
+
+    (async function () {
+      await carregarOpcoesDeFiltro();
+      await carregarPagina();
+    })();
+  </script>
+</body>
+</html>

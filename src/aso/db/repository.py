@@ -15,14 +15,18 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
+from aso.agents.models import AgentDefinition
 from aso.control.models import ExecutionPlan, Orchestration, PlannedAgent, Project, ProjectEvent
+from aso.control.routing_rules import RoutingRule
 from aso.db.models import (
     AdrLinkRow,
     AdrOptionRow,
     AdrRow,
+    AgentDefinitionRow,
     Base,
     BoardColumnRow,
     BoardRow,
+    BugReportRow,
     CandidateRunRow,
     CardEventRow,
     CardLinkRow,
@@ -35,25 +39,31 @@ from aso.db.models import (
     ExecutionPlanRow,
     GateCriterionRow,
     HumanApprovalRow,
+    IncidentRow,
     OrchestrationRow,
     PlannedAgentRow,
     ProjectEventRow,
     ProjectRow,
     PullRequestRow,
     QualityGateResultRow,
+    ReviewCommentRow,
+    RoutingRuleRow,
     SloEvaluationRow,
     SnapshotRow,
     ValueItemRow,
 )
 from aso.governance.models import (
     ADR,
+    BugReport,
     CandidateRun,
     Conflict,
     ContextPatch,
     GateCriterionResult,
     HumanApproval,
+    Incident,
     PullRequest,
     QualityGateResult,
+    ReviewComment,
     SloEvaluation,
     Snapshot,
 )
@@ -84,6 +94,9 @@ _CHILD_TABLES = (
     PullRequestRow,
     CandidateRunRow,
     SloEvaluationRow,
+    IncidentRow,
+    BugReportRow,
+    ReviewCommentRow,
     ValueItemRow,
     GateCriterionRow,
     AdrOptionRow,
@@ -232,6 +245,12 @@ class SqlAlchemyOrchestrationRepository:
                 session.add(CandidateRunRow(**run.model_dump(mode="json")))
             for ev in state.slo_evaluations:
                 session.add(SloEvaluationRow(**ev.model_dump(mode="json")))
+            for incident in state.incidents:
+                session.add(IncidentRow(**incident.model_dump(mode="json")))
+            for bug in state.bug_reports:
+                session.add(BugReportRow(**bug.model_dump(mode="json")))
+            for comment in state.review_comments:
+                session.add(ReviewCommentRow(**comment.model_dump(mode="json")))
             for seq, event in enumerate(state.events):
                 session.add(
                     EventRow(
@@ -291,6 +310,7 @@ class SqlAlchemyOrchestrationRepository:
                             status=crit.status.value,
                             failure_reason=crit.failure_reason,
                             evidence=list(crit.evidence),
+                            duration_ms=crit.duration_ms,
                         )
                     )
 
@@ -433,6 +453,27 @@ class SqlAlchemyOrchestrationRepository:
                     .order_by(SloEvaluationRow.created_at)
                 )
             )
+            incident_rows = list(
+                session.scalars(
+                    select(IncidentRow)
+                    .where(IncidentRow.orchestration_id == oid)
+                    .order_by(IncidentRow.created_at)
+                )
+            )
+            bug_report_rows = list(
+                session.scalars(
+                    select(BugReportRow)
+                    .where(BugReportRow.orchestration_id == oid)
+                    .order_by(BugReportRow.created_at)
+                )
+            )
+            review_comment_rows = list(
+                session.scalars(
+                    select(ReviewCommentRow)
+                    .where(ReviewCommentRow.orchestration_id == oid)
+                    .order_by(ReviewCommentRow.created_at)
+                )
+            )
             event_rows = list(
                 session.scalars(
                     select(EventRow).where(EventRow.orchestration_id == oid).order_by(EventRow.seq)
@@ -483,6 +524,7 @@ class SqlAlchemyOrchestrationRepository:
                         status=GateStatus(crit.status),
                         evidence=list(crit.evidence),
                         failure_reason=crit.failure_reason,
+                        duration_ms=crit.duration_ms,
                     )
                 )
 
@@ -554,6 +596,9 @@ class SqlAlchemyOrchestrationRepository:
                 pull_requests=[PullRequest(**_cols(r)) for r in pr_rows],
                 candidate_runs=[CandidateRun(**_cols(r)) for r in run_rows],
                 slo_evaluations=[SloEvaluation(**_cols(r)) for r in slo_rows],
+                incidents=[Incident(**_cols(r)) for r in incident_rows],
+                bug_reports=[BugReport(**_cols(r)) for r in bug_report_rows],
+                review_comments=[ReviewComment(**_cols(r)) for r in review_comment_rows],
                 events=[
                     {"type": r.type, "payload": r.payload, "created_at": r.created_at}
                     for r in event_rows
@@ -579,20 +624,65 @@ class SqlAlchemyOrchestrationRepository:
             return list(session.scalars(select(OrchestrationRow.id)))
 
     def list_orchestrations(
-        self, *, limit: int | None = None, offset: int = 0, project_id: str | None = None
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+        project_id: str | None = None,
+        status: str | None = None,
+        q: str | None = None,
+        executor: str | None = None,
+        created_from: str | None = None,
+        created_to: str | None = None,
     ) -> tuple[list[Orchestration], int]:
+        """Filtros baratos (Tela 02 §4.2, ADR-0038) — todos sobre colunas reais e
+        indexadas (`project_id`, `status`, `created_at`) ou um `LIKE` simples
+        (`user_request`). Os filtros que exigem ler `demand_brief` (JSON sem
+        índice) ou aprovação pendente ficam no serviço, sobre o resultado desta
+        consulta — ver `OrchestrationService.list_orchestrations_page`."""
         with self._session_factory() as session:
             count_stmt = select(func.count()).select_from(OrchestrationRow)
             stmt = select(OrchestrationRow)
             if project_id is not None:
                 count_stmt = count_stmt.where(OrchestrationRow.project_id == project_id)
                 stmt = stmt.where(OrchestrationRow.project_id == project_id)
+            if status is not None:
+                count_stmt = count_stmt.where(OrchestrationRow.status == status)
+                stmt = stmt.where(OrchestrationRow.status == status)
+            if q:
+                padrao = f"%{q}%"
+                count_stmt = count_stmt.where(OrchestrationRow.user_request.ilike(padrao))
+                stmt = stmt.where(OrchestrationRow.user_request.ilike(padrao))
+            if executor is not None:
+                count_stmt = count_stmt.where(OrchestrationRow.selected_executor == executor)
+                stmt = stmt.where(OrchestrationRow.selected_executor == executor)
+            if created_from is not None:
+                count_stmt = count_stmt.where(OrchestrationRow.created_at >= created_from)
+                stmt = stmt.where(OrchestrationRow.created_at >= created_from)
+            if created_to is not None:
+                count_stmt = count_stmt.where(OrchestrationRow.created_at <= created_to)
+                stmt = stmt.where(OrchestrationRow.created_at <= created_to)
             total = session.scalar(count_stmt) or 0
             stmt = stmt.order_by(OrchestrationRow.created_at).offset(offset)
             if limit is not None:
                 stmt = stmt.limit(limit)
             rows = list(session.scalars(stmt))
             return [Orchestration(**_cols(r)) for r in rows], int(total)
+
+    def orchestration_ids_with_pending_approval(self) -> set[str]:
+        """Filtro "aprovação humana" (Tela 02 §4.2, ADR-0038) — uma query direta
+        na tabela indexada (`ix_approvals_orch_status`), sem hidratar nenhum
+        bundle. Deliberadamente NÃO reaproveita `list_all_approvals` (que
+        hidrata o bundle de toda orquestração do sistema a cada chamada — bom
+        para um agregado global chamado uma vez, ruim como filtro de tabela
+        paginada, que colidiria com "pagina sem travar com muitas demandas")."""
+        with self._session_factory() as session:
+            stmt = (
+                select(HumanApprovalRow.orchestration_id)
+                .where(HumanApprovalRow.status == "pending")
+                .distinct()
+            )
+            return set(session.scalars(stmt))
 
     def aggregate_metrics(self) -> dict[str, Any]:
         with self._session_factory() as session:
@@ -658,6 +748,112 @@ class SqlAlchemyOrchestrationRepository:
                 {"type": r.type, "payload": r.payload, "created_at": r.created_at} for r in rows
             ]
             return items, int(total)
+
+    def recent_events(self, *, limit: int) -> list[dict[str, Any]]:
+        """Atividade recente GLOBAL (Dashboard §3.3, ADR-0037) — uma única query
+        `ORDER BY created_at DESC LIMIT N` sem filtro de orquestração, ao contrário
+        de `events_page`. `created_at` é ISO 8601 (`now_iso`), ordena
+        lexicograficamente igual a cronologicamente."""
+        with self._session_factory() as session:
+            rows = list(
+                session.scalars(select(EventRow).order_by(EventRow.created_at.desc()).limit(limit))
+            )
+            return [
+                {
+                    "orchestration_id": r.orchestration_id,
+                    "type": r.type,
+                    "payload": r.payload,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+
+    def audit_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        project_id: str | None = None,
+        orchestration_id: str | None = None,
+        agente: str | None = None,
+        etapa: str | None = None,
+        resultado: str | None = None,
+        data_de: str | None = None,
+        data_ate: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Auditoria cross-demanda (Tela 28, wf §30, ADR-0051) — `CardEventRow`
+        como fonte primária (append-only, nunca truncado, ao contrário dos
+        rings `tentativas`/`failures`/`qa_checks`), joinada com
+        `OrchestrationRow` para "Projeto"/"Demanda". 6 filtros do wf §30.3
+        sobre colunas reais: `data`/`agente`/`etapa` são igualdade/faixa
+        indexada; `resultado` é `ILIKE` (texto livre, não um enum)."""
+        with self._session_factory() as session:
+            base = select(CardEventRow).join(
+                OrchestrationRow, OrchestrationRow.id == CardEventRow.orchestration_id
+            )
+            count_stmt = (
+                select(func.count())
+                .select_from(CardEventRow)
+                .join(OrchestrationRow, OrchestrationRow.id == CardEventRow.orchestration_id)
+            )
+            if project_id is not None:
+                base = base.where(OrchestrationRow.project_id == project_id)
+                count_stmt = count_stmt.where(OrchestrationRow.project_id == project_id)
+            if orchestration_id is not None:
+                base = base.where(CardEventRow.orchestration_id == orchestration_id)
+                count_stmt = count_stmt.where(CardEventRow.orchestration_id == orchestration_id)
+            if agente is not None:
+                base = base.where(CardEventRow.actor == agente)
+                count_stmt = count_stmt.where(CardEventRow.actor == agente)
+            if etapa is not None:
+                base = base.where(CardEventRow.phase == etapa)
+                count_stmt = count_stmt.where(CardEventRow.phase == etapa)
+            if resultado:
+                padrao = f"%{resultado}%"
+                base = base.where(CardEventRow.result.ilike(padrao))
+                count_stmt = count_stmt.where(CardEventRow.result.ilike(padrao))
+            if data_de is not None:
+                base = base.where(CardEventRow.created_at >= data_de)
+                count_stmt = count_stmt.where(CardEventRow.created_at >= data_de)
+            if data_ate is not None:
+                base = base.where(CardEventRow.created_at <= data_ate)
+                count_stmt = count_stmt.where(CardEventRow.created_at <= data_ate)
+            total = session.scalar(count_stmt) or 0
+            rows = list(
+                session.scalars(
+                    base.order_by(CardEventRow.created_at.desc()).offset(offset).limit(limit)
+                )
+            )
+            orch_ids = {r.orchestration_id for r in rows}
+            orch_rows = (
+                list(
+                    session.scalars(
+                        select(OrchestrationRow).where(OrchestrationRow.id.in_(orch_ids))
+                    )
+                )
+                if orch_ids
+                else []
+            )
+            projeto_e_demanda = {o.id: (o.project_id, o.user_request) for o in orch_rows}
+            card_ids = {r.card_id for r in rows}
+            titulos: dict[str, str] = {}
+            if card_ids:
+                for card_id, titulo in session.execute(
+                    select(CardRow.id, CardRow.title).where(CardRow.id.in_(card_ids))
+                ).all():
+                    titulos[card_id] = titulo
+            itens = []
+            for r in rows:
+                projeto_id, demanda = projeto_e_demanda.get(r.orchestration_id, (None, ""))
+                itens.append(
+                    {
+                        **_cols(r),
+                        "project_id": projeto_id,
+                        "demanda": demanda,
+                        "card_titulo": titulos.get(r.card_id, r.card_id),
+                    }
+                )
+            return itens, int(total)
 
     # -------------------------------------------------------------- consultas
     def cards_by_status(self, orchestration_id: str, status: str) -> list[str]:
@@ -763,3 +959,106 @@ class SqlAlchemyProjectRepository:
                 .order_by(ProjectEventRow.created_at, ProjectEventRow.id)
             )
             return [ProjectEvent(**_cols(row)) for row in session.scalars(stmt)]
+
+
+class SqlAlchemyRoutingRuleRepository:
+    """Adapter relacional das regras de roteamento (§33, ADR-0028)."""
+
+    def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
+        self.engine = _engine(url)
+        if create_schema:
+            Base.metadata.create_all(self.engine)
+        self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+
+    def save_rule(self, rule: RoutingRule, *, before_updated_at: str | None = None) -> None:
+        values = rule.model_dump(mode="json")
+        with self._session_factory() as session:
+            if before_updated_at is not None:
+                result = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(RoutingRuleRow)
+                        .where(
+                            RoutingRuleRow.id == rule.id,
+                            RoutingRuleRow.updated_at == before_updated_at,
+                        )
+                        .values(**values)
+                    ),
+                )
+                if result.rowcount != 1:
+                    raise ValueError("Regra foi alterada por outra operação; recarregue-a.")
+            else:
+                session.add(RoutingRuleRow(**values))
+            session.commit()
+
+    def get_rule(self, rule_id: str) -> RoutingRule | None:
+        with self._session_factory() as session:
+            row = session.get(RoutingRuleRow, rule_id)
+            return RoutingRule(**_cols(row)) if row is not None else None
+
+    def list_rules(self, *, only_active: bool = False) -> list[RoutingRule]:
+        with self._session_factory() as session:
+            stmt = select(RoutingRuleRow)
+            if only_active:
+                stmt = stmt.where(RoutingRuleRow.ativa.is_(True))
+            stmt = stmt.order_by(RoutingRuleRow.precedencia, RoutingRuleRow.created_at)
+            return [RoutingRule(**_cols(row)) for row in session.scalars(stmt)]
+
+    def delete_rule(self, rule_id: str) -> None:
+        with self._session_factory() as session:
+            session.execute(delete(RoutingRuleRow).where(RoutingRuleRow.id == rule_id))
+            session.commit()
+
+
+class SqlAlchemyAgentDefinitionRepository:
+    """Adapter relacional do catálogo de agentes (Tela 30, wf §32, ADR-0053) —
+    mesmo desenho de `SqlAlchemyRoutingRuleRepository`."""
+
+    def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
+        self.engine = _engine(url)
+        if create_schema:
+            Base.metadata.create_all(self.engine)
+        self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+
+    def save_definition(
+        self, definition: AgentDefinition, *, before_updated_at: str | None = None
+    ) -> None:
+        values = definition.model_dump(mode="json")
+        with self._session_factory() as session:
+            if before_updated_at is not None:
+                result = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(AgentDefinitionRow)
+                        .where(
+                            AgentDefinitionRow.id == definition.id,
+                            AgentDefinitionRow.updated_at == before_updated_at,
+                        )
+                        .values(**values)
+                    ),
+                )
+                if result.rowcount != 1:
+                    raise ValueError("Definição foi alterada por outra operação; recarregue-a.")
+            else:
+                session.add(AgentDefinitionRow(**values))
+            session.commit()
+
+    def get_definition(self, definition_id: str) -> AgentDefinition | None:
+        with self._session_factory() as session:
+            row = session.get(AgentDefinitionRow, definition_id)
+            return AgentDefinition(**_cols(row)) if row is not None else None
+
+    def list_definitions(self, *, only_active: bool = False) -> list[AgentDefinition]:
+        with self._session_factory() as session:
+            stmt = select(AgentDefinitionRow)
+            if only_active:
+                stmt = stmt.where(AgentDefinitionRow.ativo.is_(True))
+            stmt = stmt.order_by(AgentDefinitionRow.nome)
+            return [AgentDefinition(**_cols(row)) for row in session.scalars(stmt)]
+
+    def delete_definition(self, definition_id: str) -> None:
+        with self._session_factory() as session:
+            session.execute(
+                delete(AgentDefinitionRow).where(AgentDefinitionRow.id == definition_id)
+            )
+            session.commit()

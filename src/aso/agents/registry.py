@@ -6,7 +6,7 @@ seções do contexto que podem escrever (usado para compor a PermissionPolicy do
 
 from __future__ import annotations
 
-from aso.agents.models import AgentSpec
+from aso.agents.models import AgentDefinition, AgentSpec
 from aso.shared.types import ExecutorType
 
 # Definição-base dos 16 agentes obrigatórios (§15). Mantida enxuta no MVP-1.
@@ -79,6 +79,31 @@ class AgentRegistry:
         """Registra os 16 agentes obrigatórios (§15) com defaults do MVP-1."""
         for data in _DEFAULT_AGENTS:
             self.register(AgentSpec(**data))  # type: ignore[arg-type]
+
+    def seed_from_catalog(self, definitions: list[AgentDefinition]) -> None:
+        """Semeia os 16 papéis-base e aplica o catálogo persistente por cima
+        (Tela 30, wf §32, ADR-0053) — quando existe uma `AgentDefinition` ativa
+        vinculada a um `role`, ELA passa a decidir `allowed_tools`/
+        `context_sections` daquele papel, substituindo o hardcoded (fonte de
+        verdade das permissões, decisão confirmada com o operador). Papel sem
+        definição correspondente mantém o hardcoded — nunca fica sem entrada
+        (isso revogaria a permissão por omissão, o oposto do que o catálogo
+        quer expressar quando simplesmente não foi customizado ainda)."""
+        self.seed_defaults()
+        for definicao in definitions:
+            if not definicao.role or not definicao.ativo:
+                continue
+            base = self._agents.get(definicao.role)
+            if base is None:
+                continue
+            self.register(
+                base.model_copy(
+                    update={
+                        "allowed_tools": list(definicao.ferramentas),
+                        "context_sections": list(definicao.permissoes),
+                    }
+                )
+            )
 
     def permission_map(self) -> dict[str, list[str]]:
         """Deriva o mapa de permissões (agente -> seções) para o ContextBus."""

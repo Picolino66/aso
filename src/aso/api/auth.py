@@ -81,4 +81,12 @@ def required_role(method: str, path: str) -> str:
     # Configuração de executores (criar/editar/remover perfis) é ação administrativa.
     if method != "GET" and "/executors" in path:
         return "admin"
+    # Regras de roteamento (§33, ADR-0028): escrita muda a política de decisão de
+    # toda orquestração futura — mesmo nível crítico de /executors.
+    if method != "GET" and "/routing-rules" in path:
+        return "admin"
+    # Catálogo de agentes (Tela 30, wf §32, ADR-0053): escrita muda a política de
+    # PERMISSÃO REAL do ContextBus (deny-by-default) — nível crítico máximo.
+    if method != "GET" and "/agent-definitions" in path:
+        return "admin"
     return "operator"

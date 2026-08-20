@@ -175,3 +175,23 @@ def test_review_run_sem_pr_devolve_404() -> None:
     oid = client.post("/v1/orchestrations", json={"user_request": "demanda qualquer"}).json()["id"]
     resposta = client.post(f"/v1/orchestrations/{oid}/pulls/pr-inexistente/review/run", json={})
     assert resposta.status_code == 404
+
+
+def test_review_run_recusa_card_em_needs_fix(tmp_path: Path) -> None:
+    """Ciclo obrigatório do wf §19.2 (ADR-0049): reprovado → NeedsFix → nova
+    revisão só depois de passar pelos testes (não é permitido rodar de novo
+    direto)."""
+    catalog = _catalogo('{"veredito": "reprovado", "resumo": "tem problema"}')
+    client, oid, pr_id = _preparar(tmp_path, catalog, "ajustar módulo qualquer")
+
+    primeira = client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr_id}/review/run", json={"executor": "revisor"}
+    )
+    assert primeira.status_code == 200
+    card_id = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]["id"]
+    assert client.get(f"/v1/orchestrations/{oid}/cards/{card_id}").json()["status"] == "NeedsFix"
+
+    segunda = client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr_id}/review/run", json={"executor": "revisor"}
+    )
+    assert segunda.status_code == 409

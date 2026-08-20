@@ -147,3 +147,74 @@ def test_provider_recusa_agente_que_nao_altera_nada(tmp_path: Path) -> None:
         assert "só converso" in str(erro)  # a fala do agente sobrevive ao erro
     else:  # pragma: no cover - falha explícita
         raise AssertionError("deveria ter recusado o diff vazio")
+
+
+def test_changed_files_lista_so_os_caminhos(tmp_path: Path) -> None:
+    """Tela 15 (wf §17.1, ADR-0048) — mesma comparação de `branch_diff`, só nomes."""
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    path, branch = manager.create("arquivos-alterados")
+    (path / "novo.txt").write_text("novo\n", encoding="utf-8")
+    (path / "README.md").write_text("mudou\n", encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", "do agente")
+
+    manager.commit(path, "aso: card")
+    arquivos = manager.changed_files(branch)
+    assert set(arquivos) == {"novo.txt", "README.md"}
+
+
+def test_changed_files_sem_mudanca_e_vazio(tmp_path: Path) -> None:
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    _, branch = manager.create("sem-mudanca")
+    assert manager.changed_files(branch) == []
+
+
+def test_commit_count_conta_commits_da_branch(tmp_path: Path) -> None:
+    """Tela 18 (wf §20.1, ADR-0049)."""
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    path, branch = manager.create("dois-commits")
+    (path / "a.txt").write_text("a\n", encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", "commit 1")
+    (path / "b.txt").write_text("b\n", encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", "commit 2")
+
+    assert manager.commit_count(branch) == 2
+
+
+def test_commit_count_sem_mudanca_e_zero(tmp_path: Path) -> None:
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    _, branch = manager.create("sem-commit")
+    assert manager.commit_count(branch) == 0
+
+
+def test_line_stats_conta_adicoes_e_remocoes(tmp_path: Path) -> None:
+    """Tela 18 (wf §20.1, ADR-0049)."""
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    path, branch = manager.create("linhas")
+    (path / "README.md").write_text("linha 1\nlinha 2\n", encoding="utf-8")
+    _git(path, "add", "-A")
+    _git(path, "commit", "-q", "-m", "altera readme")
+
+    adicionadas, removidas = manager.line_stats(branch)
+    assert adicionadas > 0
+    assert removidas >= 0
+
+
+def test_line_stats_sem_mudanca_e_zero(tmp_path: Path) -> None:
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    manager = WorktreeManager(str(repo))
+    _, branch = manager.create("sem-linhas")
+    assert manager.line_stats(branch) == (0, 0)

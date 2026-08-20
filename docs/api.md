@@ -77,6 +77,26 @@ arquivados. O `DELETE` nunca apaga orquestrações: altera o status para `archiv
 registra ator, estado anterior e posterior em `project_events`. Projetos arquivados não
 aceitam novas orquestrações e ficam ocultos da listagem padrão.
 
+### Regras de roteamento (§33, ADR-0028)
+```
+GET    /v1/routing-rules?only_active=false
+POST   /v1/routing-rules                  # admin
+PUT    /v1/routing-rules/{id}             # admin
+DELETE /v1/routing-rules/{id}             # admin
+```
+
+`RoutingRule` declara política SE/ENTÃO avaliada **antes** do
+`MultiAgentDecisionEngine`/`selecao.py` na criação da orquestração e na retriagem —
+nenhuma regra casando, o comportamento é idêntico ao de antes desta ADR. `condicoes`
+combinam por E (`campo` ∈ `tipo|risco|complexidade|dominios|impactos`, `operador` ∈
+`igual|diferente|em|contem|maior_ou_igual`); `precedencia` menor é avaliada primeiro.
+`acao` (`agente`, `modelo`, `effort`, `aprovacao_humana`, `quality_gates`,
+`limite_tentativas`) nunca sobrescreve uma escolha explícita do operador nem rebaixa
+uma aprovação já exigida pela heurística. O resultado fica em
+`Orchestration.routing_rule_applied` (`null` = nenhuma regra casou). `quality_gates`/
+`limite_tentativas` são persistidos mas ainda não aplicados a nenhum gate/card — ver
+[ADR-0028](adrs/ADR-0028-regras-de-roteamento.md).
+
 ### Orchestrations (§28.1)
 ```
 POST   /v1/orchestrations
@@ -107,9 +127,16 @@ POST   /v1/orchestrations/{id}/deploy/run            # §18 checklist + §19 exe
 POST   /v1/orchestrations/{id}/deploy/validate       # §20 roda health checks
 POST   /v1/orchestrations/{id}/deploy/approve        # admin — §22 aceite final
 POST   /v1/orchestrations/{id}/deploy/rollback       # admin — §21, abre card de incidente
+GET    /v1/orchestrations/{id}/deploy/pipeline       # status por estágio (§19, ADR-0029)
+PUT    /v1/orchestrations/{id}/deploy/pipeline       # configura o pipeline; operator
+GET    /v1/orchestrations/{id}/incidents                       # lista (§21, ADR-0032)
+GET    /v1/orchestrations/{id}/incidents/{incident_id}          # detalhe
+POST   /v1/orchestrations/{id}/incidents/{incident_id}/investigate  # operator
+POST   /v1/orchestrations/{id}/incidents/{incident_id}/resolve      # operator, exige causa_raiz
 GET    /v1/orchestrations/{id}/cards/{card}/qa           # verificações de QA do card (§16, ADR-0025)
 POST   /v1/orchestrations/{id}/cards/{card}/qa           # registra um QaCheck; operator
 POST   /v1/orchestrations/{id}/cards/{card}/qa/{i}/fail  # reprova; cria o bug do §17; operator
+GET    /v1/orchestrations/{id}/cards/{card}/checklist    # checklist de preparação (§10, ADR-0030); só leitura
 GET    /v1/orchestrations/{id}/learning              # relatório de aprendizado da demanda (§24)
 GET    /v1/learning                                  # mesmo relatório, consolidado entre todas
 PUT    /v1/orchestrations/{id}/budget                # eleva/remove o teto de gasto; admin (ADR-0026)
@@ -118,6 +145,8 @@ POST   /v1/orchestrations/{id}/worktrees/prune       # remove só os órfãos; a
 GET    /v1/orchestrations/{id}/pulls/{pr}/review       # veredito completo da revisão (§14)
 POST   /v1/orchestrations/{id}/pulls/{pr}/review/run   # roda o agente revisor sobre o diff real
 POST   /v1/orchestrations/{id}/pulls/{pr}/review       # reporta o resultado (governado, ADR-0017)
+GET    /v1/orchestrations/{id}/pulls/{pr}/comments               # comentários ancorados (wf §20.3, ADR-0033)
+POST   /v1/orchestrations/{id}/pulls/{pr}/comments/{c}/resolve   # resolução manual; operator
 GET    /v1/orchestrations/{id}/agent-log?after={seq}&limit={n}   # saída ao vivo do agente
 GET    /v1/phases                           # catálogo didático da esteira F1..F7
 POST   /v1/orchestrations/{id}/resume
@@ -233,11 +262,65 @@ reaproveita `ValidationCheck` da ADR-0022) e pode reabrir um aceite automático
 para `aguardando_aprovacao` se reprovar. `POST .../deploy/approve` (admin) é o
 aceite final (§22). `POST .../deploy/rollback` (admin, `{reason}`) marca a
 implantação como revertida e **sempre** abre um `KanbanCard(type="Incident")`
-em `Backlog` — a tarefa de análise de causa raiz do §21. `GET .../deploy` /
-`GET .../deploy/history` trazem a versão corrente e o ring completo (§4.2,
-mesmo padrão de discovery/spec). O gate de F6 ganha o critério
-`deploy_aprovado` **só quando `deploy_runs` não está vazio** — orquestrações
-que nunca chamam `/deploy/run` (a maioria) não mudam de comportamento.
+em `Backlog` — a tarefa de análise de causa raiz do §21 — **e** um `Incident`
+([ADR-0032](adrs/ADR-0032-incidente-de-primeira-classe.md), §21/wf §27/§38)
+vinculado a ele por `card_id`. `GET .../deploy` / `GET .../deploy/history`
+trazem a versão corrente e o ring completo (§4.2, mesmo padrão de
+discovery/spec). O gate de F6 ganha o critério `deploy_aprovado` **só quando
+`deploy_runs` não está vazio** — orquestrações que nunca chamam `/deploy/run`
+(a maioria) não mudam de comportamento.
+
+`Incident` tem gravidade (`baixa|media|alta|critica`, mesmo vocabulário de
+`QaCheck.gravidade`, derivada do `risco` da `DemandBrief`), um snapshot do
+deploy revertido (`deploy_ambiente`/`deploy_estagio`/`deploy_versao` —
+`DeployRun` não tem `id` próprio, então o vínculo é por valor, não FK), e uma
+`timeline` própria (`evento`/`detalhe`/`actor`/`at`) — a primeira entidade do
+projeto com histórico embutido em vez de "várias instâncias formam o
+histórico" (padrão de `PullRequest`/`CandidateRun`). Ciclo de vida:
+`aberto` (automático) → `investigando` (opcional, `POST .../investigate`) →
+`resolvido` (`POST .../resolve`, exige `causa_raiz` não vazia no corpo) — um
+incidente resolvido não pode ser reaberto nem resolvido de novo (`409`). O
+ciclo do `Incident` é independente do `KanbanCard(Incident)` vinculado: o card
+segue seu próprio caminho no kanban, a causa raiz pode ser identificada antes
+ou depois do card fechar. Cards `Incident` criados antes desta ADR não têm
+`Incident` vinculado — decisão consciente, sem backfill retroativo (não há
+como reconstruir gravidade/vínculo de forma confiável a partir de texto livre).
+
+`PUT /v1/orchestrations/{id}/deploy/pipeline` configura o pipeline de estágios
+([ADR-0029](adrs/ADR-0029-pipeline-de-implantacao.md), §19 do fluxo, wf §25):
+uma lista de estágios (`chave`, `nome`, `ordem`, `comando?`, `health_checks?`,
+`rollback_command?`, `requer_aprovacao_humana`) — cada comando validado por
+`validate_gate_command`, `chave`/`ordem` repetidos recusados (`409`). **Lista
+vazia (o padrão) preserva 100% o comportamento monoambiente da ADR-0023** —
+o pipeline só existe quando o operador o configura. Com pipeline configurado,
+`POST .../deploy/run` aceita `estagio` opcional no corpo (omitido, resolve
+para o primeiro estágio pendente — avanço governado: um estágio só roda depois
+que o imediatamente anterior concluiu, `409` senão). Comando/health checks do
+estágio vencem os da orquestração quando definidos (mesma cadeia "etapa →
+padrão" de effort/executor). Falha classificada em `build`/`configuracao`/
+`migration`/`pos_deploy`/`critica` (§19) — `critica` só ocorre quando a
+validação pós-implantação reprova **em produção**; nunca dispara rollback
+automaticamente, só recomenda com ênfase máxima no `next-step` (ações críticas
+exigem `admin`). `GET .../deploy/pipeline` devolve o status derivado por
+estágio (nunca guardado — sempre recalculado do ring). O critério
+`deploy_aprovado` do gate F6, com pipeline configurado, só passa quando
+**todos** os estágios concluíram — não só o último do ring.
+
+`GET /v1/orchestrations/{id}/cards/{card}/checklist` traz o checklist de
+preparação para implementação ([ADR-0030](adrs/ADR-0030-checklist-de-preparacao.md),
+§10 do fluxo, wf §16) — os 8 itens (especificação lida, critérios de aceite
+analisados, código afetado analisado, dependências verificadas, testes
+existentes identificados, branch criada, plano de execução registrado, card
+desbloqueado), cada um com `autor`/`at` quando marcado. **Só leitura** — não
+existe `POST`: a marcação é 100% automática (`_build_task`, compartilhado por
+`race_card`/`run_card`/`run_plan`, marca os 5 primeiros; o guard de dependência
+e `_apply_execution` marcam os 3 restantes), nunca manual — um checklist
+editável mentiria sobre o que foi de fato verificado. Quando `run_card`
+bloqueia por dependência pendente (ADR-0018), cria automaticamente uma tarefa
+vinculada (`KanbanCard(type="Task", status="Backlog")`, `card.dependency_task_id`
+aponta para ela) — idempotente, não duplica em novas tentativas do mesmo
+bloqueio. O checklist do card aparece também na ficha de encerramento (§23,
+`GET .../cards/{card}/closure`, chave `checklist_preparacao`).
 
 `POST /v1/orchestrations/{id}/cards/{card}/qa` registra uma verificação manual
 ([ADR-0025](adrs/ADR-0025-qa-hierarquia-aprendizado.md), §16 do fluxo) — ring
@@ -270,6 +353,20 @@ orquestração muda de comportamento. Com teto, `GET .../next-step` mostra
 execução já em curso. Antes de `aumentar_effort`/`trocar_executor` (ADR-0019),
 o roteamento de falha consulta o mesmo teto: estourado vira `escalar_humano`
 com motivo de orçamento, em vez de escalar para um executor mais caro.
+
+`KanbanCard.tentativa_atual` ([ADR-0031](adrs/ADR-0031-limite-de-tentativas.md),
+wf §36.4) é o contador **autoritativo** de tentativas — incrementado a cada
+execução real (sucesso ou falha), nunca truncado (diferente de `len(card.
+failures)`, que é só o tamanho do ring de auditoria, travado em 5).
+`max_tentativas` (`null` = usa `ASO_MAX_ESCALONAMENTOS`, o teto global) pode
+vir de uma `RoutingRule.acao.limite_tentativas` (ADR-0028): quando uma regra
+casa na criação da orquestração, **todos** os cards nascidos nessa leva
+herdam o limite dela — a regra decide sobre o perfil de risco da demanda, não
+sobre um agente específico. `card.tentativas` (ring de 10, sucesso e falha,
+cada item com `numero`/`executor`/`effort`/`resultado`/`diagnostico`/`at`) é
+o histórico completo por tentativa que `card.failures` (só falha) nunca
+cobriu. `GET .../next-step` mostra "tentativa N de M" no bloqueio
+`cards_falhos` quando `max_tentativas` está configurado.
 
 `GET /v1/orchestrations/{id}/worktrees` lista os worktrees em disco do
 repositório da orquestração ([ADR-0027](adrs/ADR-0027-sobrevivencia-a-crash.md),
@@ -305,6 +402,25 @@ aprovado ficar `review_status: "pending"` em vez de fechar sozinho. Veredito
 `alteracoes_obrigatorias`/`reprovado` move o card para a coluna `NeedsFix` e grava as
 ações obrigatórias em `card.correction_actions`, que chegam ao agente na
 re-execução.
+
+`GET /v1/orchestrations/{id}/pulls/{pr}/comments` lista os comentários ancorados em
+arquivo/linha da PR (wf §20.3, [ADR-0033](adrs/ADR-0033-comentario-de-revisao-ancorado.md)):
+`arquivo`, `linha`, `categoria` (mesmo vocabulário de `acoes`), `severidade`
+(`baixa|media|alta|critica` — vocabulário de `QaCheck.gravidade`, **diferente** da
+severidade `obrigatoria|sugestao` de `ReviewAction`), `descricao`, `sugestao`,
+`obrigatorio` e `status` (`pendente`/`resolvido`). São criados a cada rodada de
+`POST .../review/run` quando o agente revisor devolve um array `comentarios` — agente
+que só devolve `acoes` (comportamento anterior a esta ADR) produz lista vazia, sem
+regressão do parecer agregado. Uma rodada que aprova (`aprovado`/`aprovado_com_sugestoes`
+sem exigir confirmação humana) **resolve automaticamente** todo comentário pendente da
+PR (`resolved_by: "system"`) — reflete o ciclo do §15 ("correção → testes → nova
+revisão →(aprovado) próxima etapa"); `POST .../comments/{comment_id}/resolve`
+(`operator`) cobre a resolução manual (override humano, ex.: uma aprovação com
+justificativa que não passa pela auto-resolução). `card.correction_actions` passa a vir
+dos comentários obrigatórios pendentes quando eles existem; sem comentários, continua
+vindo de `acoes` (comportamento da ADR-0017, intocado). `merge_pr` recusa (`409`) com
+qualquer comentário obrigatório ainda `pendente`, mesmo com `review_status: "approved"`
+— defesa explícita além da checagem de status.
 
 `GET /v1/orchestrations/{id}/agent-log` devolve a saída dos agentes CLI **enquanto eles
 trabalham** ([ADR-0015](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)):

@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ASO Runtime — Detalhes da demanda</title>
+  <link rel="stylesheet" href="/ui/tokens.css">
+  <link rel="stylesheet" href="/ui/components.css">
+  <style>
+    body { display:flex; flex-direction:column; min-height:100vh; }
+    .cabecalho-grade { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px 20px; margin:10px 0; }
+    .cabecalho-grade .campo .rotulo { font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:600; }
+    .cabecalho-grade .campo .valor { font-size:13px; margin-top:2px; }
+    .responsaveis-grade { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px,1fr)); gap:8px; margin:10px 0; }
+    .responsaveis-grade .item { border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-size:12px; }
+    .subitem { border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; }
+    .subitem .cab { display:flex; justify-content:space-between; align-items:baseline; }
+    .tabpane { display:none; }
+    .tabpane.active { display:block; }
+  </style>
+</head>
+<body>
+  <header id="app-header"></header>
+  <div class="shell">
+    <nav id="app-sidebar"></nav>
+    <main>
+      <section class="card">
+        <div class="row between">
+          <h2 style="margin:0" id="tituloDemanda">Carregando…</h2>
+          <span class="pill" id="statusVivo">● ao vivo</span>
+        </div>
+        <div class="cabecalho-grade" id="cabecalho"></div>
+        <div class="progressbar"><div class="progress" id="barraProgresso" style="width:0%"></div></div>
+        <p class="muted" style="margin:4px 0 0" id="textoProgresso">Calculando progresso…</p>
+
+        <h3 style="margin:16px 0 6px">Responsáveis por etapa</h3>
+        <div class="responsaveis-grade" id="responsaveis"></div>
+
+        <div class="tabs" id="abas"></div>
+        <div id="conteudoAbas"><div class="empty">Carregando…</div></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/ui/header.js"></script>
+  <script src="/ui/sidebar.js"></script>
+  <script>
+    const ID = new URLSearchParams(location.search).get('id');
+    if (!ID) { location.href = '/ui/demandas'; }
+    ASOHeader.mount(document.getElementById('app-header'), { orchestrationId: ID });
+    ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
+
+    function token() { return localStorage.getItem('aso_token') || ''; }
+    async function api(path, opts) {
+      opts = opts || {};
+      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
+      if (token()) headers.Authorization = 'Bearer ' + token();
+      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
+      let corpo = null;
+      try { corpo = await r.json(); } catch (e) { corpo = null; }
+      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
+      return corpo;
+    }
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function lista(itens) {
+      if (!itens || !itens.length) return '<p class="muted">Nenhum item.</p>';
+      return '<ul class="simples">' + itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
+    }
+    function campo(rotulo, valor) {
+      return '<div class="campo"><div class="rotulo">' + esc(rotulo) + '</div><div class="valor">' + valor + '</div></div>';
+    }
+    // wf §39: "a interface deve destacar riscos críticos" — mesmo tom de cor de demandas.html.
+    const TOM_RISCO = { low: '', medium: 'info', high: 'warn', critical: 'err' };
+    function pillRisco(risco) {
+      if (!risco) return '—';
+      return '<span class="pill ' + (TOM_RISCO[risco] || '') + '">' + esc(risco) + '</span>';
+    }
+    const uid = function (p) { return p + '_' + Math.random().toString(36).slice(2); };
+
+    // 13 abas originais + "Encerramento" (Telas 22-27, wf §24-§29, ADR-0050) —
+    // Deploys ganhou o pipeline/checklist/saúde/rollback das Telas 22-25.
+    const ABAS = [
+      'Visão geral', 'Classificação', 'Recomendação', 'Discovery', 'Documentos', 'Cards',
+      'Execuções', 'Testes', 'Reviews', 'Deploys', 'Incidentes', 'Encerramento', 'Histórico', 'Métricas',
+    ];
+
+    const ESTRATEGIAS_ROLLBACK = [
+      ['voltar_versao', 'Voltar versão'], ['reverter_configuracao', 'Reverter configuração'],
+      ['desabilitar_feature_flag', 'Desabilitar feature flag'], ['restaurar_banco', 'Restaurar banco'],
+      ['suspender_filas', 'Suspender filas'], ['desativar_integracao', 'Desativar integração'],
+    ];
+    const ABA_INICIAL = new URLSearchParams(location.search).get('aba');
+    let abaAtual = ABAS.includes(ABA_INICIAL) ? ABA_INICIAL : ABAS[0];
+    const TAB_CACHE = {};
+    let ORCH = null, BRIEF = null, CARDS = [], EXECUTORES = [], PROJETO = null;
+
+    function renderAbas() {
+      document.getElementById('abas').innerHTML = ABAS.map(function (a) {
+        return '<div class="tab' + (a === abaAtual ? ' active' : '') + '" data-aba="' + esc(a) + '">' + esc(a) + '</div>';
+      }).join('');
+      Array.from(document.querySelectorAll('#abas .tab')).forEach(function (el) {
+        el.addEventListener('click', function () { abaAtual = el.dataset.aba; renderAbas(); carregarAbaAtual(); });
+      });
+    }
+
+    // -------------------------------------------------------------- cabeçalho
+    function renderCabecalho() {
+      const o = ORCH, b = BRIEF;
+      document.getElementById('tituloDemanda').textContent = o.user_request || o.id;
+      document.getElementById('cabecalho').innerHTML =
+        campo('Código', '<code>' + esc(o.id) + '</code>') +
+        campo('Status', esc(o.status)) +
+        campo('Prioridade / risco', pillRisco(b.risco)) +
+        campo('Complexidade', esc(b.complexidade)) +
+        campo('Impacto', esc((b.impactos || []).join(', ') || '—')) +
+        campo('Projeto', PROJETO ? esc(PROJETO.name) : '—') +
+        campo('Solicitante', esc(b.solicitante || '—')) +
+        campo('Data de criação', esc(o.created_at));
+    }
+
+    function renderProgresso() {
+      const total = CARDS.length;
+      const done = CARDS.filter(function (c) { return c.status === 'Done'; }).length;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      document.getElementById('barraProgresso').style.width = pct + '%';
+      document.getElementById('textoProgresso').textContent =
+        pct + '% (' + done + ' de ' + total + ' card(s) concluído(s))';
+    }
+
+    function renderResponsaveis() {
+      const container = document.getElementById('responsaveis');
+      const etapas = Object.entries(ORCH.agent_assignments || {});
+      if (!etapas.length) {
+        container.innerHTML = '<p class="muted">Nenhum agente atribuído ainda.</p>';
+        return;
+      }
+      container.innerHTML = etapas.map(function (par) {
+        const etapa = par[0], atrib = par[1];
+        const perfil = EXECUTORES.find(function (e) { return e.name === atrib.executor; });
+        return '<div class="item"><b>' + esc(etapa) + '</b><br>' +
+          'agente: ' + esc(atrib.executor || '—') +
+          (perfil && perfil.model ? '<br>modelo: ' + esc(perfil.model) : '') +
+          (atrib.effort ? '<br>effort: ' + esc(atrib.effort) : '') +
+          '</div>';
+      }).join('');
+    }
+
+    // ------------------------------------------------------------------ abas
+    async function abaVisaoGeral() {
+      const b = BRIEF;
+      return campo('Objetivo', esc(b.objetivo || '—')) +
+        campo('Problema', esc(b.problema || '—')) +
+        campo('Resultado esperado', esc(b.resultado_esperado || '—')) +
+        campo('Critérios de aceite', lista(b.criterios_de_aceite)) +
+        campo('Riscos', lista(b.riscos)) +
+        campo('Domínios técnicos', lista(b.dominios));
+    }
+
+    const RISCOS = ['low', 'medium', 'high', 'critical'];
+    const COMPLEXIDADES = ['simples', 'intermediaria', 'complexa', 'estrategica'];
+
+    async function abaClassificacao() {
+      const b = BRIEF;
+      const opcoes = function (valores, atual) {
+        return valores.map(function (v) {
+          return '<option value="' + v + '"' + (v === atual ? ' selected' : '') + '>' + v + '</option>';
+        }).join('');
+      };
+      return '<div class="grade2">' +
+        '<div>' +
+          '<label for="classTipo">Tipo</label><input id="classTipo" value="' + esc(b.tipo) + '">' +
+          '<label for="classRisco">Risco</label><select id="classRisco">' + opcoes(RISCOS, b.risco) + '</select>' +
+          '<label for="classComplexidade">Complexidade</label><select id="classComplexidade">' + opcoes(COMPLEXIDADES, b.complexidade) + '</select>' +
+        '</div>' +
+        '<div>' +
+          '<label for="classImpactos">Impactos (separados por vírgula)</label><input id="classImpactos" value="' + esc((b.impactos || []).join(', ')) + '">' +
+          '<label for="classDominios">Domínios técnicos (separados por vírgula)</label><input id="classDominios" value="' + esc((b.dominios || []).join(', ')) + '">' +
+        '</div>' +
+      '</div>' +
+      '<div class="error" id="erroClassificacao" hidden></div>' +
+      '<button id="salvarClassificacao" class="btn ok sm" type="button" style="margin-top:10px">Salvar classificação</button>' +
+      '<p class="muted" style="margin-top:6px">Não existe "prioridade" de demanda separada do risco — o mesmo campo cumpre os dois papéis (ADR-0038/0039). Alterações ficam registradas na aba Histórico.</p>';
+    }
+
+    function wireClassificacaoForm() {
+      const botao = document.getElementById('salvarClassificacao');
+      if (!botao) return;
+      botao.addEventListener('click', async function () {
+        const erro = document.getElementById('erroClassificacao');
+        erro.hidden = true;
+        const corpo = {
+          tipo: document.getElementById('classTipo').value.trim() || null,
+          risco: document.getElementById('classRisco').value,
+          complexidade: document.getElementById('classComplexidade').value,
+          impactos: document.getElementById('classImpactos').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+          dominios: document.getElementById('classDominios').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
+        };
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/classification', {
+            method: 'PATCH', body: JSON.stringify(corpo),
+          });
+          delete TAB_CACHE['Classificação'];
+          delete TAB_CACHE['Visão geral'];
+          delete TAB_CACHE['Recomendação'];
+          await carregarNucleo();
+          await carregarAbaAtual();
+        } catch (e) {
+          erro.textContent = 'Não foi possível salvar: ' + e.message;
+          erro.hidden = false;
+        }
+      });
+    }
+
+    async function abaRecomendacao() {
+      const r = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/recommendation');
+      let html = campo('Agente', esc(r.agente || '—')) +
+        campo('Modelo / plataforma', esc(r.modelo || 'sem recomendação automática — nenhuma regra de roteamento bateu para esta classificação')) +
+        campo('Effort', esc(r.effort || '—')) +
+        campo('Confiança', '<span class="pill' + (r.confianca === 'alta' ? ' ok' : '') + '">' + esc(r.confianca) + '</span> · origem: ' + esc(r.fonte)) +
+        campo('Motivos', lista(r.motivos)) +
+        campo('Revisão humana', r.aprovacao_humana == null ? '—' : (r.aprovacao_humana ? 'recomendada' : 'não recomendada')) +
+        campo('Quality gates recomendados', lista(r.quality_gates)) +
+        campo('Custo estimado (histórico global do executor)', esc(r.custo_estimado || 'sem histórico suficiente')) +
+        campo('Tempo estimado (histórico global do executor)', esc(r.tempo_estimado || 'sem histórico suficiente'));
+      if (r.modelo && (ORCH.status === 'created' || ORCH.status === 'blocked')) {
+        html += '<button id="aplicarRecomendacao" class="btn ok sm" type="button" data-modelo="' + esc(r.modelo) +
+          '" data-effort="' + esc(r.effort || '') + '" style="margin-top:10px">Aplicar como override manual</button>' +
+          '<p class="muted" style="margin-top:6px">Grava executor/effort na orquestração — fica registrado como evento auditável (ExecutionSettingsUpdated).</p>';
+      }
+      return html;
+    }
+
+    function wireRecomendacaoBotao() {
+      const botao = document.getElementById('aplicarRecomendacao');
+      if (!botao) return;
+      botao.addEventListener('click', async function () {
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/execution-settings', {
+            method: 'PATCH',
+            body: JSON.stringify({ executor: botao.dataset.modelo, effort: botao.dataset.effort || null }),
+          });
+          delete TAB_CACHE['Recomendação'];
+          await carregarNucleo();
+          await carregarAbaAtual();
+        } catch (e) { alert('Não foi possível aplicar a recomendação: ' + e.message); }
+      });
+    }
+
+    async function abaDiscovery() {
+      const rel = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery');
+      const assignment = (ORCH.agent_assignments || {}).discovery || {};
+      const perfil = EXECUTORES.find(function (e) { return e.name === assignment.executor; });
+      const temRelatorio = rel && rel.status && rel.status !== 'rascunho';
+
+      let html = '<div class="grade2">' +
+        '<div>' +
+          campo('Agente responsável', esc(assignment.executor || '—')) +
+          campo('Modelo', esc((perfil && perfil.model) || assignment.executor || '—')) +
+          campo('Effort', esc(assignment.effort || '—')) +
+        '</div>' +
+        '<div>' +
+          campo('Status', temRelatorio ? '<span class="pill">' + esc(rel.status) + '</span>' : '<span class="pill">nunca rodado</span>') +
+          campo('Tempo decorrido', rel && rel.duration_ms != null ? Math.round(rel.duration_ms) + ' ms' : '—') +
+        '</div>' +
+      '</div>';
+      html += '<button id="rodarDiscovery" class="btn ok sm" type="button" style="margin-top:6px">' +
+        (temRelatorio ? '▶ Rodar discovery de novo' : '▶ Rodar discovery') + '</button>';
+      html += '<div class="error" id="erroDiscovery" hidden></div>';
+
+      if (!temRelatorio) {
+        html += '<p class="muted" style="margin-top:10px">Discovery ainda não rodado para esta demanda.</p>';
+        return html;
+      }
+
+      html += '<p class="muted" style="margin-top:10px">Etapas individuais da análise não são rastreáveis hoje — a chamada ao agente é uma única operação, sem sub-passos observáveis.</p>';
+      html += '<h3>Log da execução</h3>';
+      html += (rel.log && rel.log.length)
+        ? '<ul class="simples">' + rel.log.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>'
+        : '<p class="muted">Sem log real disponível (fallback heurístico, sem chamada a agente).</p>';
+
+      html += '<h3>Relatório</h3>';
+      html += campo('Confiança / origem', esc(rel.confianca) + ' · ' + esc(rel.origem)) +
+        campo('Situação atual', esc(rel.situacao_atual || '—')) +
+        campo('Problema', esc(rel.problema || '—')) +
+        campo('Recomendação técnica', esc(rel.recomendacao_tecnica || '—')) +
+        campo('Componentes afetados', lista(rel.componentes_afetados)) +
+        campo('Restrições', lista(rel.restricoes)) +
+        campo('Riscos', lista(rel.riscos)) +
+        campo('Alternativas', lista(rel.alternativas)) +
+        campo('Pontos que exigem decisão', lista(rel.pontos_decisao));
+
+      if (rel.status === 'aguardando_aprovacao') {
+        const criterios = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery/approval-criteria');
+        html += '<h3>Aprovação do discovery</h3>';
+        html += '<ul class="checklist">' + criterios.criterios.map(function (c) {
+          const classe = !c.verificado ? '' : (c.atendido ? 'ok' : 'falha');
+          const icone = !c.verificado ? '·' : (c.atendido ? '✓' : '✗');
+          return '<li class="' + classe + '"' + (!c.verificado ? ' title="Sem verificação automática hoje"' : '') + '>' +
+            icone + ' ' + esc(c.nome) + (!c.verificado ? ' <span class="muted">(sem verificação automática)</span>' : '') + '</li>';
+        }).join('') + '</ul>';
+        html += campo('Motivos para aprovação humana', lista(criterios.motivos_escalada));
+        html += '<label for="comentarioDiscovery">Comentário</label><input id="comentarioDiscovery" placeholder="opcional para aprovar, recomendado para reprovar/solicitar ajustes">';
+        html += '<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">' +
+          '<button id="btnReprovar" class="btn err sm" type="button">Reprovar</button>' +
+          '<button id="btnAjustes" class="btn err sm" type="button">Solicitar ajustes</button>' +
+          '<button id="btnAprovarObs" class="btn ok sm" type="button">Aprovar com observações</button>' +
+          '<button id="btnAprovar" class="btn ok sm" type="button">Aprovar</button>' +
+        '</div>';
+      }
+      return html;
+    }
+
+    function wireDiscoveryAcoes() {
+      const rodar = document.getElementById('rodarDiscovery');
+      if (rodar) {
+        rodar.addEventListener('click', async function () {
+          const erro = document.getElementById('erroDiscovery');
+          erro.hidden = true;
+          rodar.disabled = true;
+          try {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery/run', {
+              method: 'POST', body: JSON.stringify({}),
+            });
+            delete TAB_CACHE['Discovery'];
+            await carregarAbaAtual();
+          } catch (e) {
+            erro.textContent = 'Não foi possível rodar o discovery: ' + e.message;
+            erro.hidden = false;
+          } finally { rodar.disabled = false; }
+        });
+      }
+      function decidir(approved) {
+        return async function () {
+          const campoComentario = document.getElementById('comentarioDiscovery');
+          const comentario = campoComentario ? campoComentario.value.trim() : '';
+          try {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/discovery/decide', {
+              method: 'POST', body: JSON.stringify({ approved: approved, comentario: comentario }),
+            });
+            delete TAB_CACHE['Discovery'];
+            await carregarAbaAtual();
+          } catch (e) { alert('Não foi possível decidir: ' + e.message); }
+        };
+      }
+      const mapa = { btnAprovar: true, btnAprovarObs: true, btnReprovar: false, btnAjustes: false };
+      Object.keys(mapa).forEach(function (id) {
+        const botao = document.getElementById(id);
+        if (botao) botao.addEventListener('click', decidir(mapa[id]));
+      });
+    }
+
+    async function abaDocumentos() {
+      const [spec, adrs] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/spec'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/adrs'),
+      ]);
+      let html = '<p class="muted"><a href="/ui/documentos?id=' + encodeURIComponent(ID) + '">Ver os 13 tipos de documento (Tela 08) →</a></p>';
+      html += '<h3 style="margin-top:0">Especificação</h3>';
+      html += (!spec || !spec.status || spec.status === 'rascunho')
+        ? '<p class="muted">Especificação ainda não gerada.</p>'
+        : campo('Status', '<span class="pill">' + esc(spec.status) + '</span> · versão ' + esc(spec.versao) + ' · origem ' + esc(spec.origem)) +
+          campo('O que será construído', esc(spec.o_que_sera_construido || '—')) +
+          campo('Critérios de aceite', lista(spec.criterios_de_aceite));
+      html += '<h3>ADRs (' + adrs.length + ')</h3>';
+      html += adrs.length ? adrs.map(function (a) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(a.id) + ' — ' + esc(a.title) + '</strong>' +
+          '<span class="pill">' + esc(a.status) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">' + esc(a.decision || '') + '</p></div>';
+      }).join('') : '<p class="muted">Nenhuma ADR registrada.</p>';
+      return html;
+    }
+
+    async function abaCards() {
+      let html = '<p class="muted"><a href="/ui/demanda-estrutura?id=' + encodeURIComponent(ID) + '">Ver estrutura em árvore</a> · ' +
+        '<a href="/ui/kanban?id=' + encodeURIComponent(ID) + '">Ver Kanban operacional</a></p>';
+      html += CARDS.length ? '<table><tr><th>Título</th><th>Tipo</th><th>Status</th><th>Prioridade</th><th>Responsável</th><th></th></tr>' +
+        CARDS.map(function (c) {
+          return '<tr><td>' + esc(c.title) + '</td><td>' + esc(c.type) + '</td><td>' + esc(c.status) + '</td>' +
+            '<td>' + esc(c.priority) + '</td><td>' + esc(c.assignee || '—') + '</td>' +
+            '<td><a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' + encodeURIComponent(c.id) + '">ver</a></td></tr>';
+        }).join('') + '</table>' : '<p class="muted">Nenhum card ainda.</p>';
+      return html;
+    }
+
+    async function abaExecucoes() {
+      const [metricas, runs] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/execution-metrics'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/candidate-runs'),
+      ]);
+      let html = '<p class="muted"><a href="/ui/execucoes?id=' + encodeURIComponent(ID) + '">Ver painel de execução por card →</a></p>';
+      html += campo('Execuções de agente', String(metricas.agent_executions)) +
+        campo('Tempo médio (ms)', String(Math.round(metricas.avg_ms))) +
+        campo('Retentativas', String(metricas.retries)) +
+        campo('Falhas', String(metricas.failures)) +
+        campo('Aguardando humano', String(metricas.waiting_human));
+      html += '<h3>Corridas de candidatos (' + runs.length + ')</h3>';
+      html += runs.length ? runs.slice().reverse().map(function (r) {
+        return '<div class="subitem">Card ' + esc(r.card_id) + ' — recomendado: <strong>' + esc(r.recommended_branch || '—') + '</strong>' +
+          ' · ' + (r.candidates || []).length + ' candidato(s)</div>';
+      }).join('') : '<p class="muted">Nenhuma corrida de candidatos.</p>';
+      return html;
+    }
+
+    async function abaTestes() {
+      const [checks, gates] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/validation-checks'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/quality-gates'),
+      ]);
+      let html = '<p class="muted"><a href="/ui/testes?id=' + encodeURIComponent(ID) + '">Ver quality gates e QA por card →</a></p>';
+      html += '<h3 style="margin-top:0">Bateria de validação</h3>';
+      html += checks.length ? '<ul class="simples">' + checks.map(function (c) {
+        return '<li><code>' + esc(c.comando) + '</code> (' + esc(c.categoria) + (c.bloqueante ? ', bloqueante' : '') + ')</li>';
+      }).join('') + '</ul>' : '<p class="muted">Nenhuma verificação configurada.</p>';
+      html += '<h3>Quality gates (' + gates.length + ')</h3>';
+      html += gates.length ? gates.map(function (g) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(g.phase || g.fase || '') + '</strong>' +
+          '<span class="pill ' + (g.passed ? 'ok' : 'err') + '">' + (g.passed ? 'aprovado' : 'reprovado') + '</span></div></div>';
+      }).join('') : '<p class="muted">Nenhum quality gate rodado ainda.</p>';
+      return html;
+    }
+
+    async function abaReviews() {
+      const pulls = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/pulls');
+      let cabecalho = '<p class="muted"><a href="/ui/code-reviews?id=' + encodeURIComponent(ID) + '">Ver code reviews agregados por card →</a></p>';
+      if (!pulls.length) return cabecalho + '<p class="muted">Nenhuma PR aberta nesta demanda.</p>';
+      return cabecalho + pulls.map(function (pr) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(pr.title || pr.branch) + '</strong>' +
+          '<span class="pill">' + esc(pr.status) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">CI: ' + esc(pr.ci_status) + ' · Revisão: ' + esc(pr.review_status) +
+          ' · Rodadas: ' + esc(pr.review_rounds) + '</p></div>';
+      }).join('');
+    }
+
+    function marcaChecklist(it) {
+      const marca = it.ok === true ? '✓' : it.ok === false ? '✗' : '?';
+      const rotulo = it.ok === null ? ' <span class="pill warn">confirmação manual</span>' : '';
+      return '<li>' + marca + ' ' + esc(it.item) + rotulo + '</li>';
+    }
+
+    async function abaDeploys() {
+      const [historico, pipeline, checklistAprov] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/history'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/pipeline').catch(function () { return []; }),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/approval-checklist').catch(function () { return null; }),
+      ]);
+      const atual = historico.length ? historico[historico.length - 1] : null;
+      const saude = atual ? await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/health').catch(function () { return null; }) : null;
+      const rollbackChecklist = atual ? await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/rollback-checklist').catch(function () { return null; }) : null;
+
+      let html = '<h3 style="margin-top:0">Pipeline de implantação</h3>';
+      html += pipeline.length
+        ? '<table><tr><th>Estágio</th><th>Status</th><th>Aceite</th><th>Pode avançar</th></tr>' +
+          pipeline.map(function (e) {
+            return '<tr><td>' + esc(e.nome) + (e.requer_aprovacao_humana ? ' <span class="pill">aprovação humana</span>' : '') + '</td>' +
+              '<td><span class="pill ' + (e.status === 'sucesso' ? 'ok' : e.status === 'falhou' ? 'err' : 'warn') + '">' + esc(e.status) + '</span></td>' +
+              '<td>' + esc(e.aceite_status || '—') + '</td>' +
+              '<td>' + (e.pode_avancar ? '✓' : '○') + '</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Implantação monoambiente (sem pipeline de estágios configurado).</p>';
+
+      html += '<h3>Ações</h3>';
+      html += '<div class="row" style="gap:6px;flex-wrap:wrap">' +
+        '<button id="btnRodarDeploy" class="btn ok sm" type="button">Rodar implantação</button>' +
+        '<button id="btnValidarDeploy" class="btn ghost sm" type="button">Validar pós-implantação</button>' +
+        (atual && atual.aceite_status === 'aguardando_aprovacao'
+          ? '<button id="btnAprovarDeploy" class="btn ok sm" type="button">Aprovar</button>' +
+            '<button id="btnReprovarDeploy" class="btn err sm" type="button">Reprovar</button>'
+          : '') +
+        (atual && atual.status !== 'revertido'
+          ? '<button id="btnReverterDeploy" class="btn err sm" type="button">Reverter (rollback)</button>'
+          : '') +
+      '</div>' +
+      '<div class="error" id="erroDeploy" hidden></div>';
+
+      if (atual && atual.aceite_status === 'aguardando_aprovacao') {
+        html += '<div id="formAprovarDeploy" hidden style="margin-top:8px">' +
+          '<select id="tipoAceite"><option value="">Aceite humano (genérico)</option>' +
+          '<option value="produto">Aceite de produto</option><option value="tecnico">Aceite técnico</option>' +
+          '<option value="negocio">Aceite de negócio</option></select> ' +
+          '<button id="confirmarAprovar" class="btn ok sm" type="button">Confirmar aprovação</button></div>';
+      }
+      if (atual && atual.status !== 'revertido') {
+        html += '<div id="formReverterDeploy" hidden style="margin-top:8px">' +
+          '<select id="estrategiaRollback">' +
+          ESTRATEGIAS_ROLLBACK.map(function (e) { return '<option value="' + e[0] + '">' + esc(e[1]) + '</option>'; }).join('') +
+          '</select> <button id="confirmarReverter" class="btn err sm" type="button">Confirmar rollback</button></div>';
+      }
+
+      if (checklistAprov) {
+        html += '<h3>Checklist de aprovação para implantação</h3>';
+        html += '<ul class="simples">' + checklistAprov.checklist.map(marcaChecklist).join('') + '</ul>';
+        const r = checklistAprov.avaliacao_de_risco;
+        html += '<div class="grade2"><div>' +
+          campo('Risco', pillRisco(r.risco)) + campo('Impacto potencial', lista(r.impacto_potencial)) +
+          '</div><div>' +
+          campo('Possibilidade de rollback', r.possibilidade_de_rollback ? 'sim' : 'não') + campo('Aprovação', esc(r.aprovacao)) +
+          '</div></div>';
+      }
+
+      if (saude) {
+        html += '<h3>Saúde pós-implantação</h3>';
+        html += campo('Saúde', '<span class="pill ' + (saude.saude === 'saudavel' ? 'ok' : saude.saude === 'falha_critica' ? 'err' : 'warn') + '">' + esc(saude.saude) + '</span>') +
+          campo('Decisão sugerida', esc(saude.decisao_sugerida));
+      }
+      if (atual && atual.validacao_resultados && atual.validacao_resultados.length) {
+        html += '<h3>Validações pós-implantação</h3>';
+        html += '<ul class="simples">' + atual.validacao_resultados.map(function (v) {
+          return '<li>' + (v.ok ? '✓' : '✗') + ' ' + esc(v.nome) + (v.bloqueante ? ' <span class="pill warn">bloqueante</span>' : '') + '</li>';
+        }).join('') + '</ul>';
+      }
+
+      if (rollbackChecklist) {
+        html += '<h3>Checklist de rollback</h3>';
+        html += '<ul class="simples">' + rollbackChecklist.map(marcaChecklist).join('') + '</ul>';
+      }
+
+      html += '<h3>Histórico (' + historico.length + ')</h3>';
+      html += historico.length ? historico.slice().reverse().map(function (d) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(d.ambiente || '—') + (d.estagio ? ' · ' + esc(d.estagio) : '') + '</strong>' +
+          '<span class="pill ' + (d.status === 'sucesso' ? 'ok' : d.status === 'revertido' ? 'warn' : 'err') + '">' + esc(d.status) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">Versão: ' + esc(d.versao_app || '—') + ' · Commit: ' + esc(d.commit || '—') +
+          ' · Branch: ' + esc(d.branch || '—') + ' · Responsável: ' + esc(d.responsavel || '—') + '</p>' +
+          (d.rollback_estrategia ? '<p class="muted" style="margin:2px 0">Estratégia de rollback: ' + esc(d.rollback_estrategia) + '</p>' : '') +
+          (d.logs ? '<pre style="white-space:pre-wrap;font-size:11px;max-height:120px;overflow:auto">' + esc(d.logs.slice(0, 800)) + '</pre>' : '') +
+          '</div>';
+      }).join('') : '<p class="muted">Nenhuma implantação registrada ainda.</p>';
+      return html;
+    }
+
+    function wireDeploysAcoes() {
+      const erro = document.getElementById('erroDeploy');
+      function falhou(e) { erro.textContent = 'Não foi possível: ' + e.message; erro.hidden = false; }
+      async function recarregar() { delete TAB_CACHE['Deploys']; await carregarAbaAtual(); }
+
+      const rodar = document.getElementById('btnRodarDeploy');
+      if (rodar) rodar.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/run', { method: 'POST', body: JSON.stringify({}) });
+          await recarregar();
+        } catch (e) { falhou(e); }
+      });
+      const validar = document.getElementById('btnValidarDeploy');
+      if (validar) validar.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/validate', { method: 'POST', body: JSON.stringify({}) });
+          await recarregar();
+        } catch (e) { falhou(e); }
+      });
+      const aprovar = document.getElementById('btnAprovarDeploy');
+      const formAprovar = document.getElementById('formAprovarDeploy');
+      if (aprovar && formAprovar) aprovar.addEventListener('click', function () { formAprovar.hidden = !formAprovar.hidden; });
+      const confirmarAprovar = document.getElementById('confirmarAprovar');
+      if (confirmarAprovar) confirmarAprovar.addEventListener('click', async function () {
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/approve', {
+            method: 'POST', body: JSON.stringify({ approved: true, tipo_aceite: document.getElementById('tipoAceite').value }),
+          });
+          await recarregar();
+        } catch (e) { falhou(e); }
+      });
+      const reprovar = document.getElementById('btnReprovarDeploy');
+      if (reprovar) reprovar.addEventListener('click', async function () {
+        const comentario = prompt('Motivo da reprovação:') || '';
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/approve', {
+            method: 'POST', body: JSON.stringify({ approved: false, comentario: comentario }),
+          });
+          await recarregar();
+        } catch (e) { falhou(e); }
+      });
+      const reverter = document.getElementById('btnReverterDeploy');
+      const formReverter = document.getElementById('formReverterDeploy');
+      if (reverter && formReverter) reverter.addEventListener('click', function () { formReverter.hidden = !formReverter.hidden; });
+      const confirmarReverter = document.getElementById('confirmarReverter');
+      if (confirmarReverter) confirmarReverter.addEventListener('click', async function () {
+        const reason = prompt('Motivo do rollback:');
+        if (!reason) return;
+        erro.hidden = true;
+        try {
+          await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/deploy/rollback', {
+            method: 'POST',
+            body: JSON.stringify({ reason: reason, estrategia: document.getElementById('estrategiaRollback').value }),
+          });
+          await recarregar();
+        } catch (e) { falhou(e); }
+      });
+    }
+
+    async function abaIncidentes() {
+      const incidentes = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/incidents');
+      if (!incidentes.length) return '<p class="muted">Nenhum incidente registrado.</p>';
+      return incidentes.slice().reverse().map(function (i) {
+        return '<div class="subitem"><div class="cab"><strong>' + esc(i.titulo || i.title || i.id) + '</strong>' +
+          '<span class="pill ' + (i.status === 'resolvido' ? 'ok' : i.status === 'investigando' ? 'warn' : 'err') + '">' + esc(i.status) + '</span></div>' +
+          '<p class="muted" style="margin:4px 0">Gravidade: ' + esc(i.gravidade) + (i.motivo ? ' · Motivo: ' + esc(i.motivo) : '') + '</p>' +
+          (i.deploy_ambiente ? '<p class="muted" style="margin:2px 0">Deploy: ' + esc(i.deploy_ambiente) +
+            (i.deploy_estagio ? ' · ' + esc(i.deploy_estagio) : '') + (i.deploy_versao ? ' · versão ' + esc(i.deploy_versao) : '') + '</p>' : '') +
+          (i.causa_raiz ? '<p style="margin:2px 0">Causa raiz: ' + esc(i.causa_raiz) + '</p>' : '') +
+          (i.timeline && i.timeline.length
+            ? '<p class="muted" style="margin:6px 0 0"><strong>Linha do tempo</strong></p><ul class="simples">' +
+              i.timeline.map(function (t) {
+                return '<li>' + esc(t.evento) + (t.detalhe ? ' — ' + esc(t.detalhe) : '') + ' <span class="muted">(' + esc(t.at) + ')</span></li>';
+              }).join('') + '</ul>'
+            : '') +
+          (i.status !== 'resolvido'
+            ? '<div class="row" style="gap:6px;margin-top:6px">' +
+              (i.status === 'aberto' ? '<button class="btn ghost sm btn-investigar" type="button" data-id="' + esc(i.id) + '">Investigar</button>' : '') +
+              '<button class="btn ok sm btn-resolver" type="button" data-id="' + esc(i.id) + '">Resolver</button></div>'
+            : '') +
+          '</div>';
+      }).join('');
+    }
+
+    function wireIncidentesAcoes() {
+      Array.from(document.querySelectorAll('.btn-investigar')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const detalhe = prompt('Detalhe da investigação:') || '';
+          try {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/incidents/' + encodeURIComponent(btn.dataset.id) + '/investigate', {
+              method: 'POST', body: JSON.stringify({ detalhe: detalhe }),
+            });
+            delete TAB_CACHE['Incidentes']; await carregarAbaAtual();
+          } catch (e) { alert('Não foi possível: ' + e.message); }
+        });
+      });
+      Array.from(document.querySelectorAll('.btn-resolver')).forEach(function (btn) {
+        btn.addEventListener('click', async function () {
+          const causa = prompt('Causa raiz identificada:');
+          if (!causa) return;
+          try {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/incidents/' + encodeURIComponent(btn.dataset.id) + '/resolve', {
+              method: 'POST', body: JSON.stringify({ causa_raiz: causa }),
+            });
+            delete TAB_CACHE['Incidentes']; await carregarAbaAtual();
+          } catch (e) { alert('Não foi possível: ' + e.message); }
+        });
+      });
+    }
+
+    const _BLOCOS_ENCERRAMENTO = [
+      ['resumo', 'Resumo da entrega'], ['agentes_utilizados', 'Agentes utilizados'],
+      ['modelos_utilizados', 'Modelos utilizados'], ['effort_utilizado', 'Effort utilizado'],
+      ['commits', 'Commits'], ['pull_requests', 'Pull requests'],
+      ['documentos_produzidos', 'Documentos produzidos'], ['testes_executados', 'Testes executados'],
+      ['evidencias', 'Evidências'], ['data_implantacao', 'Data da implantação'],
+      ['decisoes_tecnicas', 'Decisões técnicas'], ['riscos_residuais', 'Riscos residuais'],
+      ['pendencias_futuras', 'Pendências futuras'],
+    ];
+
+    async function abaEncerramento() {
+      const dados = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/closure');
+      const r = dados.relatorio, m = dados.metricas;
+      let html = '<p class="muted"><a href="/v1/orchestrations/' + encodeURIComponent(ID) + '/closure/export">⬇ Exportar relatório (.md) →</a></p>';
+      html += '<div class="cabecalho-grade">' +
+        campo('Cards concluídos', String(m.cards_concluidos)) + campo('Agentes utilizados', String(m.agentes_utilizados)) +
+        campo('Execuções', String(m.execucoes)) + campo('Falhas corrigidas', String(m.falhas_corrigidas)) +
+        campo('Intervenções humanas', String(m.intervencoes_humanas)) + campo('Deploys', String(m.deploys)) +
+      '</div>';
+      _BLOCOS_ENCERRAMENTO.forEach(function (bloco) {
+        const valor = r[bloco[0]];
+        html += '<h3>' + esc(bloco[1]) + '</h3>';
+        html += Array.isArray(valor) ? lista(valor) : '<p>' + esc(valor || '—') + '</p>';
+      });
+      return html;
+    }
+
+    async function abaHistorico() {
+      const pagina = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/timeline?page=1&page_size=50&newest_first=true');
+      const eventos = pagina.items || [];
+      if (!eventos.length) return '<p class="muted">Nenhum evento ainda.</p>';
+      // Esta é a timeline de eventos de DOMÍNIO da orquestração (OrchestrationCreated,
+      // ApprovalRequested, patches, gates, etc.) — um stream mais grosso que o histórico
+      // de card (CardEvent), que tem actor/reason/next_action tipados. Aqui o "payload"
+      // é um dict livre que varia por tipo de evento; antes ficava totalmente escondido —
+      // agora é exibido por completo (nunca inventando um campo que não existe).
+      return '<p class="muted">Mostrando ' + eventos.length + ' de ' + pagina.total + ' evento(s) — mais recentes primeiro; log append-only, nunca sobrescrito.</p>' +
+        eventos.map(function (e) {
+          const payload = e.payload || {};
+          const detalhes = Object.keys(payload).filter(function (k) { return payload[k] != null && payload[k] !== ''; });
+          return '<div class="subitem"><div class="cab"><strong>' + esc(e.type) + '</strong>' +
+            '<span class="muted">' + esc(e.created_at) + '</span></div>' +
+            (detalhes.length ? '<p class="muted" style="margin:4px 0">' + detalhes.map(function (k) {
+              return esc(k) + ': ' + esc(typeof payload[k] === 'object' ? JSON.stringify(payload[k]) : payload[k]);
+            }).join(' · ') + '</p>' : '') +
+            '</div>';
+        }).join('');
+    }
+
+    async function abaMetricas() {
+      const [metricas, aprendizado] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/metrics'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/learning'),
+      ]);
+      let html = '<p class="muted"><a href="/ui/metricas">Ver os 15 indicadores, comparação de modelos e recomendações cross-demanda →</a></p>';
+      html += campo('Fase atual', esc(metricas.phase) + ' · snapshot ' + esc(metricas.snapshot_version)) +
+        campo('Cards por status', lista(Object.entries(metricas.cards_by_status || {}).map(function (p) { return p[0] + ': ' + p[1]; }))) +
+        campo('ADRs / snapshots / conflitos abertos', metricas.adrs_total + ' / ' + metricas.snapshots_total + ' / ' + metricas.open_conflicts) +
+        campo('Eventos totais', String(metricas.events_total));
+      html += '<h3>Aprendizado</h3>';
+      html += campo('Falhas / retrabalho / intervenções humanas', aprendizado.total_falhas + ' / ' + aprendizado.total_retrabalho + ' / ' + aprendizado.intervencoes_humanas) +
+        campo('Recomendação', esc(aprendizado.recomendacao || '—'));
+      return html;
+    }
+
+    const TAB_LOADERS = {
+      'Visão geral': abaVisaoGeral, 'Classificação': abaClassificacao, 'Recomendação': abaRecomendacao,
+      'Discovery': abaDiscovery, 'Documentos': abaDocumentos,
+      'Cards': abaCards, 'Execuções': abaExecucoes, 'Testes': abaTestes, 'Reviews': abaReviews,
+      'Deploys': abaDeploys, 'Incidentes': abaIncidentes, 'Encerramento': abaEncerramento,
+      'Histórico': abaHistorico, 'Métricas': abaMetricas,
+    };
+
+    function wireAbaAtual() {
+      if (abaAtual === 'Classificação') wireClassificacaoForm();
+      if (abaAtual === 'Recomendação') wireRecomendacaoBotao();
+      if (abaAtual === 'Discovery') wireDiscoveryAcoes();
+      if (abaAtual === 'Deploys') wireDeploysAcoes();
+      if (abaAtual === 'Incidentes') wireIncidentesAcoes();
+    }
+
+    async function carregarAbaAtual() {
+      const container = document.getElementById('conteudoAbas');
+      if (TAB_CACHE[abaAtual]) { container.innerHTML = TAB_CACHE[abaAtual]; wireAbaAtual(); return; }
+      container.innerHTML = '<div class="empty">Carregando…</div>';
+      try {
+        const html = await TAB_LOADERS[abaAtual]();
+        TAB_CACHE[abaAtual] = html;
+        if (abaAtual === document.querySelector('#abas .tab.active').dataset.aba) {
+          container.innerHTML = html;
+          wireAbaAtual();
+        }
+      } catch (e) {
+        container.innerHTML = '<div class="empty">Falha ao carregar esta aba: ' + esc(e.message) + '</div>';
+      }
+    }
+
+    async function carregarNucleo() {
+      const [orch, brief, cards, executores] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID)),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/brief'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/cards'),
+        api('/v1/executors').catch(function () { return []; }),
+      ]);
+      ORCH = orch; BRIEF = brief; CARDS = cards; EXECUTORES = executores;
+      if (ORCH.project_id) {
+        PROJETO = await api('/v1/projects/' + encodeURIComponent(ORCH.project_id)).catch(function () { return null; });
+      }
+      renderCabecalho();
+      renderProgresso();
+      renderResponsaveis();
+    }
+
+    let _es = null;
+    function assinarEventos() {
+      if (_es) _es.close();
+      const t = token();
+      _es = new EventSource('/v1/orchestrations/' + encodeURIComponent(ID) + '/events/stream' + (t ? '?token=' + encodeURIComponent(t) : ''));
+      _es.onmessage = async function () {
+        for (const chave in TAB_CACHE) delete TAB_CACHE[chave];
+        await carregarNucleo();
+        await carregarAbaAtual();
+      };
+      _es.onerror = function () { document.getElementById('statusVivo').textContent = '○ desconectado'; };
+    }
+
+    async function carregar() {
+      try {
+        await carregarNucleo();
+        renderAbas();
+        await carregarAbaAtual();
+        assinarEventos();
+      } catch (e) {
+        document.getElementById('tituloDemanda').textContent = 'Falha ao carregar a demanda';
+        document.getElementById('conteudoAbas').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+      }
+    }
+    carregar();
+  </script>
+</body>
+</html>

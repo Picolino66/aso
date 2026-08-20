@@ -125,7 +125,7 @@ class BoardService:
             if profundidade(self._cards, card.parent_id) >= PROFUNDIDADE_MAXIMA:
                 raise ValueError(
                     f"Hierarquia excede a profundidade máxima ({PROFUNDIDADE_MAXIMA}: "
-                    "Epic → Feature → Task)"
+                    "Epic → Feature → Task → Task/Subtarefa)"
                 )
         self._cards[card.id] = card
         self.event_log.append("CardCreated", {"card_id": card.id, "title": card.title})
@@ -147,6 +147,10 @@ class BoardService:
         result: str = "",
         evidence: list[str] | None = None,
         next_action: str = "",
+        model: str | None = None,
+        effort: str | None = None,
+        phase: str | None = None,
+        execution_id: str | None = None,
     ) -> KanbanCard:
         """Move o card e registra a movimentação (§8 do fluxo.md, ADR-0019): motivo,
         resultado, evidências e próxima ação — não só data e ator.
@@ -178,6 +182,10 @@ class BoardService:
             result=result,
             evidence=list(evidence or []),
             next_action=next_action,
+            model=model,
+            effort=effort,
+            phase=phase,
+            execution_id=execution_id,
         )
         self.card_events.append(event)
         self.event_log.append(
@@ -249,12 +257,29 @@ class BoardService:
             elif not pendentes and tinha_pendencia and dependente.status == ColumnKey.BLOCKED:
                 self.move_card(dependente.id, ColumnKey.READY, reason="dependência(s) resolvida(s)")
 
-    def apply_event(self, card_id: str, event_name: str) -> KanbanCard:
+    def apply_event(
+        self,
+        card_id: str,
+        event_name: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+        phase: str | None = None,
+        execution_id: str | None = None,
+    ) -> KanbanCard:
         """Aplica a automação de coluna a partir de um evento de runtime (§16.7)."""
         to_status = _EVENT_TRANSITIONS.get(event_name)
         if to_status is None:
             raise KeyError(f"Evento sem transição automática definida: {event_name}")
         resultado, proxima = _EVENT_RESULT.get(event_name, ("", ""))
         return self.move_card(
-            card_id, to_status, actor="automation", result=resultado, next_action=proxima
+            card_id,
+            to_status,
+            actor="automation",
+            result=resultado,
+            next_action=proxima,
+            model=model,
+            effort=effort,
+            phase=phase,
+            execution_id=execution_id,
         )
