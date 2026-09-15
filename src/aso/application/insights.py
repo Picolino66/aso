@@ -364,6 +364,12 @@ class InsightService:
         registry.seed_defaults()
         return [spec.role for spec in registry.list_all()]
 
+    def get_agent_reserved_roles(self) -> list[str]:
+        """Papéis reservados (MEL-53, ADR-0075): existem no registro, mas nenhum card os usa."""
+        registry = AgentRegistry()
+        registry.seed_defaults()
+        return [spec.role for spec in registry.list_all() if spec.reservado]
+
     # ------------------------------------------------------------- próximo passo
     def next_step(
         self, orchestration_id: str, *, slo_breaches: list[str] | None = None

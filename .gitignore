@@ -14,6 +14,8 @@ build/
 
 # Perfis de executor (config local, contém caminhos absolutos da máquina)
 .aso/executors.json
+# Cópia do catálogo antes da migração da ADR-0076 (mesmo conteúdo local)
+.aso/executors.json.antes-adr-0076
 
 # Worktrees dos cards. O runtime injeta esta mesma linha no .gitignore dos repos-alvo
 # (WorkspaceService.ensure_git); faltava aqui, e o próprio ASO já foi alvo de orquestração.

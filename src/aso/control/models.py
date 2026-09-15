@@ -56,6 +56,10 @@ DISCOVERY_KEY = "discovery"
 # NAMING_KEY: não é fase da esteira, sempre editável.
 SPEC_KEY = "especificacao"
 
+# Chave reservada para o executor LLM do planejamento (ADR-0076). Mesmo regime do NAMING_KEY:
+# não é fase da esteira, sempre editável; sem atribuição, vale o LLM padrão do catálogo.
+PLANNING_KEY = "planejamento"
+
 
 # Categorias válidas de uma verificação da bateria (§12 do fluxo.md) — vocabulário
 # fechado para o diagnóstico de falha (ADR-0019/ADR-0022) poder mapear categoria ->
@@ -238,9 +242,7 @@ class PlannedAgent(BaseModel):
     agent: str
     role: str = "primary"
     reason: str = ""
-    allowed_tools: list[str] = Field(default_factory=list)
     depends_on: list[str] = Field(default_factory=list)
-    parallel_group: str | None = None
 
 
 class MultiAgentDecision(BaseModel):

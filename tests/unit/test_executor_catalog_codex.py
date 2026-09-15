@@ -26,7 +26,9 @@ def test_managed_profiles_tem_default_sem_modelo() -> None:
     assert "-m" not in profiles[0].command
     assert "--ignore-user-config" in profiles[0].command
     # Sem sandbox de escrita o Codex sai com 0 sem tocar no worktree (diff vazio).
-    assert "--sandbox workspace-write" in profiles[0].command
+    # Permissão de escrita virou campo (ADR-0076); a flag é montada no comando pronto.
+    assert profiles[0].permissao_escrita == "edicoes"
+    assert "--sandbox" not in profiles[0].command
     assert profiles[1].supported_efforts == ["low", "medium", "high"]
 
 

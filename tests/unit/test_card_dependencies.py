@@ -23,19 +23,40 @@ _DIN_MULTIDOMINIO = DecisionInput(
 )
 
 
-def _criar_com_dependencia(svc: OrchestrationService) -> tuple[str, str, list[str]]:
-    """Cria uma orquestração cuja equipe tem dependência real: o ReviewAgent depende
-    dos workers de domínio (é como `_build_team` sempre monta equipe multiagente)."""
+def _equipe_com_dependente(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Equipe do plano com dependência real: um TestingAgent depende dos workers. O motor não
+    cria mais o card do ReviewAgent (ADR-0075); a dependência vem do plano do mesmo jeito."""
+    original = MultiAgentDecisionEngine._build_team
+
+    def _com_dependente(
+        self: MultiAgentDecisionEngine, inp: DecisionInput, strategy: ExecutionStrategy
+    ) -> list[PlannedAgent]:
+        equipe = original(self, inp, strategy)
+        dependente = PlannedAgent(
+            agent="TestingAgent",
+            role="reviewer",
+            reason="valida a entrega dos workers",
+            depends_on=[a.agent for a in equipe],
+        )
+        return [*equipe, dependente]
+
+    monkeypatch.setattr(MultiAgentDecisionEngine, "_build_team", _com_dependente)
+
+
+def _criar_com_dependencia(
+    svc: OrchestrationService, monkeypatch: pytest.MonkeyPatch
+) -> tuple[str, str, list[str]]:
+    _equipe_com_dependente(monkeypatch)
     orch = svc.create_orchestration("implementar recurso seguro", decision_input=_DIN_MULTIDOMINIO)
     cards = svc.get_cards(orch.id)
-    review_card = next(c for c in cards if c.assignee == "ReviewAgent")
-    workers = [c for c in cards if c.assignee != "ReviewAgent"]
-    return orch.id, review_card.id, [w.id for w in workers]
+    dependente = next(c for c in cards if c.assignee == "TestingAgent")
+    workers = [c for c in cards if c.assignee != "TestingAgent"]
+    return orch.id, dependente.id, [w.id for w in workers]
 
 
-def test_dependencies_populadas_a_partir_do_plano() -> None:
+def test_dependencies_populadas_a_partir_do_plano(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = OrchestrationService()
-    orch_id, review_id, worker_ids = _criar_com_dependencia(svc)
+    orch_id, review_id, worker_ids = _criar_com_dependencia(svc, monkeypatch)
     review_card = next(c for c in svc.get_cards(orch_id) if c.id == review_id)
     assert set(review_card.dependencies) == set(worker_ids)
     # Workers não têm dependência entre si (paralelos).
@@ -44,9 +65,9 @@ def test_dependencies_populadas_a_partir_do_plano() -> None:
         assert worker.dependencies == []
 
 
-def test_run_card_recusa_com_dependencia_pendente() -> None:
+def test_run_card_recusa_com_dependencia_pendente(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = OrchestrationService()
-    orch_id, review_id, worker_ids = _criar_com_dependencia(svc)
+    orch_id, review_id, worker_ids = _criar_com_dependencia(svc, monkeypatch)
 
     with pytest.raises(ValueError, match="dependência"):
         svc.run_card(orch_id, review_id)
@@ -57,9 +78,9 @@ def test_run_card_recusa_com_dependencia_pendente() -> None:
     assert card.block_reason and "dependência" in card.block_reason
 
 
-def test_run_card_funciona_apos_dependencias_resolvidas() -> None:
+def test_run_card_funciona_apos_dependencias_resolvidas(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = OrchestrationService()
-    orch_id, review_id, worker_ids = _criar_com_dependencia(svc)
+    orch_id, review_id, worker_ids = _criar_com_dependencia(svc, monkeypatch)
 
     with pytest.raises(ValueError):
         svc.run_card(orch_id, review_id)

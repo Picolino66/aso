@@ -1,14 +1,14 @@
 """(b) Ponta a ponta via API: corrida de candidatos → PR do recomendado → merge governado.
 
 Exercita o fluxo completo com git real (worktrees isolados), como um agente CLI real
-faria — trocar `ASO_CANDIDATE_COMMANDS` por `claude`/`codex` é só configuração. Aqui os
+faria — trocar o comando dos perfis candidatos do catálogo por `claude`/`codex` é só
+configuração (ADR-0076). Aqui os
 "agentes CLI" são comandos determinísticos que editam arquivos, para o teste ser
 reproduzível sem depender de um binário de LLM instalado.
 """
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.application.orchestration_service import OrchestrationService
+from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 # CI declarada exige justificativa humana (ADR-0056, MEL-12).
@@ -40,18 +41,25 @@ def test_candidates_to_governed_merge_via_api(
     repo = tmp_path / "proj"
     _init_repo(repo)
     monkeypatch.setenv("ASO_TARGET_REPO", str(repo))
-    monkeypatch.setenv(
-        "ASO_CANDIDATE_COMMANDS",
-        json.dumps(
-            [
-                {"id": "claude", "command": 'bash -c "echo pequeno > sol.py"'},
-                {"id": "codex", "command": "bash -c \"printf 'a\\nb\\nc\\nd\\n' > grande.py\""},
-            ]
-        ),
-    )
     # provider de merge (WorktreeManager no mesmo repo alvo) — o que build_service faria em prod.
     svc = OrchestrationService(
-        provider=CliAgentExecutionProvider(["bash", "-c", "true"], str(repo))
+        provider=CliAgentExecutionProvider(["bash", "-c", "true"], str(repo)),
+        catalog=ExecutorCatalog(
+            [
+                ExecutorProfile(
+                    name="claude",
+                    kind="cli",
+                    command='bash -c "echo pequeno > sol.py"',
+                    candidato=True,
+                ),
+                ExecutorProfile(
+                    name="codex",
+                    kind="cli",
+                    command="bash -c \"printf 'a\\nb\\nc\\nd\\n' > grande.py\"",
+                    candidato=True,
+                ),
+            ]
+        ),
     )
     client = TestClient(create_app(svc))
 

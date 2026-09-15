@@ -5,6 +5,11 @@ DeepSeek, ou outro configurado), com MODELO e ESFORÇO (low/medium/high). Os
 perfis vêm do ambiente (`ASO_EXECUTORS`, JSON) com defaults sensatos. As chaves
 (secrets) nunca aparecem nas listagens — só o metadado para a UI.
 
+Fonte única de executores em tempo de execução (ADR-0076, MEL-54): variáveis de ambiente
+(`ASO_EXECUTORS`, `ASO_LLM_*`, `ASO_CLI_COMMAND`, `ASO_CANDIDATE_COMMANDS`) só **semeiam** o
+catálogo enquanto não há catálogo salvo (`build_catalog_from_env`); depois, vale o que está em
+`.aso/executors.json`. Nenhum outro módulo lê essas variáveis.
+
 Formato de `ASO_EXECUTORS` (JSON):
 [
   {"name": "claude", "kind": "cli", "command": "claude -p", "model": "sonnet", "effort": "high"},
@@ -20,16 +25,24 @@ import os
 import shlex
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from aso.agents.executor import ExecutionProvider, LocalMockExecutionProvider
 from aso.execution.cli_provider import CliAgentExecutionProvider
 from aso.execution.effort import SuporteDeEffort, aplicar_effort_no_comando, suporte_de_effort
+from aso.execution.flags_de_cli import (
+    PERMISSOES_DE_ESCRITA,
+    aplicar_flags,
+    familia_do_comando,
+    migrar_comando,
+)
 from aso.execution.llm_client import AnthropicClient, LlmClient, OpenAICompatibleClient
 from aso.execution.llm_provider import LlmExecutionProvider
 from aso.shared.agent_output import OutputBus
 
 _EFFORTS = ("low", "medium", "high")
+# Seeds Codex estáticos antigos: mantidos para marcar perfis legados como indisponíveis
+# (MEL-53, ADR-0075) — revisar para remoção a partir de 2027-03-15.
 _LEGACY_CODEX_NAMES = {
     f"codex-{model}-{effort}"
     for model in ("gpt-5-codex", "gpt-5", "o4-mini")
@@ -54,6 +67,30 @@ class ExecutorProfile(BaseModel):
     available: bool = True
     availability_reason: str = ""
     runtime_version: str = ""
+    # Campos estruturados no lugar de flags digitadas no comando (ADR-0076): o catálogo monta
+    # as flags por família de CLI em `cli_command`.
+    streaming: bool = False  # NDJSON evento por evento para o painel ao vivo (ADR-0015)
+    permissao_escrita: str = ""  # "" (não gerenciada) | nenhuma | edicoes | total
+    candidato: bool = False  # participa da corrida de candidatos sem lista explícita (§26A.6)
+
+    @model_validator(mode="after")
+    def _normalizar_flags(self) -> ExecutorProfile:
+        """Flags de streaming/permissão digitadas no comando viram campos (migração idempotente).
+
+        Roda em toda validação — perfil salvo antigo, formulário ou `ASO_EXECUTORS` —, então
+        há uma única representação: o comando sem essas flags e os campos ligados."""
+        if self.permissao_escrita not in PERMISSOES_DE_ESCRITA:
+            raise ValueError(
+                f"permissao_escrita inválida: '{self.permissao_escrita}' "
+                "(use nenhuma, edicoes ou total)."
+            )
+        if self.kind == "cli" and self.command:
+            limpo, streaming, permissao = migrar_comando(self.command)
+            if limpo != self.command:
+                self.command = limpo
+                self.streaming = self.streaming or streaming
+                self.permissao_escrita = self.permissao_escrita or permissao
+        return self
 
     def suporte_de_effort(self) -> SuporteDeEffort:
         """Se o esforço escolhido tem efeito neste executor, e como (ADR-0073)."""
@@ -71,7 +108,7 @@ class ExecutorProfile(BaseModel):
     def public(self) -> dict[str, object]:
         """Representação para a UI/API — inclui status da chave, nunca o segredo."""
         key_env = self._key_env_name()
-        has_key = bool(os.environ.get(key_env) or os.environ.get("ASO_LLM_API_KEY"))
+        has_key = bool(os.environ.get(key_env))
         return {
             "name": self.name,
             "kind": self.kind,
@@ -92,6 +129,11 @@ class ExecutorProfile(BaseModel):
             "available": self.available,
             "availability_reason": self.availability_reason,
             "runtime_version": self.runtime_version,
+            "streaming": self.streaming,
+            "permissao_escrita": self.permissao_escrita,
+            "candidato": self.candidato,
+            # Família reconhecida = os campos acima têm efeito; vazio = comando livre.
+            "familia_cli": familia_do_comando(self.command) if self.kind == "cli" else "",
         }
 
 
@@ -135,11 +177,21 @@ class ExecutorCatalog:
         self._profiles.pop(name, None)
 
     def replace_managed_codex(self, profiles: list[ExecutorProfile]) -> None:
-        """Substitui somente perfis Codex gerenciados e os seeds legados conhecidos."""
+        """Substitui somente perfis Codex gerenciados e os seeds legados conhecidos.
+
+        A escolha do operador sobre streaming, permissão e candidatura sobrevive à
+        sincronização: só modelo, esforços e versão vêm da descoberta."""
+        anteriores: dict[str, ExecutorProfile] = {}
         for name, profile in list(self._profiles.items()):
             if profile.managed_by == "codex" or name in _LEGACY_CODEX_NAMES:
+                anteriores[name] = profile
                 self._profiles.pop(name, None)
         for profile in profiles:
+            antigo = anteriores.get(profile.name)
+            if antigo is not None:
+                profile.streaming = antigo.streaming
+                profile.candidato = antigo.candidato
+                profile.permissao_escrita = antigo.permissao_escrita or profile.permissao_escrita
             self.upsert(profile)
 
     def validate(self, name: str, effort: str | None = None) -> ExecutorProfile:
@@ -157,6 +209,27 @@ class ExecutorCatalog:
                 f"Esforço '{selected_effort}' não é aceito por {name}; use: {', '.join(supported)}."
             )
         return profile
+
+    def llm_padrao(self) -> str | None:
+        """Executor LLM usado quando nenhum foi atribuído (planejamento, ADR-0076).
+
+        Entre os LLMs disponíveis com chave no ambiente, o default vem primeiro; sem nenhum
+        com chave, não há LLM padrão (planejar exige chave de verdade)."""
+        llms = sorted(
+            (p for p in self._profiles.values() if p.kind == "llm" and p.available),
+            key=lambda p: not p.is_default,
+        )
+        com_chave = next((p for p in llms if os.environ.get(p._key_env_name())), None)
+        return com_chave.name if com_chave is not None else None
+
+    def default_sem_pasta(self) -> str | None:
+        """Padrão utilizável por orquestração sem pasta: CLI só com `ASO_TARGET_REPO`."""
+        perfil = self._profiles.get(self.default_name())
+        if perfil is None or perfil.kind == "mock" or not perfil.available:
+            return None
+        if perfil.kind == "cli" and not os.environ.get("ASO_TARGET_REPO"):
+            return None
+        return perfil.name
 
     def default_name(self) -> str:
         for p in self._profiles.values():
@@ -213,7 +286,11 @@ class ExecutorCatalog:
         profile = self.validate(name, effort_override)
         if profile.kind != "cli" or not profile.command:
             raise ValueError(f"Executor '{name}' não é um agente CLI com comando definido.")
-        command = shlex.split(profile.command)
+        command = aplicar_flags(
+            shlex.split(profile.command),
+            streaming=profile.streaming,
+            permissao_escrita=profile.permissao_escrita,
+        )
         if profile.managed_by == "codex" and profile.model:
             command.extend(["-m", profile.model])
         # Esforço aplicado pela opção do próprio CLI (Codex, Claude Code); outros ficam iguais.
@@ -226,7 +303,7 @@ class ExecutorCatalog:
         profile = self.validate(name, effort_override)
         if profile.kind != "llm":
             raise ValueError(f"Executor '{name}' não é do tipo llm.")
-        key = os.environ.get(profile._key_env_name()) or os.environ.get("ASO_LLM_API_KEY")
+        key = os.environ.get(profile._key_env_name())
         if not (key and profile.model):
             raise ValueError(f"Executor LLM '{name}' exige API key + model.")
         if profile.provider == "anthropic":
@@ -254,7 +331,11 @@ class ExecutorCatalog:
 
 
 def build_catalog_from_env() -> ExecutorCatalog:
-    """Monta o catálogo a partir de `ASO_EXECUTORS` (+ defaults do ambiente)."""
+    """Semeia o catálogo a partir do ambiente — só usado enquanto não há catálogo salvo.
+
+    Único ponto do runtime que lê `ASO_EXECUTORS`, `ASO_LLM_*`, `ASO_CLI_COMMAND` e
+    `ASO_CANDIDATE_COMMANDS` (ADR-0076). Perfis explícitos de `ASO_EXECUTORS` vencem os
+    derivados das outras variáveis quando o nome coincide."""
     profiles: list[ExecutorProfile] = []
     raw = os.environ.get("ASO_EXECUTORS")
     if raw:
@@ -263,25 +344,75 @@ def build_catalog_from_env() -> ExecutorCatalog:
                 profiles.append(ExecutorProfile.model_validate(item))
         except (json.JSONDecodeError, ValueError):
             profiles = []
-    # Defaults derivados do ambiente, se nenhum perfil explícito cobrir.
     names = {p.name for p in profiles}
-    if os.environ.get("ASO_LLM_PROVIDER") and "llm" not in names:
-        profiles.append(
-            ExecutorProfile(
-                name="llm",
-                kind="llm",
-                provider=os.environ.get("ASO_LLM_PROVIDER", ""),
-                model=os.environ.get("ASO_LLM_MODEL", ""),
-            )
-        )
+    # CLI antes do LLM: sem `is_default` explícito, o primeiro vira padrão — como o provider
+    # global antigo, código vai para o CLI; o LLM segue como planejador (`llm_padrao`).
     if os.environ.get("ASO_CLI_COMMAND") and "cli" not in names:
         profiles.append(
             ExecutorProfile(name="cli", kind="cli", command=os.environ.get("ASO_CLI_COMMAND", ""))
         )
+    provider = os.environ.get("ASO_LLM_PROVIDER", "").strip().lower()
+    if provider and "llm" not in names:
+        profiles.append(
+            ExecutorProfile(
+                name="llm",
+                kind="llm",
+                provider=provider,
+                model=os.environ.get("ASO_LLM_MODEL", "").strip(),
+                base_url=os.environ.get("ASO_LLM_BASE_URL", "").strip(),
+                # A chave continua no ambiente; o perfil só guarda o NOME da variável.
+                api_key_env=_ENV_CHAVE_LLM_LEGADA,
+            )
+        )
+    profiles.extend(_candidatos_do_ambiente({p.name for p in profiles}))
     # Marca um default (o primeiro não-mock, se houver).
     if profiles and not any(p.is_default for p in profiles):
         profiles[0].is_default = True
     return ExecutorCatalog(profiles)
+
+
+_ENV_CHAVE_LLM_LEGADA = "ASO_LLM_API_KEY"
+
+
+def _candidatos_do_ambiente(existentes: set[str]) -> list[ExecutorProfile]:
+    """`ASO_CANDIDATE_COMMANDS` vira perfis CLI marcados `candidato` (antes: lista paralela).
+
+    Cada item é o comando (id `cli_N`) ou `{"id": ..., "command": ...}`."""
+    raw = os.environ.get("ASO_CANDIDATE_COMMANDS")
+    if not raw:
+        return []
+    try:
+        spec = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    perfis: list[ExecutorProfile] = []
+    for i, item in enumerate(spec if isinstance(spec, list) else []):
+        if isinstance(item, str):
+            nome, comando = f"cli_{i + 1}", item
+        elif isinstance(item, dict) and item.get("command"):
+            nome, comando = str(item.get("id") or f"cli_{i + 1}"), str(item["command"])
+        else:
+            continue
+        existente = next((p for p in perfis if p.name == nome), None)
+        if nome in existentes or existente is not None:
+            continue
+        perfis.append(ExecutorProfile(name=nome, kind="cli", command=comando, candidato=True))
+    return perfis
+
+
+def migrar_perfis_salvos(profiles: list[ExecutorProfile]) -> list[ExecutorProfile]:
+    """Ajustes de perfis gravados antes da ADR-0076 que dependem do ambiente.
+
+    As flags do comando já foram convertidas na validação do perfil; aqui só sobra a chave:
+    perfil LLM sem `api_key_env` usava a variável global `ASO_LLM_API_KEY` como reserva, e a
+    reserva saiu do runtime. Para não perder o acesso, o perfil passa a apontar para ela —
+    a menos que a variável própria (`ASO_<NOME>_API_KEY`) exista."""
+    for perfil in profiles:
+        if perfil.kind == "llm" and not perfil.api_key_env:
+            propria = perfil._key_env_name()
+            if not os.environ.get(propria):
+                perfil.api_key_env = _ENV_CHAVE_LLM_LEGADA
+    return profiles
 
 
 def managed_codex_profiles(
@@ -297,20 +428,12 @@ def managed_codex_profiles(
         wrapper = os.environ.get("ASO_AGENT_WRAPPER", str(root / "scripts/aso-agent-wrapper.sh"))
     # A configuração pessoal pode fixar um modelo novo demais para o binário no PATH.
     # A autenticação continua no CODEX_HOME, mas modelo/esforço vêm do catálogo descoberto.
-    # `--sandbox workspace-write` é obrigatório: com `--ignore-user-config` o sandbox do
-    # config.toml pessoal é descartado e o Codex cairia em read-only — ele responderia em
-    # texto, sairia com 0 e deixaria o worktree intacto (diff vazio). Escrita fica contida
-    # no worktree isolado do card, que é a fronteira de governança (regra 5 · ADR-0009).
-    base_command = shlex.join(
-        [
-            wrapper,
-            capabilities.binary,
-            "exec",
-            "--ignore-user-config",
-            "--sandbox",
-            "workspace-write",
-        ]
-    )
+    # Permissão `edicoes` (= `--sandbox workspace-write`, ADR-0076) é obrigatória: com
+    # `--ignore-user-config` o sandbox do config.toml pessoal é descartado e o Codex cairia em
+    # read-only — responderia em texto, sairia com 0 e deixaria o worktree intacto (diff vazio).
+    # Escrita fica contida no worktree isolado do card, a fronteira de governança (regra 5 ·
+    # ADR-0009).
+    base_command = shlex.join([wrapper, capabilities.binary, "exec", "--ignore-user-config"])
     default_model = next((m for m in capabilities.models if m.is_default), capabilities.models[0])
     profiles = [
         ExecutorProfile(
@@ -321,6 +444,7 @@ def managed_codex_profiles(
             supported_efforts=list(default_model.supported_efforts),
             is_default=True,
             managed_by="codex",
+            permissao_escrita="edicoes",
             runtime_version=capabilities.version,
         )
     ]
@@ -333,6 +457,7 @@ def managed_codex_profiles(
             effort=model.default_effort,
             supported_efforts=list(model.supported_efforts),
             managed_by="codex",
+            permissao_escrita="edicoes",
             runtime_version=capabilities.version,
         )
         for model in capabilities.models

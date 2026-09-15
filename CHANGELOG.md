@@ -14,6 +14,11 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   EPIC-10 (shell e telas).
 
 ### Alterado
+- **MEL-53 — remoção de código morto (ADR-0075):** saem `AgentExecutor`, `_agent_order`, as duas
+  etapas vazias do ContextBus (pipeline de 6 etapas), as estratégias que eram só rótulo
+  (migration converte planos), `parallel_group`/`allowed_tools`/`requires_approval_for`, tipos de
+  conflito nunca levantados e o card automático do `ReviewAgent`; papéis sem card viram reservados
+  e campos não aplicados do catálogo de agentes aparecem como informativos.
 - **MEL-50 — paralelismo por onda (ADR-0074):** `run_phase` e `run_plan` usam o mesmo coordenador
   de ondas (cards cujas dependências estão Done, via `run_card`), com paralelismo por estratégia
   (`ASO_MAX_PARALELO_POR_ORQUESTRACAO`) e limite global (`ASO_MAX_EXECUCOES_SIMULTANEAS`);

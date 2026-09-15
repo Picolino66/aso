@@ -1,13 +1,12 @@
 """(c) Endpoint de corrida de candidatos CLI + comparação no console (§26A.6).
 
-Cobre o `POST .../cards/{cid}/race`: constrói os agentes candidatos a partir do
-ambiente (ASO_CANDIDATE_COMMANDS + ASO_TARGET_REPO), roda em paralelo em worktrees
-isolados e devolve a comparação de diffs; e o 409 quando nada está configurado.
+Cobre o `POST .../cards/{cid}/race`: os candidatos são perfis CLI do catálogo (ADR-0076) —
+marcados `candidato` ou escolhidos em `executores` —, rodam em paralelo em worktrees isolados e
+devolvem a comparação de diffs; e o 409 quando nada está configurado.
 """
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
@@ -16,6 +15,15 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.application.orchestration_service import OrchestrationService
+from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
+
+
+def _svc(*candidatos: tuple[str, str], candidato: bool = True) -> OrchestrationService:
+    perfis = [
+        ExecutorProfile(name=nome, kind="cli", command=comando, candidato=candidato)
+        for nome, comando in candidatos
+    ]
+    return OrchestrationService(catalog=ExecutorCatalog(perfis))
 
 
 def _init_repo(path: Path) -> None:
@@ -33,16 +41,10 @@ def test_race_endpoint_compares_candidates(tmp_path: Path, monkeypatch: pytest.M
     repo = tmp_path / "proj"
     _init_repo(repo)
     monkeypatch.setenv("ASO_TARGET_REPO", str(repo))
-    monkeypatch.setenv(
-        "ASO_CANDIDATE_COMMANDS",
-        json.dumps(
-            [
-                {"id": "claude", "command": 'bash -c "echo a > sol_claude.py"'},
-                {"id": "codex", "command": "bash -c \"printf 'a\\nb\\nc\\n' > sol_codex.py\""},
-            ]
-        ),
+    svc = _svc(
+        ("claude", 'bash -c "echo a > sol_claude.py"'),
+        ("codex", "bash -c \"printf 'a\\nb\\nc\\n' > sol_codex.py\""),
     )
-    svc = OrchestrationService()
     client = TestClient(create_app(svc))
     orch = svc.create_orchestration("implementar no backend")
     card = svc.get_cards(orch.id)[0]
@@ -63,7 +65,6 @@ def test_race_endpoint_compares_candidates(tmp_path: Path, monkeypatch: pytest.M
 def test_race_endpoint_409_when_unconfigured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("ASO_CANDIDATE_COMMANDS", raising=False)
     monkeypatch.delenv("ASO_TARGET_REPO", raising=False)
     svc = OrchestrationService()
     client = TestClient(create_app(svc))
@@ -79,11 +80,9 @@ def test_race_is_persisted_and_listed(tmp_path: Path, monkeypatch: pytest.Monkey
     repo = tmp_path / "proj"
     _init_repo(repo)
     monkeypatch.setenv("ASO_TARGET_REPO", str(repo))
-    monkeypatch.setenv(
-        "ASO_CANDIDATE_COMMANDS",
-        json.dumps([{"id": "claude", "command": 'bash -c "echo a > s.py"'}]),
+    svc = _svc(
+        ("claude", 'bash -c "echo a > s.py"'),
     )
-    svc = OrchestrationService()
     client = TestClient(create_app(svc))
     orch = svc.create_orchestration("backend")
     oid = orch["id"] if isinstance(orch, dict) else orch.id
@@ -116,16 +115,10 @@ def test_race_assincrona_devolve_202_e_a_comparacao_fica_no_job(
     repo = tmp_path / "proj"
     _init_repo(repo)
     monkeypatch.setenv("ASO_TARGET_REPO", str(repo))
-    monkeypatch.setenv(
-        "ASO_CANDIDATE_COMMANDS",
-        json.dumps(
-            [
-                {"id": "claude", "command": 'bash -c "echo a > sol_claude.py"'},
-                {"id": "codex", "command": 'bash -c "echo b > sol_codex.py"'},
-            ]
-        ),
+    svc = _svc(
+        ("claude", 'bash -c "echo a > sol_claude.py"'),
+        ("codex", 'bash -c "echo b > sol_codex.py"'),
     )
-    svc = OrchestrationService()
     client = TestClient(create_app(svc, execucao_assincrona=True))
     orch = svc.create_orchestration("implementar no backend")
     card = svc.get_cards(orch.id)[0]

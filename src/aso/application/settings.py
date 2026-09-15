@@ -18,6 +18,7 @@ from aso.control.failure import proximo_effort, proximo_executor
 from aso.control.models import (
     DISCOVERY_KEY,
     NAMING_KEY,
+    PLANNING_KEY,
     REVIEW_KEY,
     SPEC_KEY,
     TRIAGE_KEY,
@@ -30,6 +31,7 @@ from aso.control.triage import DemandBrief
 from aso.control.validation import checks_efetivos, sugerir_bateria
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.gate_validation import validate_gate_command
+from aso.execution.llm_client import LlmClient
 from aso.execution.worktree import WorktreeManager
 from aso.kanban.models import KanbanCard
 from aso.observability.agent_log import AgentLogBus
@@ -101,6 +103,53 @@ class ExecutionSettingsService:
             effort_override=effort,
             log_bus=self._log_bus,
         )
+
+    def cliente_de_planejamento(self, orchestration_id: str | None = None) -> LlmClient | None:
+        """Cliente LLM do planejamento, vindo do catálogo (ADR-0076).
+
+        Ordem: executor atribuído à etapa `planejamento` da orquestração → LLM padrão do
+        catálogo. None = nenhum LLM utilizável (a rota responde 409). Atribuição explícita
+        que não serve (sem chave, indisponível) levanta: o operador escolheu e precisa saber
+        por que não vale, em vez de cair silenciosamente em outro executor."""
+        catalogo = self._catalog
+        if catalogo is None:
+            return None
+        if orchestration_id is not None:
+            escolha = self._assignment(self._bundle(orchestration_id), PLANNING_KEY)
+            if escolha is not None:
+                return catalogo.llm_client(escolha.executor, effort_override=escolha.effort)
+        nome = catalogo.llm_padrao()
+        return catalogo.llm_client(nome) if nome is not None else None
+
+    def candidatos_da_corrida(
+        self, orchestration_id: str, executores: list[str] | None = None
+    ) -> list[ExecutionProvider]:
+        """Providers da corrida de candidatos (§26A.6), todos do catálogo (ADR-0076).
+
+        `executores` escolhidos na requisição; sem lista, os perfis marcados `candidato`.
+        Só agentes CLI competem: a corrida compara diffs de worktrees isolados."""
+        catalogo = self._catalog
+        if catalogo is None:
+            return []
+        b = self._bundle(orchestration_id)
+        nomes = (
+            list(dict.fromkeys(executores))
+            if executores
+            else [p.name for p in catalogo.profiles() if p.candidato and p.available]
+        )
+        providers: list[ExecutionProvider] = []
+        for nome in nomes:
+            perfil = catalogo.validate(nome)
+            if perfil.kind != "cli":
+                raise ValueError(
+                    f"Candidato '{nome}' não é um agente CLI: a corrida compara diffs de worktree."
+                )
+            providers.append(
+                catalogo.build(
+                    nome, repo_override=b.orchestration.target_path, log_bus=self._log_bus
+                )
+            )
+        return providers
 
     @staticmethod
     def _assignment(b: OrchestrationBundle, key: str | None) -> AgentAssignment | None:
@@ -201,7 +250,8 @@ class ExecutionSettingsService:
         - sem executor, mas com pasta definida → usa o executor default do catálogo,
           também atrelado à pasta (evita cair no provider global, que aponta para
           o `ASO_TARGET_REPO`);
-        - senão → provider global do bootstrap (comportamento legado).
+        - senão → provider injetado na composição (testes); sem ele, o padrão do catálogo
+          que roda sem pasta (ADR-0076); None = mock.
         """
         tp = b.orchestration.target_path
         effective_executor = self._effective_executor(b, executor, phase=phase)
@@ -223,6 +273,12 @@ class ExecutionSettingsService:
             return self.resolve_provider(
                 effective_executor, target_path=tp, effort=effective_effort
             )
+        if self._provider is None and self._catalog is not None:
+            # Sem provider global (ADR-0076): orquestração sem pasta usa o padrão do catálogo
+            # quando ele roda sem pasta (LLM, mock, ou CLI com `ASO_TARGET_REPO`); senão, mock.
+            padrao = self._catalog.default_sem_pasta()
+            if padrao is not None:
+                return self.resolve_provider(padrao, effort=effective_effort)
         return self._provider
 
     def _workspace_for(self, b: OrchestrationBundle) -> WorktreeManager:
@@ -399,14 +455,14 @@ class ExecutionSettingsService:
         enquanto não ficou para trás: reconfigurar F2 com a orquestração já em F5
         daria a falsa impressão de que o trabalho seria refeito com o novo agente.
         """
-        if key in (NAMING_KEY, TRIAGE_KEY, REVIEW_KEY, DISCOVERY_KEY, SPEC_KEY):
+        if key in (NAMING_KEY, TRIAGE_KEY, REVIEW_KEY, DISCOVERY_KEY, SPEC_KEY, PLANNING_KEY):
             return key
         try:
             fase = Phase(key)
         except ValueError:
             raise ValueError(
                 f"Etapa inválida: '{key}'. Use F1..F7, '{NAMING_KEY}', '{TRIAGE_KEY}', "
-                f"'{REVIEW_KEY}', '{DISCOVERY_KEY}' ou '{SPEC_KEY}'."
+                f"'{REVIEW_KEY}', '{DISCOVERY_KEY}', '{SPEC_KEY}' ou '{PLANNING_KEY}'."
             ) from None
         ordem = list(Phase)
         if ordem.index(fase) < ordem.index(orchestration.current_phase):
@@ -432,7 +488,11 @@ class ExecutionSettingsService:
                 raise ValueError("Orquestração cancelada: configuração bloqueada.")
             chave = self._validate_assignment_key(b.orchestration, key)
             if self._catalog is not None:
-                self._validate_executor(executor, effort)
+                perfil = self._validate_executor(executor, effort)
+                if chave == PLANNING_KEY and perfil.kind != "llm":
+                    raise ValueError(
+                        f"O planejamento usa um executor LLM; '{executor}' é do tipo {perfil.kind}."
+                    )
             antes = b.orchestration.agent_assignments.get(chave)
             b.orchestration.agent_assignments[chave] = AgentAssignment(
                 executor=executor, effort=effort

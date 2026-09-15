@@ -2202,6 +2202,25 @@
         "summary": "Get Agent Real Roles"
       }
     },
+    "/v1/agent-definitions/roles/reservados": {
+      "get": {
+        "description": "Papéis sem card planejado hoje (ADR-0075): o console os marca como reservados.",
+        "operationId": "get_agent_reserved_roles_v1_agent_definitions_roles_reservados_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Agent Reserved Roles V1 Agent Definitions Roles Reservados Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Agent Reserved Roles"
+      }
+    },
     "/v1/agent-definitions/{definition_id}": {
       "delete": {
         "description": "Remove uma definição de agente (ação crítica — exige papel admin).",

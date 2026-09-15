@@ -19,21 +19,28 @@ def test_run_plan_multiagent_respects_dependencies() -> None:
             user_request="feature", domains=["backend", "frontend"], parallelizable=True
         ),
     )
-    # estratégia paralela => workers + ReviewAgent (que depende dos workers)
     plan = svc.get_plan(orch.id)
     assert plan.strategy.value == "parallel_agents"
+    workers = svc.get_cards(orch.id)
+    b = svc._bundle(orch.id)  # noqa: SLF001
+    b.board_service.add_card(
+        workers[0].model_copy(
+            update={
+                "id": "card_validacao",
+                "assignee": "TestingAgent",
+                "dependencies": [w.id for w in workers],
+            }
+        )
+    )
 
-    # ADR-0074: a onda só leva cards cuja dependência está Done — o ReviewAgent espera.
+    # ADR-0074: a onda só leva cards cuja dependência está Done — a validação espera.
     result = svc.run_plan(orch.id)
-    review = next(c for c in svc.get_cards(orch.id) if c.assignee == "ReviewAgent")
-    assert result["count"] == len(plan.agents) - 1
-    assert result["aguardando_dependencia"] == [review.id]
-    # com os workers entregues (Done), a próxima execução leva o ReviewAgent
-    for card in svc.get_cards(orch.id):
-        if card.id != review.id:
-            svc.move_card(orch.id, card.id, "Done")
+    assert result["count"] == len(workers)
+    assert result["aguardando_dependencia"] == ["card_validacao"]
+    for card in workers:
+        svc.move_card(orch.id, card.id, "Done")
     segunda = svc.run_plan(orch.id)
-    assert segunda["executed"] == [review.id]
+    assert segunda["executed"] == ["card_validacao"]
     assert svc.get_cards(orch.id)[-1].status.value in ("Testing", "Done")
 
 

@@ -36,7 +36,7 @@ def _state() -> OrchestrationState:
         reason="r",
         risk_level=RiskLevel.LOW,
         success_criteria=["c1", "c2"],
-        agents=[PlannedAgent(agent="A", allowed_tools=["read"], depends_on=["B"])],
+        agents=[PlannedAgent(agent="A", depends_on=["B"])],
     )
     board = Board(
         id="b",

@@ -95,7 +95,8 @@ o desfecho é o que interessa depois.
 Aqui está o achado que muda a expectativa: **`claude -p` imprime só a resposta final.**
 Streaming do nosso lado não cria narração; quem emite evento por evento é o CLI, com
 `--output-format stream-json --verbose` (Claude) ou `--json` (Codex).
-`scripts/enable-agent-stream.sh` acrescenta essas flags ao catálogo, de forma idempotente.
+Desde a [ADR-0076](ADR-0076-catalogo-unico-de-executores.md) isso é o campo `streaming` do
+perfil (o script `enable-agent-stream.sh` saiu); o catálogo monta a flag por família de CLI.
 
 `execution/agent_stream.py` é uma função **pura** que traduz cada linha: blocos `text` e
 `thinking` viram fala, `tool_use` vira "🔧 Write src/app.js", `result` vira desfecho.

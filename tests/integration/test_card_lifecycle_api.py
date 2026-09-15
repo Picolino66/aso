@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.application.orchestration_service import OrchestrationService
-from aso.control.models import DecisionInput
-from aso.shared.types import RiskLevel
+from aso.control.decision_engine import MultiAgentDecisionEngine
+from aso.control.models import DecisionInput, PlannedAgent
+from aso.shared.types import ExecutionStrategy, RiskLevel
 
 
 def _client() -> TestClient:
@@ -29,7 +31,28 @@ def test_cancelar_card_move_para_cancelled() -> None:
     assert card["status"] == "Cancelled"
 
 
-def test_run_card_com_dependencia_pendente_devolve_409() -> None:
+def _equipe_com_dependente(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Equipe do plano com dependência real: um TestingAgent depende dos workers. O motor não
+    cria mais o card do ReviewAgent (ADR-0075); a dependência vem do plano do mesmo jeito."""
+    original = MultiAgentDecisionEngine._build_team
+
+    def _com_dependente(
+        self: MultiAgentDecisionEngine, inp: DecisionInput, strategy: ExecutionStrategy
+    ) -> list[PlannedAgent]:
+        equipe = original(self, inp, strategy)
+        dependente = PlannedAgent(
+            agent="TestingAgent",
+            role="reviewer",
+            reason="valida a entrega dos workers",
+            depends_on=[a.agent for a in equipe],
+        )
+        return [*equipe, dependente]
+
+    monkeypatch.setattr(MultiAgentDecisionEngine, "_build_team", _com_dependente)
+
+
+def test_run_card_com_dependencia_pendente_devolve_409(monkeypatch: pytest.MonkeyPatch) -> None:
+    _equipe_com_dependente(monkeypatch)
     svc = OrchestrationService()
     client = TestClient(create_app(svc))
     din = DecisionInput(
@@ -44,7 +67,7 @@ def test_run_card_com_dependencia_pendente_devolve_409() -> None:
     # a triagem decide isso); só a checagem de dependência precisa ser via API aqui.
     orch = svc.create_orchestration("implementar recurso seguro", decision_input=din)
     cards = client.get(f"/v1/orchestrations/{orch.id}/cards").json()
-    review_id = next(c["id"] for c in cards if c["assignee"] == "ReviewAgent")
+    review_id = next(c["id"] for c in cards if c["assignee"] == "TestingAgent")
 
     resposta = client.post(f"/v1/orchestrations/{orch.id}/cards/{review_id}/run")
     assert resposta.status_code == 409

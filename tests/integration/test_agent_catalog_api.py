@@ -147,7 +147,6 @@ def test_definicao_muda_permissao_real_via_bundle() -> None:
     b = svc._bundle(oid)  # noqa: SLF001
     spec = b.agent_registry.get("BackendDevelopmentAgent")
     assert spec is not None
-    assert spec.allowed_tools == ["read_file"]
     assert b.bus.permissions.can_write("BackendDevelopmentAgent", "engineering.x") is False
     assert b.bus.permissions.can_write("BackendDevelopmentAgent", "engineering_only.x") is True
 

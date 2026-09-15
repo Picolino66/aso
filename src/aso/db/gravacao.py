@@ -216,8 +216,6 @@ def unidades_do_estado(state: OrchestrationState) -> list[Unidade]:
                     "agent": planned.agent,
                     "role": planned.role,
                     "reason": planned.reason,
-                    "parallel_group": planned.parallel_group,
-                    "allowed_tools": list(planned.allowed_tools),
                     "depends_on": list(planned.depends_on),
                 }
                 for pos, planned in enumerate(state.plan.agents)

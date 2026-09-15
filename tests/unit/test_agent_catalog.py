@@ -106,7 +106,6 @@ def test_seed_from_catalog_definicao_ativa_sobrescreve_o_papel() -> None:
     registry.seed_from_catalog([definicao])
     spec = registry.get("BackendDevelopmentAgent")
     assert spec is not None
-    assert spec.allowed_tools == ["read_file"]
     assert spec.context_sections == ["engineering_only"]
 
 

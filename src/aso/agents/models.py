@@ -17,12 +17,13 @@ class AgentSpec(BaseModel):
     id: str = Field(default_factory=lambda: gen_id("agent"))
     role: str
     capabilities: list[str] = Field(default_factory=list)
-    allowed_tools: list[str] = Field(default_factory=list)
-    requires_approval_for: list[str] = Field(default_factory=list)
     default_executor: ExecutorType = ExecutorType.LLM_PROVIDER
     context_sections: list[str] = Field(
         default_factory=list, description="Seções do contexto que o agente pode escrever"
     )
+    # Papel sem card planejado hoje (MEL-53, ADR-0075): continua no registro — permissões e o
+    # catálogo de agentes o referenciam —, mas o console o mostra como reservado.
+    reservado: bool = False
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -35,8 +36,8 @@ class AgentDefinition(BaseModel):
 
     Diferente de `RoutingRule` (§33, ADR-0028 — configuração declarativa que só
     influencia uma decisão), este catálogo é a FONTE DE VERDADE das permissões
-    reais: `ferramentas`/`permissoes` alimentam `AgentSpec.allowed_tools`/
-    `context_sections` de `role` via `AgentRegistry.seed_from_catalog`, que por
+    reais: `permissoes` alimenta as `context_sections` de `role` via
+    `AgentRegistry.seed_from_catalog`, que por
     sua vez alimenta `PermissionPolicy` (deny-by-default do ContextBus, regra
     inviolável do CLAUDE.md). Editar esta definição muda de verdade o que o
     agente pode escrever — decisão confirmada com o operador, ADR-0053.
@@ -54,10 +55,13 @@ class AgentDefinition(BaseModel):
     funcao: str = ""
     plataforma: str = ""
     role: str = ""
+    # INFORMATIVOS (MEL-53, ADR-0075): `plataforma`, `modelos_permitidos`, `efforts_permitidos`,
+    # `ferramentas`, `projetos`, `categorias_tarefa` e `exige_supervisao` são persistidos e
+    # exibidos, mas nenhum caminho de execução os aplica — o console os marca assim.
     modelos_permitidos: list[str] = Field(default_factory=list)
     efforts_permitidos: list[str] = Field(default_factory=list)
-    # -> AgentSpec.allowed_tools / context_sections do `role` (quando vinculado).
     ferramentas: list[str] = Field(default_factory=list)
+    # -> context_sections do `role` (quando vinculado): esta SIM é a permissão real.
     permissoes: list[str] = Field(default_factory=list)
     # Vazio = sem restrição de projeto (todos) — nunca um "todos" fabricado.
     projetos: list[str] = Field(default_factory=list)

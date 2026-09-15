@@ -5289,6 +5289,34 @@
         "ADR-0074; docs/operations.md, HOW_IT_WORKS.md, index.md",
         "ruff/format OK; mypy strict OK (145); lint-imports OK; alembic OK; pytest 1734 passed, 7 skipped / 94.82%"
       ]
+    },
+    {
+      "id": "MEL-53",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Remover c\u00f3digo morto e abstra\u00e7\u00f5es vazias",
+      "description": "Remo\u00e7\u00e3o de c\u00f3digo sem efeito (executor, ordena\u00e7\u00e3o, etapas vazias do bus, estrat\u00e9gias-r\u00f3tulo, campos nunca lidos, tipos de conflito nunca levantados, card autom\u00e1tico do ReviewAgent); pap\u00e9is reservados e campos informativos marcados.",
+      "acceptance_criteria": [
+        "Cada item tratado conforme a coluna A\u00e7\u00e3o (tabela item a item em ADR-0075)",
+        "Migrations para colunas removidas validadas no Postgres (c3986f6a1a5d: estrat\u00e9gia 'supervisor_worker' convertida para 'sequential_agents' e colunas de planned_agents removidas no container; API l\u00ea o plano migrado)",
+        "Documenta\u00e7\u00e3o e UI sem refer\u00eancias aos itens removidos (context.md, agents.md, kanban.md, domain-model.md, GOVERNANCE.md, requirements.md, architecture.md, README/CLAUDE/AGENTS; agentes.html marca informativos e reservados)",
+        "Su\u00edte verde; testes que s\u00f3 exercitavam c\u00f3digo morto removidos ou reescritos (1734 passed)"
+      ],
+      "dependencies": [
+        "MEL-17",
+        "MEL-50"
+      ],
+      "evidence": [
+        "src/aso/agents/executor.py (sem AgentExecutor), agents/models.py (AgentSpec.reservado; sem allowed_tools/requires_approval_for; AgentDefinition informativos), agents/registry.py (pap\u00e9is reservados)",
+        "src/aso/governance/contextbus.py (6 etapas); shared/types.py (ExecutionStrategy 3 valores, ConflictType 6 valores); control/decision_engine.py (sem card ReviewAgent, estrat\u00e9gias mapeadas); control/models.py PlannedAgent enxuto",
+        "migration c3986f6a1a5d; db/models.py, db/gravacao.py, db/repository.py sem colunas removidas",
+        "GET /v1/agent-definitions/roles/reservados (+ OpenAPI regenerado); agentes.html",
+        "Testes reescritos com depend\u00eancia expl\u00edcita: test_card_dependencies, test_preparation_checklist_orchestration, test_card_lifecycle_api, test_gate_por_fase, test_mvp2, test_supervisor_concurrency, test_decision_engine, test_demand_brief_decision, test_pontos_herdados",
+        "ADR-0075; ruff/format OK; mypy strict OK; lint-imports OK; alembic up/down/check OK; pytest 1734 passed, 7 skipped / 94.77%; Docker /health 200 + smoke OK"
+      ]
     }
   ]
 }

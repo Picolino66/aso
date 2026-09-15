@@ -910,11 +910,11 @@ def _card_blockers(inp: NextStepInput, phase: Phase) -> list[NextStepBlocker]:
                 severity=SEVERITY_BLOCKS,
                 title="O agente rodou, mas não alterou nada no worktree",
                 detail=(
-                    "Sintoma clássico de agente CLI sem permissão de escrita: `claude -p` "
-                    "precisa de `--permission-mode acceptEdits` (ou "
-                    "`--dangerously-skip-permissions`) e `codex exec` de "
-                    "`--sandbox workspace-write`. Ajuste o comando do executor em "
-                    "/ui/console → ⚙ Config e execute a fase de novo."
+                    "Sintoma clássico de agente CLI sem permissão de escrita: ajuste o campo "
+                    "'permissão de escrita' do executor para edições (Claude "
+                    "`--permission-mode acceptEdits`, Codex `--sandbox workspace-write`) ou "
+                    "total (edita e roda comandos) em /ui/console → ⚙ Config e execute a "
+                    "fase de novo."
                 ),
             )
         )

@@ -46,21 +46,14 @@ class PatchStatus(StrEnum):
 
 
 class ConflictType(StrEnum):
-    """Catálogo de conflitos (§20)."""
+    """Conflitos que o runtime de fato levanta (§20; MEL-53 removeu os nunca levantados)."""
 
     ARCHITECTURE = "ARCHITECTURE_CONFLICT"
     CONTRACT = "CONTRACT_CONFLICT"
-    SECURITY = "SECURITY_CONFLICT"
     DATA_MODEL = "DATA_MODEL_CONFLICT"
-    SCOPE = "SCOPE_CONFLICT"
     SNAPSHOT_LOCK = "SNAPSHOT_LOCK_CONFLICT"
-    QUALITY_GATE = "QUALITY_GATE_CONFLICT"
     TOOL_PERMISSION = "TOOL_PERMISSION_CONFLICT"
     AGENT_OUTPUT = "AGENT_OUTPUT_CONFLICT"
-    KANBAN_DEPENDENCY = "KANBAN_DEPENDENCY_CONFLICT"
-    PR = "PR_CONFLICT"
-    CI = "CI_CONFLICT"
-    REVIEW = "REVIEW_CONFLICT"
 
 
 class ADRStatus(StrEnum):
@@ -92,17 +85,15 @@ class ProjectStatus(StrEnum):
 
 
 class ExecutionStrategy(StrEnum):
-    """Padrões multiagente (§13)."""
+    """Estratégias que mudam a execução (§13, ADR-0074/ADR-0075).
+
+    Os outros sete padrões do §13 eram só rótulos — nenhum mudava como os cards rodam; a
+    MEL-53 os removeu. O que distingue a execução é o paralelismo das ondas (ADR-0074).
+    """
 
     SINGLE_AGENT = "single_agent"
     SEQUENTIAL = "sequential_agents"
     PARALLEL = "parallel_agents"
-    AGENTS_AS_TOOLS = "agents_as_tools"
-    HANDOFF = "handoff"
-    SUPERVISOR_WORKER = "supervisor_worker"
-    GROUP_CHAT = "group_chat_controlled"
-    EVALUATOR_OPTIMIZER = "evaluator_optimizer"
-    HYBRID = "hybrid"
 
 
 class RiskLevel(StrEnum):

@@ -38,7 +38,7 @@ from aso.api.routers.ui import _STATIC_DIR
 from aso.application.orchestration_service import OrchestrationService
 from aso.bootstrap import build_job_repository, build_service
 from aso.execution.jobs import JobRepository
-from aso.execution.llm_client import LlmClient, build_llm_client_from_env
+from aso.execution.llm_client import LlmClient
 from aso.observability.broker import EventBroker
 from aso.observability.logging import get_logger
 from aso.observability.metrics import MetricsService
@@ -80,7 +80,8 @@ def create_app(
     svc = service or OrchestrationService()
     auth = auth or AuthService.from_env()
     # Cérebro do autopilot: cliente LLM injetado (testes) ou montado do ambiente.
-    planning_client = llm_client or build_llm_client_from_env()
+    # Só injeção (testes): em produção o cliente sai do catálogo a cada uso (ADR-0076).
+    planning_client = llm_client
     metrics = MetricsService(svc)
     log = get_logger()
     tracer = get_tracer()

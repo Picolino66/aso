@@ -123,3 +123,4 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0072 — Respostas das funções de agente com JSON Schema gerado dos modelos](adrs/ADR-0072-respostas-estruturadas-json-schema.md)
 - [ADR-0073 — Esforço (effort) mapeado por tipo de executor](adrs/ADR-0073-effort-mapeado-por-executor.md)
 - [ADR-0074 — Execução em lote por ondas com limite de paralelismo por orquestração](adrs/ADR-0074-paralelismo-por-onda.md)
+- [ADR-0075 — Remoção de código morto e de abstrações que não mudavam a execução](adrs/ADR-0075-remocao-de-codigo-morto.md)

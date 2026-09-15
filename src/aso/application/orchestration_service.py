@@ -113,6 +113,10 @@ class OrchestrationService:
     _effective_executor = Delegado("_settings", ExecutionSettingsService._effective_executor)
     _effective_effort = Delegado("_settings", ExecutionSettingsService._effective_effort)
     _provider_for = Delegado("_settings", ExecutionSettingsService._provider_for)
+    cliente_de_planejamento = Delegado(
+        "_settings", ExecutionSettingsService.cliente_de_planejamento
+    )
+    candidatos_da_corrida = Delegado("_settings", ExecutionSettingsService.candidatos_da_corrida)
     _workspace_for = Delegado("_settings", ExecutionSettingsService._workspace_for)
     _executor_availability = Delegado("_settings", ExecutionSettingsService._executor_availability)
     update_execution_settings = Delegado(
@@ -333,6 +337,7 @@ class OrchestrationService:
     _estimar_custo_e_tempo = Delegado("_insights", InsightService._estimar_custo_e_tempo)
     preview_recommendation = Delegado("_insights", InsightService.preview_recommendation)
     get_agent_real_roles = Delegado("_insights", InsightService.get_agent_real_roles)
+    get_agent_reserved_roles = Delegado("_insights", InsightService.get_agent_reserved_roles)
     next_step = Delegado("_insights", InsightService.next_step)
     get_preparation_checklist = Delegado("_insights", InsightService.get_preparation_checklist)
 

@@ -22,9 +22,9 @@ from aso.api.schemas import (
     PauseBody,
     QaCheckBody,
     QaFailBody,
+    RaceBody,
     RequestHelpBody,
 )
-from aso.bootstrap import build_candidate_providers
 
 
 def criar_router(deps: ApiDeps) -> APIRouter:
@@ -177,21 +177,35 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         )
 
     @router.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/race")
-    def race_card(orchestration_id: str, card_id: str, request: Request) -> Any:
-        """Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs."""
+    def race_card(
+        orchestration_id: str, card_id: str, request: Request, body: RaceBody | None = None
+    ) -> Any:
+        """Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs.
+
+        Candidatos são perfis do catálogo (ADR-0076): os nomes em `executores` ou, sem
+        lista, os perfis marcados `candidato`. Rodam na pasta desta orquestração."""
         deps.guard(orchestration_id)
-        # Candidatos rodam na pasta (workspace) desta orquestração, se definida.
-        providers = build_candidate_providers(svc.get(orchestration_id).target_path)
+        executores = body.executores if body is not None else None
+        try:
+            providers = svc.candidatos_da_corrida(orchestration_id, executores)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc).strip("'\"")) from None
         if not providers:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Nenhum candidato configurado: defina ASO_CANDIDATE_COMMANDS e a pasta "
-                    "da orquestração (ou ASO_TARGET_REPO)."
+                    "Nenhum candidato: informe `executores` ou marque perfis CLI do catálogo "
+                    "como candidatos (⚙ Config)."
                 ),
             )
         if deps.fila is not None:
-            return deps.enfileirar(OP_RACE, orchestration_id, request, card_id=card_id)
+            return deps.enfileirar(
+                OP_RACE,
+                orchestration_id,
+                request,
+                card_id=card_id,
+                parametros={"executores": executores},
+            )
         return deps.card_op(
             orchestration_id, lambda: svc.race_card(orchestration_id, card_id, providers)
         )

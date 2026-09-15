@@ -125,11 +125,12 @@
           <h2>⚙ Configurações · Executores (agentes)</h2>
           <div class="muted" style="margin-bottom:8px">Defina os agentes selecionáveis por etapa. As <b>chaves de API ficam só em variáveis de ambiente</b> — aqui você informa o <b>nome da env var</b> que guarda a chave (o valor nunca é gravado). Política de roteamento SE/ENTÃO: <a href="/ui/regras-roteamento">editor de regras de roteamento</a>.</div>
           <div class="row" style="margin-bottom:8px"><button class="btn sm" onclick="syncExecutors()">Sincronizar Codex disponível</button></div>
-          ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Runtime</th><th>Chave (env)</th><th></th></tr>
+          ${execs.length ? `<table><tr><th>Nome</th><th>Tipo</th><th>Provider</th><th>Modelo</th><th>Esforço</th><th>Runtime</th><th>CLI</th><th>Chave (env)</th><th></th></tr>
             ${execs.map(e=>`<tr>
               <td><code>${esc(e.name)}</code>${e.is_default?' <span class="pill">default</span>':''}</td>
               <td>${esc(e.kind)}</td><td>${esc(e.provider||'—')}</td><td>${esc(e.model||'—')}</td><td>${esc(e.effort||'—')}</td>
               <td><span class="pill ${e.available?'ok':'err'}">${e.available?'disponível':'indisponível'}</span> ${esc(e.runtime_version||e.availability_reason||'—')}</td>
+              <td>${e.kind==='cli'?cliResumo(e):'—'}</td>
               <td>${e.kind==='llm'?`<code>${esc(e.api_key_env||'—')}</code> ${keyPill(e)}`:'—'}</td>
               <td>${e.name!=='mock'?`<button class="btn sm ghost" onclick="editExecutor(decodeURIComponent('${encodeURIComponent(e.name)}'))">Editar</button>
                    <button class="btn sm err" onclick="delExecutor(decodeURIComponent('${encodeURIComponent(e.name)}'))">Remover</button>`:''}</td>
@@ -149,12 +150,31 @@
             <input id="cfProvider" placeholder="provider llm (deepseek/openai/anthropic)" style="width:230px;margin:0" />
             <input id="cfKeyEnv" placeholder="env da chave (ex.: ASO_CLAUDE_API_KEY)" style="width:250px;margin:0" />
           </div>
-          <div class="muted" style="margin-top:6px">Requer <code>ASO_TARGET_REPO</code> (repo alvo) para agentes CLI. Se o caminho tiver <b>espaços</b>, coloque-o entre aspas — ex.: <code>"/home/eu/Área de trabalho/x/aso-agent-wrapper.sh" codex exec</code>.</div>
+          <div class="row" id="cfCliFlags" style="flex-wrap:wrap;gap:8px;margin-top:8px">
+            <label class="muted" style="align-self:center" title="Claude: --output-format stream-json --verbose · Codex: --json"><input type="checkbox" id="cfStreaming" /> streaming (painel ao vivo)</label>
+            <select id="cfPermissao" style="width:auto;margin:0" title="Claude: --permission-mode plan/acceptEdits ou --dangerously-skip-permissions · Codex: --sandbox read-only/workspace-write/danger-full-access">
+              <option value="">permissão de escrita: do comando</option>
+              <option value="nenhuma">permissão: nenhuma (só leitura)</option>
+              <option value="edicoes">permissão: edições</option>
+              <option value="total">permissão: total (dentro do worktree)</option>
+            </select>
+            <label class="muted" style="align-self:center"><input type="checkbox" id="cfCandidato" /> candidato da corrida</label>
+          </div>
+          <div class="muted" style="margin-top:6px">Streaming e permissão são campos do perfil: o ASO monta as flags do Claude Code e do Codex — não digite essas flags no comando (se digitar, viram os campos ao salvar). Requer <code>ASO_TARGET_REPO</code> (repo alvo) para agentes CLI. Se o caminho tiver <b>espaços</b>, coloque-o entre aspas — ex.: <code>"/home/eu/Área de trabalho/x/aso-agent-wrapper.sh" codex exec</code>.</div>
           <div class="row" style="margin-top:8px"><button class="btn" onclick="saveExecutor()">Salvar executor</button></div>
         </div>`;
     }
+    function cliResumo(e) {
+      if (!e.familia_cli) return '<span class="muted">comando livre</span>';
+      const partes = [e.familia_cli];
+      if (e.streaming) partes.push('streaming');
+      partes.push('escrita: ' + (e.permissao_escrita || 'do comando'));
+      if (e.candidato) partes.push('candidato');
+      return esc(partes.join(' · '));
+    }
     function _cfKind() {
       const k = document.getElementById('cfKind').value;
+      document.getElementById('cfCliFlags').style.display = k==='cli'?'flex':'none';
       document.getElementById('cfCommand').style.display = k==='cli'?'':'none';
       document.getElementById('cfProvider').style.display = k==='llm'?'':'none';
       document.getElementById('cfKeyEnv').style.display = k==='llm'?'':'none';
@@ -170,6 +190,9 @@
       document.getElementById('cfCommand').value = e.command||'';
       document.getElementById('cfProvider').value = e.provider||'';
       document.getElementById('cfKeyEnv').value = e.api_key_env||'';
+      document.getElementById('cfStreaming').checked = !!e.streaming;
+      document.getElementById('cfPermissao').value = e.permissao_escrita||'';
+      document.getElementById('cfCandidato').checked = !!e.candidato;
       _cfKind();
     }
     async function saveExecutor() {
@@ -182,6 +205,9 @@
         provider: document.getElementById('cfProvider').value.trim(),
         api_key_env: document.getElementById('cfKeyEnv').value.trim(),
         is_default: document.getElementById('cfDefault').checked,
+        streaming: document.getElementById('cfStreaming').checked,
+        permissao_escrita: document.getElementById('cfPermissao').value,
+        candidato: document.getElementById('cfCandidato').checked,
       };
       if (!body.name) { alert('Informe o nome do executor.'); return; }
       try { await post('/v1/executors', body); await renderSettings(); }

@@ -332,6 +332,16 @@ class ExecutorBody(BaseModel):
     base_url: str = ""
     api_key_env: str = ""
     is_default: bool = False
+    # ADR-0076: campos estruturados em vez de flags digitadas no comando.
+    streaming: bool = False
+    permissao_escrita: str = ""  # "" | nenhuma | edicoes | total
+    candidato: bool = False
+
+
+class RaceBody(BaseModel):
+    """Corrida de candidatos (§26A.6): perfis do catálogo; vazio = perfis `candidato`."""
+
+    executores: list[str] | None = None
 
 
 class RoutingRuleBody(BaseModel):

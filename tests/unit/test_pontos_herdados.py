@@ -106,7 +106,7 @@ def test_retriagem_antes_de_executar_replaneja_a_equipe() -> None:
     assert resultado["demand_brief"].risco == RiskLevel.HIGH
     plano_depois = svc._bundle(orch.id).plan  # noqa: SLF001
     assert plano_depois.strategy != ExecutionStrategy.SINGLE_AGENT
-    assert any(a.agent == "ReviewAgent" for a in plano_depois.agents)
+    assert len(plano_depois.agents) >= 2  # equipe multidomínio (ADR-0075)
     cards_depois = svc.get_cards(orch.id)
     assert all(c.priority == RiskLevel.HIGH for c in cards_depois)
     eventos = [e.type for e in svc.timeline(orch.id)]

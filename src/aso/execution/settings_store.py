@@ -12,7 +12,7 @@ import os
 import threading
 from pathlib import Path
 
-from aso.execution.catalog import ExecutorProfile
+from aso.execution.catalog import ExecutorProfile, migrar_perfis_salvos
 
 
 class ExecutorSettingsStore:
@@ -28,12 +28,26 @@ class ExecutorSettingsStore:
                 return []
             try:
                 raw = json.loads(self._path.read_text(encoding="utf-8"))
-                return [ExecutorProfile.model_validate(item) for item in raw]
+                perfis = migrar_perfis_salvos([ExecutorProfile.model_validate(i) for i in raw])
             except (json.JSONDecodeError, ValueError, OSError):
                 return []
+            # Migração única (ADR-0076): se a leitura normalizou algo (flags do comando viraram
+            # campos, chave LLM ganhou nome), grava de volta — sem perder campo nenhum.
+            atual = [p.model_dump() for p in perfis if p.name != "mock"]
+            if atual != [item for item in raw if item.get("name") != "mock"]:
+                copia = self._path.with_name(self._path.name + ".antes-adr-0076")
+                if not copia.exists():
+                    copia.write_text(
+                        json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                self._gravar(perfis)
+            return perfis
 
     def save(self, profiles: list[ExecutorProfile]) -> None:
         with self._lock:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            data = [p.model_dump() for p in profiles if p.name != "mock"]
-            self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._gravar(profiles)
+
+    def _gravar(self, profiles: list[ExecutorProfile]) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        data = [p.model_dump() for p in profiles if p.name != "mock"]
+        self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

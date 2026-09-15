@@ -27,8 +27,8 @@ artificial. A automação de transição de COLUNA continua manual; ver
 ### Dependências entre cards (§10)
 
 `KanbanCard.dependencies` (IDs dos cards que este precisa) é populado na criação a
-partir de `PlannedAgent.depends_on` do plano multiagente — ex.: numa estratégia
-paralela, o `ReviewAgent` sempre depende dos workers de domínio. Desde a
+partir de `PlannedAgent.depends_on` do plano (o motor de decisão não cria mais o card do
+`ReviewAgent` — a revisão é da PR, ADR-0075). Desde a
 [ADR-0021](adrs/ADR-0021-especificacao-e-revisao-documental.md) (§4.6), o mesmo vale
 para os dois outros caminhos de criação de cards: `populate_from_plan`
 (`BacklogItem.depends_on`, planejamento via LLM — o caminho que `full-pipeline`, o

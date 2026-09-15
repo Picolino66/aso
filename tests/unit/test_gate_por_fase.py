@@ -21,12 +21,26 @@ RAIZ = Path(__file__).resolve().parents[2]
 
 
 def _multifase() -> tuple[OrchestrationService, str]:
-    """Cards em F2 (arquitetura), F5 (backend) e F6 (revisão)."""
+    """Cards em F2 (arquitetura), F5 (backend) e F6 (validação que depende do F5)."""
     svc = OrchestrationService()
     oid = svc.create_orchestration(
         "arquitetura e backend",
         decision_input=DecisionInput(user_request="x", domains=["architecture", "backend"]),
     ).id
+    b = svc._bundle(oid)  # noqa: SLF001
+    f5 = next(c for c in svc.get_cards(oid) if c.phase == Phase.F5)
+    b.board_service.add_card(
+        f5.model_copy(
+            update={
+                "id": "card_validacao_f6",
+                "phase": Phase.F6,
+                "assignee": "TestingAgent",
+                "title": "Validar entrega",
+                "dependencies": [f5.id],
+            }
+        )
+    )
+    svc._persist(b)  # noqa: SLF001
     return svc, oid
 
 
@@ -125,7 +139,7 @@ def test_autopilot_pula_fases_vazias_e_para_no_gate_reprovado() -> None:
     assert aprovacoes == ["F2", "F5"]
     puladas = [e.payload["phase"] for e in svc.timeline(oid) if e.type == "PhaseSkipped"]
     assert puladas == ["F1", "F3", "F4"]
-    # F6: o card de revisão depende do card de F5 ainda não mesclado → gate FAILED, e o
+    # F6: o card de validação depende do card de F5 ainda não mesclado → gate FAILED, e o
     # autopilot para ali em vez de pular (fase com trabalho nunca vira SKIPPED).
     assert svc.get(oid).current_phase == Phase.F6
     assert svc.list_gate_results(oid)[-1].status == GateStatus.FAILED

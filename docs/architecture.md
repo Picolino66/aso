@@ -89,7 +89,7 @@ capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
 - **Catálogo multi-repo:** `Project` usa porta própria com adapters in-memory e SQLAlchemy;
   tabelas `projects`/`project_events` e FKs restritivas separam metadados de catálogo do
   agregado da orquestração. Arquivamento preserva rastreabilidade (ADR-0010).
-- **Segurança:** secrets env-only (chave nunca exibida por inteiro); RBAC por papel com ações críticas e comandos no host só para `admin` (ADR-0057); aprovações humanas (`HumanApproval`) para estratégia crítica, patches e fases; worktree isolado por agente que altera código; I/O validado por Pydantic; trilha append-only no `EventLog`. `allowed_tools` por papel é persistido, mas **não aplicado**. Mapa regra → teste: [`GOVERNANCE.md`](GOVERNANCE.md).
+- **Segurança:** secrets env-only (chave nunca exibida por inteiro); RBAC por papel com ações críticas e comandos no host só para `admin` (ADR-0057); aprovações humanas (`HumanApproval`) para estratégia crítica, patches e fases; worktree isolado por agente que altera código; I/O validado por Pydantic; trilha append-only no `EventLog`. Não há permissão de ferramenta por papel (campos informativos no catálogo, ADR-0075). Mapa regra → teste: [`GOVERNANCE.md`](GOVERNANCE.md).
 - **Infra:** local-first, **processo único**; handlers FastAPI síncronos no threadpool do Starlette; com `ASO_EXECUCAO_ASSINCRONA=1` as rotas que acionam agentes enfileiram jobs (tabela `jobs`) consumidos por `ASO_WORKERS` threads do mesmo processo (ADR-0067); Docker Compose para Postgres; escala vertical primeiro (múltiplas réplicas: MEL-56).
 
 ## Referências

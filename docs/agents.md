@@ -9,11 +9,13 @@
 > JSON feita a um executor (`perguntar_ao_agente`). Um mesmo executor pode servir a vários
 > papéis e funções.
 >
-> **Papéis que hoje nunca recebem card:** `OrchestratorAgent`, `ProductStrategyAgent`,
-> `RequirementsAgent`, `UxPlanningAgent` e `FinalResponseAgent` — nem o motor de decisão
-> nem o planejamento LLM (`/plan`) mapeiam domínio para eles; existem no catálogo e no
-> registro de permissões. `ReviewAgent` só recebe card em estratégias sequenciais e
-> `ConflictResolutionAgent` só em cards `ADRTask` de conflito.
+> **Papéis reservados** (`AgentSpec.reservado`, ADR-0075): `OrchestratorAgent`,
+> `ProductStrategyAgent`, `RequirementsAgent`, `UxPlanningAgent` e `FinalResponseAgent` — nem o
+> motor de decisão nem o planejamento LLM (`/plan`) mapeiam domínio para eles; seguem no
+> catálogo e no registro de permissões, marcados como reservados no console
+> (`GET /v1/agent-definitions/roles/reservados`). O motor não cria card de `ReviewAgent` (a
+> revisão independente é a da PR, ADR-0017) e `ConflictResolutionAgent` recebe cards `ADRTask`
+> de conflito.
 >
 > **Fase padrão do card de cada papel** (MEL-20): declarada em
 > `FASE_PADRAO_POR_PAPEL` (`src/aso/agents/registry.py`) — F1: Orchestrator, ProductStrategy,
@@ -49,7 +51,8 @@
 
 ## Permissões de tools (§25)
 
-Cada papel declara `allowed_tools` e `requires_approval_for`, mas **não há motor que os
-aplique** (não existe `ToolPermissionEngine`): o que é imposto hoje é a permissão de escrita no
+Não há permissão de ferramenta por papel: `allowed_tools`/`requires_approval_for` nunca foram
+aplicados e saíram na MEL-53 (ADR-0075); `ferramentas` do catálogo de agentes é informativo. O
+que é imposto hoje é a permissão de escrita no
 contexto (`PermissionPolicy` do ContextBus) e o isolamento em worktree para agentes que alteram
 código (§26A.6).

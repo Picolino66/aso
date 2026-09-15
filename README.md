@@ -199,9 +199,9 @@ mais forte, na mesma orquestração. O console técnico completo — timeline, A
 snapshots (diff), patches, conflitos, corridas de candidatos, custos e PRs — continua em
 `/ui/console`.
 
-Para o painel mostrar ferramenta por ferramenta (e não só a resposta final do agente), rode
-`./scripts/enable-agent-stream.sh` uma vez: ele acrescenta `--output-format stream-json` aos
-perfis Claude e `--json` aos Codex.
+Para o painel mostrar ferramenta por ferramenta (e não só a resposta final do agente), marque
+**streaming** no perfil do executor (⚙ Config): o ASO monta `--output-format stream-json
+--verbose` para o Claude e `--json` para o Codex (ADR-0076).
 
 As branches criadas pelo runtime saem do **título do card**:
 `feat/calculadora-basica-a1b2c3d4` (ADR-0014). Para recomeçar do zero,
@@ -227,16 +227,17 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `POSTGRES_PASSWORD` | senha do Postgres no compose (default `aso`, só local) |
 | `ASO_RATE_LIMIT` | limite de requisições por IP |
 | `ASO_OTEL` | `1` habilita tracing OpenTelemetry (extra `[otel]`) |
-| `ASO_CLI_COMMAND` / `ASO_TARGET_REPO` | comando do agente CLI e repo alvo dos worktrees |
-| `ASO_CANDIDATE_COMMANDS` | JSON de agentes CLI candidatos para corrida por card (§26A.6); ver `scripts/e2e_candidates.sh` |
+| `ASO_TARGET_REPO` | repo alvo dos worktrees de orquestrações sem pasta própria |
+| `ASO_CLI_COMMAND` | **só semeia** o catálogo sem arquivo salvo: perfil `cli` (ADR-0076) |
+| `ASO_CANDIDATE_COMMANDS` | **só semeia** o catálogo: perfis CLI marcados `candidato` da corrida (§26A.6, ADR-0076) |
 | `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 | `ASO_SLO_FAILURE_BUDGET` | orçamento de erro da taxa de falhas de execução no `/slo` (default 0.10) |
 | `ASO_MAX_SLO_SAMPLES` | retenção de amostras de SLO por orquestração (default 200) |
 | `ASO_ORCAMENTO_PADRAO_USD` | teto de gasto (US$) de orquestrações novas (ADR-0026); sem a variável, sem teto |
-| `ASO_LLM_PROVIDER` / `ASO_LLM_API_KEY` / `ASO_LLM_MODEL` | cérebro do autopilot: `deepseek`/`openai`/`anthropic` + chave + modelo (planejamento via `POST .../plan`) |
-| `ASO_LLM_BASE_URL` | URL base do provedor LLM (opcional; default por provedor) |
+| `ASO_LLM_PROVIDER` / `ASO_LLM_MODEL` / `ASO_LLM_BASE_URL` | **só semeiam** o catálogo: perfil `llm` (`deepseek`/`openai`/`anthropic`) usado no planejamento (ADR-0076) |
+| `ASO_LLM_API_KEY` | chave do perfil `llm` semeado (o perfil guarda só o nome da variável) |
 | `ASO_GATE_TEST_COMMAND` | comando de testes/lint rodado no gate das fases de código (F5/F6) no `ASO_TARGET_REPO`; só aprova com exit 0 |
-| `ASO_EXECUTORS` | catálogo JSON de executores (seed inicial); ex.: `[{"name":"claude","kind":"cli","command":"claude -p","model":"sonnet"}]`. Também editável pela tela **⚙ Config** do console |
+| `ASO_EXECUTORS` | catálogo JSON de executores (seed inicial; o catálogo salvo em `ASO_EXECUTORS_FILE` vence); ex.: `[{"name":"claude","kind":"cli","command":"claude -p","model":"sonnet"}]`. Também editável pela tela **⚙ Config** do console |
 | `ASO_EXECUTORS_FILE` | arquivo onde a tela de config persiste os perfis (default `.aso/executors.json`; monte um volume para persistir no Docker) |
 | `ASO_CODEX_BIN` | binário Codex consultado por `model/list` e usado nos perfis gerenciados (default `codex` do `PATH`) |
 | `ASO_<NOME>_API_KEY` | chave do executor LLM chamado `<nome>` (a tela de config só referencia a env var; o segredo nunca é gravado) |
@@ -267,8 +268,9 @@ aprovações. Passos:
 > não-interativo os CLIs não editam arquivos sem autorização explícita — respondem em texto,
 > saem com 0 e o worktree fica intacto. Use `claude -p --permission-mode acceptEdits` (só
 > edições) ou `--dangerously-skip-permissions` (edições + comandos, necessário para rodar
-> build/testes); os perfis Codex gerenciados já vêm com `--sandbox workspace-write`. Para
-> consertar um catálogo existente: `./scripts/fix-executor-permissions.sh`. Detalhes em
+> build/testes); os perfis Codex gerenciados já vêm com permissão `edicoes`. Hoje isso é o
+> campo **permissão de escrita** do perfil (⚙ Config: nenhuma, edições ou total) — o ASO monta
+> a flag de cada CLI e perfis antigos com a flag no comando são migrados no boot. Detalhes em
 > [docs/operations.md](docs/operations.md#permissão-de-escrita-do-agente-cli-causa-nº-1-de-diff-vazio).
 
 > **Caminho com espaços**: o comando do executor é separado por `shlex`, então um caminho

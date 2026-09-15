@@ -29,6 +29,7 @@ from aso.application.project_service import (
 )
 from aso.control.triage import DemandBrief
 from aso.execution.gate_validation import GateCommandError
+from aso.execution.llm_client import LlmClient
 from aso.execution.workspace import WorkspaceService
 from aso.shared.types import ExecutionMode
 
@@ -37,7 +38,15 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     router = APIRouter()
     svc = deps.svc
     metrics = deps.metrics
-    planning_client = deps.planning_client
+
+    def _cliente_de_planejamento(orchestration_id: str | None = None) -> LlmClient | None:
+        """Injetado (testes) ou do catálogo (ADR-0076); atribuição inválida vira 409."""
+        if deps.planning_client is not None:
+            return deps.planning_client
+        try:
+            return svc.cliente_de_planejamento(orchestration_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
 
     @router.post("/v1/orchestrations", status_code=201)
     def create_orchestration(body: CreateOrchestrationBody, request: Request) -> Any:
@@ -49,12 +58,17 @@ def criar_router(deps: ApiDeps) -> APIRouter:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         mode = body.execution_mode or ExecutionMode.FULL_PIPELINE
+        planning_client = (
+            _cliente_de_planejamento()
+            if body.execution_mode == ExecutionMode.FULL_PIPELINE
+            else None
+        )
         if body.execution_mode == ExecutionMode.FULL_PIPELINE and planning_client is None:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Pipeline completo exige LLM de planejamento configurado; "
-                    "escolha execução direta ou configure ASO_LLM_*."
+                    "Pipeline completo exige LLM de planejamento configurado; escolha "
+                    "execução direta ou cadastre um executor LLM com chave no catálogo."
                 ),
             )
         if mode == ExecutionMode.CODE_EXECUTION and not (
@@ -126,11 +140,13 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     def plan_with_llm(orchestration_id: str, body: PlanBody) -> Any:
         """Planeja o produto com o LLM (M2) e materializa cards+ADRs no board."""
         deps.guard(orchestration_id)
+        planning_client = _cliente_de_planejamento(orchestration_id)
         if planning_client is None:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "LLM não configurado: defina ASO_LLM_PROVIDER/ASO_LLM_API_KEY/ASO_LLM_MODEL."
+                    "LLM não configurado: cadastre um executor LLM (com a env da chave) no "
+                    "catálogo ou atribua um à etapa 'planejamento'."
                 ),
             )
         return svc.planejar(orchestration_id, planning_client, body.idea)

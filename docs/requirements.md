@@ -28,7 +28,7 @@ SaaS multiempresa; marketplace de agentes; billing; deploy automático em produ�
 
 ## 5. Requisitos (macro)
 
-**Funcionais:** orquestrações F1–F7 multimodo; `OrchestratorContext` versionado com snapshots O1–O7; Kanban operacional com automação por eventos; `MultiAgentDecisionEngine`; registry/supervisor/router/executor de agentes; `ContextPatch` + `ContextBus` (6 etapas de validação); `ConflictDetector`; `ADRRegistry`; `QualityGateEngine`; `SnapshotEngine`; aprovações humanas (`HumanApproval`); permissões de escrita no contexto por papel (`allowed_tools` declarado, ainda não aplicado); `ExecutionProviders`; configuração de providers/CLI agents; observabilidade.
+**Funcionais:** orquestrações F1–F7 multimodo; `OrchestratorContext` versionado com snapshots O1–O7; Kanban operacional com automação por eventos; `MultiAgentDecisionEngine`; registry/supervisor/router/executor de agentes; `ContextPatch` + `ContextBus` (6 etapas de validação); `ConflictDetector`; `ADRRegistry`; `QualityGateEngine`; `SnapshotEngine`; aprovações humanas (`HumanApproval`); permissões de escrita no contexto por papel (`context_sections`; ferramentas por papel não aplicadas, ADR-0075); `ExecutionProviders`; configuração de providers/CLI agents; observabilidade.
 
 **Não funcionais:** rastreabilidade bidirecional; isolamento por projeto/agente (worktrees); segurança (secrets env-only, permissões por tool, aprovação humana para ações críticas); limites de custo/iterações/tempo; determinismo de fluxo; ID e timestamps em toda entidade.
 

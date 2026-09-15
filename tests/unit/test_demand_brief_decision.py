@@ -37,7 +37,7 @@ def test_demanda_multidominio_de_alto_risco_deixa_de_ser_single_agent() -> None:
     plan = svc._bundle(orch.id).plan  # noqa: SLF001 - o plano é o próprio objeto do teste
     assert brief.risco == RiskLevel.HIGH
     assert plan.strategy != ExecutionStrategy.SINGLE_AGENT
-    assert any(a.agent == "ReviewAgent" for a in plan.agents)
+    assert len(plan.agents) >= 2  # equipe multidomínio (sem card de ReviewAgent, ADR-0075)
 
 
 def test_impacto_deploy_gera_aprovacao_humana_pendente_na_criacao() -> None:

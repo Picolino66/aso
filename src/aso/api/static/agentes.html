@@ -48,26 +48,26 @@
           <input id="campoTipo" placeholder="ex.: desenvolvimento">
           <label for="campoFuncao">Função</label>
           <input id="campoFuncao" placeholder="descrição curta">
-          <label for="campoPlataforma">Plataforma</label>
+          <label for="campoPlataforma">Plataforma — informativo</label>
           <input id="campoPlataforma" placeholder="ex.: Claude, Codex">
           <label for="campoRole">Papel real (AgentRegistry)</label>
           <select id="campoRole"><option value="">— sem vínculo —</option></select>
         </div>
         <div>
-          <label for="campoModelos">Modelos permitidos (vírgula)</label>
+          <label for="campoModelos">Modelos permitidos (vírgula) — informativo, não aplicado</label>
           <input id="campoModelos" placeholder="ex.: opus, sonnet">
-          <label for="campoEfforts">Efforts permitidos (vírgula)</label>
+          <label for="campoEfforts">Efforts permitidos (vírgula) — informativo, não aplicado</label>
           <input id="campoEfforts" placeholder="ex.: medium, high">
-          <label for="campoProjetos">Projetos (id, vírgula — vazio = todos)</label>
+          <label for="campoProjetos">Projetos (id, vírgula) — informativo, não aplicado</label>
           <input id="campoProjetos" placeholder="vazio = todos os projetos">
-          <label for="campoCategorias">Categorias de tarefa (vírgula)</label>
+          <label for="campoCategorias">Categorias de tarefa (vírgula) — informativo, não aplicado</label>
           <input id="campoCategorias" placeholder="backend, frontend, database…">
-          <label><input id="campoSupervisao" type="checkbox" style="width:auto;display:inline-block"> Exige supervisão</label>
+          <label><input id="campoSupervisao" type="checkbox" style="width:auto;display:inline-block"> Exige supervisão (informativo, não aplicado)</label>
         </div>
       </div>
       <div class="grade" style="margin-top:8px">
         <div>
-          <label for="campoFerramentas">Ferramentas (vírgula) — vira allowed_tools real</label>
+          <label for="campoFerramentas">Ferramentas (vírgula) — informativo, não aplicado</label>
           <input id="campoFerramentas" placeholder="read_file, write_file…">
         </div>
         <div>
@@ -151,13 +151,13 @@
           '<div class="campos">' +
             [
               campoResumo('Tipo', a.tipo),
-              campoResumo('Plataforma', a.plataforma),
-              campoResumo('Modelos permitidos', (a.modelos_permitidos || []).join(', ')),
-              campoResumo('Efforts permitidos', (a.efforts_permitidos || []).join(', ')),
-              campoResumo('Ferramentas', (a.ferramentas || []).join(', ')),
+              campoResumo('Plataforma (informativo)', a.plataforma),
+              campoResumo('Modelos permitidos (informativo)', (a.modelos_permitidos || []).join(', ')),
+              campoResumo('Efforts permitidos (informativo)', (a.efforts_permitidos || []).join(', ')),
+              campoResumo('Ferramentas (informativo)', (a.ferramentas || []).join(', ')),
               campoResumo('Permissões', (a.permissoes || []).join(', ')),
-              campoResumo('Projetos', (a.projetos || []).join(', ') || 'todos'),
-              campoResumo('Categorias de tarefa', (a.categorias_tarefa || []).join(', ')),
+              campoResumo('Projetos (informativo)', (a.projetos || []).join(', ')),
+              campoResumo('Categorias de tarefa (informativo)', (a.categorias_tarefa || []).join(', ')),
               campoResumo('Limite de custo', a.limite_custo_usd != null ? ('$ ' + a.limite_custo_usd) : ''),
               campoResumo('Limite de tentativas', a.limite_tentativas != null ? String(a.limite_tentativas) : ''),
             ].filter(Boolean).join(' · ') +
@@ -191,9 +191,11 @@
       const select = document.getElementById('campoRole');
       try {
         const roles = await api('/v1/agent-definitions/roles');
+        let reservados = [];
+        try { reservados = await api('/v1/agent-definitions/roles/reservados'); } catch (e) { reservados = []; }
         roles.forEach(function (r) {
           const opt = document.createElement('option');
-          opt.value = r; opt.textContent = r;
+          opt.value = r; opt.textContent = r + (reservados.indexOf(r) >= 0 ? ' (reservado — sem card hoje)' : '');
           select.appendChild(opt);
         });
       } catch (e) { /* select fica só com "sem vínculo" */ }

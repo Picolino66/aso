@@ -30,12 +30,35 @@ _DIN_MULTIDOMINIO = DecisionInput(
 )
 
 
-def _criar_com_dependencia(svc: OrchestrationService) -> tuple[str, str, list[str]]:
+def _equipe_com_dependente(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Equipe do plano com dependência real: um TestingAgent depende dos workers. O motor não
+    cria mais o card do ReviewAgent (ADR-0075); a dependência vem do plano do mesmo jeito."""
+    original = MultiAgentDecisionEngine._build_team
+
+    def _com_dependente(
+        self: MultiAgentDecisionEngine, inp: DecisionInput, strategy: ExecutionStrategy
+    ) -> list[PlannedAgent]:
+        equipe = original(self, inp, strategy)
+        dependente = PlannedAgent(
+            agent="TestingAgent",
+            role="reviewer",
+            reason="valida a entrega dos workers",
+            depends_on=[a.agent for a in equipe],
+        )
+        return [*equipe, dependente]
+
+    monkeypatch.setattr(MultiAgentDecisionEngine, "_build_team", _com_dependente)
+
+
+def _criar_com_dependencia(
+    svc: OrchestrationService, monkeypatch: pytest.MonkeyPatch
+) -> tuple[str, str, list[str]]:
+    _equipe_com_dependente(monkeypatch)
     orch = svc.create_orchestration("implementar recurso seguro", decision_input=_DIN_MULTIDOMINIO)
     cards = svc.get_cards(orch.id)
-    review_card = next(c for c in cards if c.assignee == "ReviewAgent")
-    workers = [c for c in cards if c.assignee != "ReviewAgent"]
-    return orch.id, review_card.id, [w.id for w in workers]
+    dependente = next(c for c in cards if c.assignee == "TestingAgent")
+    workers = [c for c in cards if c.assignee != "TestingAgent"]
+    return orch.id, dependente.id, [w.id for w in workers]
 
 
 # --------------------------------------------------------------------- run_card
@@ -57,9 +80,11 @@ def test_run_card_marca_itens_de_entrega_de_contexto() -> None:
     assert len(itens) >= 5
 
 
-def test_run_card_bloqueado_cria_tarefa_vinculada_uma_unica_vez() -> None:
+def test_run_card_bloqueado_cria_tarefa_vinculada_uma_unica_vez(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     svc = OrchestrationService()
-    orch_id, review_id, _worker_ids = _criar_com_dependencia(svc)
+    orch_id, review_id, _worker_ids = _criar_com_dependencia(svc, monkeypatch)
 
     with pytest.raises(ValueError):
         svc.run_card(orch_id, review_id)
@@ -86,9 +111,9 @@ def test_run_card_bloqueado_cria_tarefa_vinculada_uma_unica_vez() -> None:
     assert len(total_tarefas_vinculadas) == 1
 
 
-def test_desbloquear_limpa_o_ponteiro_da_tarefa_vinculada() -> None:
+def test_desbloquear_limpa_o_ponteiro_da_tarefa_vinculada(monkeypatch: pytest.MonkeyPatch) -> None:
     svc = OrchestrationService()
-    orch_id, review_id, worker_ids = _criar_com_dependencia(svc)
+    orch_id, review_id, worker_ids = _criar_com_dependencia(svc, monkeypatch)
 
     with pytest.raises(ValueError):
         svc.run_card(orch_id, review_id)

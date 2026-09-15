@@ -23,7 +23,8 @@ def test_parallel_for_independent_multidomain() -> None:
         )
     )
     assert d.execution_mode == ExecutionStrategy.PARALLEL
-    assert any(a.agent == "ReviewAgent" for a in d.agents)
+    # ADR-0075: sem card do ReviewAgent — a revisão independente acontece na PR.
+    assert [a.agent for a in d.agents] and all(a.agent != "ReviewAgent" for a in d.agents)
 
 
 def test_sequential_for_dependent_multidomain() -> None:

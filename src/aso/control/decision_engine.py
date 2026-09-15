@@ -75,8 +75,8 @@ class MultiAgentDecisionEngine:
             )
         if inp.needs_independent_review:
             return (
-                ExecutionStrategy.EVALUATOR_OPTIMIZER,
-                "Requer geração e revisão independente iterativa.",
+                ExecutionStrategy.SEQUENTIAL,
+                "Requer geração e revisão independente: execução sequencial com revisão pela PR.",
             )
         if multi_domain:
             return (
@@ -85,8 +85,8 @@ class MultiAgentDecisionEngine:
             )
         if inp.risk_level == RiskLevel.CRITICAL:
             return (
-                ExecutionStrategy.SUPERVISOR_WORKER,
-                "Demanda crítica: supervisor decompõe e distribui o trabalho.",
+                ExecutionStrategy.SEQUENTIAL,
+                "Demanda crítica: execução sequencial, um card por vez, com aprovação humana.",
             )
         return (
             ExecutionStrategy.SEQUENTIAL,
@@ -102,7 +102,6 @@ class MultiAgentDecisionEngine:
                 PlannedAgent(agent=role, role="primary", reason="Único domínio de baixo risco.")
             ]
 
-        parallel = strategy == ExecutionStrategy.PARALLEL
         agents: list[PlannedAgent] = []
         for domain in inp.domains:
             role = _DOMAIN_AGENT.get(domain, "BackendDevelopmentAgent")
@@ -111,16 +110,8 @@ class MultiAgentDecisionEngine:
                     agent=role,
                     role="worker",
                     reason=f"Responsável pelo domínio '{domain}'.",
-                    parallel_group="pg1" if parallel else None,
                 )
             )
-        # Revisão independente sempre presente em execução multiagente.
-        agents.append(
-            PlannedAgent(
-                agent="ReviewAgent",
-                role="reviewer",
-                reason="Revisão independente de qualidade, arquitetura e contratos.",
-                depends_on=[a.agent for a in agents],
-            )
-        )
+        # Sem card do ReviewAgent (MEL-53, ADR-0075): ele duplicava o `ReviewService` e rodava
+        # pelo implementador genérico. A revisão independente acontece na PR (§14, ADR-0017).
         return agents

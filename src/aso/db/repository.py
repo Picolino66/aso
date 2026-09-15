@@ -497,9 +497,7 @@ class SqlAlchemyOrchestrationRepository:
                     agent=p.agent,
                     role=p.role,
                     reason=p.reason,
-                    allowed_tools=list(p.allowed_tools),
                     depends_on=list(p.depends_on),
-                    parallel_group=p.parallel_group,
                 )
                 for p in planned
             ]

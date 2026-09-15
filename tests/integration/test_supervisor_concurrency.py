@@ -70,10 +70,10 @@ def test_concurrent_run_plan_waves() -> None:
     )
     result = svc.run_plan(orch.id, concurrent=True)
     assert result["concurrent"] is True and result["paralelismo"] == 2
-    # ADR-0074: workers numa onda; o ReviewAgent aguarda a entrega (Done) deles.
+    # ADR-0074/0075: os workers independentes rodam numa única onda paralela.
     assert result["waves"] == 1
-    assert result["count"] == len(svc.get_plan(orch.id).agents) - 1
-    assert len(result["aguardando_dependencia"]) == 1
+    assert result["count"] == len(svc.get_plan(orch.id).agents)
+    assert result["aguardando_dependencia"] == []
     executados = [c for c in svc.get_cards(orch.id) if c.id in result["executed"]]
     assert all(c.status.value == "Testing" for c in executados)
 

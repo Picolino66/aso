@@ -102,6 +102,9 @@ class CardService:
     def recover_invalid_execution(self, orchestration_id: str) -> Orchestration:
         """Invalida execuções históricas sem diff/exit válido e retorna à F5.
 
+        Reparo de dados antigos, mantido pela MEL-53 (ADR-0075) — revisar para remoção a partir
+        de 2027-03-15, quando nenhuma orquestração anterior ao executor CLI real existir.
+
         É uma ação administrativa explícita: não reescreve patches nem snapshots;
         apenas fecha aprovações futuras e torna o card reexecutável sob as regras novas.
         """

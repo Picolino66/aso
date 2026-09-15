@@ -234,8 +234,6 @@ class PlannedAgentRow(Base):
     agent: Mapped[str] = mapped_column(String)
     role: Mapped[str] = mapped_column(String, default="primary")
     reason: Mapped[str] = mapped_column(Text, default="")
-    parallel_group: Mapped[str | None] = mapped_column(String, nullable=True)
-    allowed_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
     depends_on: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 

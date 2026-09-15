@@ -116,12 +116,20 @@ Para executar um agente CLI real (ex.: Claude Code, Codex) em worktree isolado p
 
 ```bash
 export ASO_TARGET_REPO=/caminho/do/repositorio-git      # repo onde os agentes trabalham
-export ASO_CLI_COMMAND="claude -p"                       # comando do agente CLI
+export ASO_CLI_COMMAND="claude -p"                       # semeia o perfil `cli` do catálogo
 ```
 
 Cada card roda numa branch/worktree própria; o diff é coletado antes de qualquer merge e a
-branch principal permanece intacta (§26A.6). Sem essas variáveis, usa-se o provider mock
+branch principal permanece intacta (§26A.6). Sem executor no catálogo, usa-se o provider mock
 (determinístico).
+
+**Catálogo único de executores ([ADR-0076](adrs/ADR-0076-catalogo-unico-de-executores.md)).** Em
+tempo de execução só o catálogo vale: `.aso/executors.json` (tela ⚙ Config). As variáveis
+`ASO_EXECUTORS`, `ASO_CLI_COMMAND`, `ASO_LLM_*` e `ASO_CANDIDATE_COMMANDS` apenas semeiam o
+catálogo enquanto não existe arquivo salvo. A escolha por etapa usa `agent_assignments` + o
+perfil padrão; o planejamento LLM usa o executor da etapa `planejamento` ou o LLM padrão
+(o primeiro perfil LLM com chave, o default antes); a corrida de candidatos usa os perfis de
+`executores` no corpo de `POST …/race` ou, sem lista, os perfis marcados `candidato`.
 
 ### Branches criadas pelo runtime
 
@@ -359,22 +367,24 @@ Em modo não-interativo, os CLIs **não escrevem arquivos por padrão** — não
 aprovação, então respondem em texto, saem com código 0 e deixam o worktree intacto. O ASO
 detecta o diff vazio; se a mensagem também mencionar permissão/sandbox, o diagnóstico é
 `sem_permissao` e o card vai direto para `Blocked` sem re-tentar (nenhum aumento de effort
-resolve permissão) — senão, tenta de novo com o mesmo agente antes de escalar. O comando
-do executor precisa conceder a permissão explicitamente:
+resolve permissão) — senão, tenta de novo com o mesmo agente antes de escalar. O perfil
+do executor precisa conceder a permissão explicitamente — pelo campo **permissão de escrita**
+(ADR-0076), que o ASO traduz na flag de cada CLI:
 
-| Agente | Comando mínimo que escreve |
-|---|---|
-| Claude Code | `claude -p --permission-mode acceptEdits` (edita arquivos) |
-| Claude Code | `claude -p --dangerously-skip-permissions` (edita **e** roda comandos) |
-| Codex | `codex exec --sandbox workspace-write` (já embutido nos perfis gerenciados) |
+| Permissão | Claude Code | Codex |
+|---|---|---|
+| `nenhuma` | `--permission-mode plan` | `--sandbox read-only` |
+| `edicoes` | `--permission-mode acceptEdits` (edita arquivos) | `--sandbox workspace-write` (padrão dos perfis gerenciados) |
+| `total` | `--dangerously-skip-permissions` (edita **e** roda comandos) | `--sandbox danger-full-access` |
+| vazio | o que estiver no comando | o que estiver no comando |
 
 Com `acceptEdits` o agente altera arquivos mas **não executa comandos** — cards que precisem
 rodar build/testes travam nesse ponto. Conceder autonomia total é defensável aqui porque a
 contenção do ASO é o **worktree isolado** + diff coletado + merge governado com CI e revisão
 (regra 5 · [ADR-0009](adrs/ADR-0009-entrega-de-codigo-governada.md)), não a permissão do CLI.
 
-Para corrigir um catálogo já existente: [`scripts/fix-executor-permissions.sh`](../scripts/fix-executor-permissions.sh)
-(aceita `ASO_CLAUDE_PERMISSION_FLAG` para escolher a flag). Quando o card falha assim, o
+Catálogos antigos com a flag digitada no comando são migrados na leitura (a flag vira o campo;
+cópia do arquivo original em `.aso/executors.json.antes-adr-0076`). Quando o card falha assim, o
 motivo registrado passa a incluir **a última fala do agente** e o "Próximo passo" mostra o
 bloqueio `executor_sem_permissao` com a orientação.
 
@@ -384,21 +394,15 @@ A tela de detalhe tem um painel "O que o agente está fazendo" que preenche em t
 ([ADR-0015](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)). O ASO lê os pipes do
 agente linha a linha, mas **a riqueza do que aparece depende do CLI**: em modo
 não-interativo, `claude -p` imprime apenas a resposta final. Para ver ferramenta por
-ferramenta, o CLI precisa emitir NDJSON:
+ferramenta, o CLI precisa emitir NDJSON — marque **streaming** no perfil (⚙ Config ou
+`"streaming": true` em `POST /v1/executors`) e o ASO acrescenta a flag da família:
 
 | Agente | Flag que produz narração |
 |---|---|
 | Claude Code | `--output-format stream-json --verbose` |
 | Codex | `--json` |
 
-```bash
-./scripts/enable-agent-stream.sh        # acrescenta as flags ao catálogo (idempotente)
-./scripts/enable-agent-stream.sh --off  # remove
-./scripts/manager.sh reiniciar          # necessário: o catálogo é lido no boot
-```
-
-O script usa a API quando ela está no ar e edita `.aso/executors.json` quando não está.
-Sem as flags nada quebra — o painel cai no modo bruto e mostra as linhas como vierem.
+Sem streaming nada quebra — o painel cai no modo bruto e mostra as linhas como vierem.
 
 Limites a conhecer:
 

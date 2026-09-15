@@ -143,6 +143,7 @@
     const NAMING = 'naming';
     const TRIAGE = 'triagem';
     const REVIEW = 'revisao';
+    const PLANNING = 'planejamento';
     const ETAPAS = [
       { key:'F1', titulo:'F1', legenda:'discovery' },
       { key:'F2', titulo:'F2', legenda:'arquitetura' },
@@ -154,6 +155,7 @@
       { key:NAMING, titulo:'Nomeador', legenda:'branches e commits' },
       { key:TRIAGE, titulo:'Triagem', legenda:'ficha da demanda' },
       { key:REVIEW, titulo:'Revisão', legenda:'revisão independente de código' },
+      { key:PLANNING, titulo:'Planejamento', legenda:'LLM que planeja cards e ADRs' },
     ];
     // Desfechos possíveis do veredito de revisão (ADR-0017), com a cor de cada um.
     const VEREDITO_PILL = {
@@ -976,7 +978,7 @@
     function renderEsteira() {
       const alvo = document.getElementById('esteira');
       alvo.replaceChildren();
-      const fases = estado.fases.length ? estado.fases : ETAPAS.filter(function(e) { return e.key !== NAMING; })
+      const fases = estado.fases.length ? estado.fases : ETAPAS.filter(function(e) { return e.key !== NAMING && e.key !== PLANNING; })
         .map(function(e) { return { id:e.key, nome:e.legenda, resumo:'', entrega:'' }; });
       const ordem = fases.map(function(f) { return f.id; });
       const atual = ordem.indexOf(estado.step.phase);
@@ -1438,7 +1440,7 @@
       const atual = ETAPAS.findIndex(function(e) { return e.key === estado.step.phase; });
       const indice = ETAPAS.findIndex(function(e) { return e.key === etapa.key; });
       // Nomeador e triagem nunca "passam": não são fase da esteira.
-      const passou = etapa.key !== NAMING && etapa.key !== TRIAGE && etapa.key !== REVIEW && atual >= 0 && indice < atual;
+      const passou = etapa.key !== NAMING && etapa.key !== TRIAGE && etapa.key !== REVIEW && etapa.key !== PLANNING && atual >= 0 && indice < atual;
       const atribuido = (estado.orch.agent_assignments || {})[etapa.key] || null;
 
       const rotulo = el('div', 'et');

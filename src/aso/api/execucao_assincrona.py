@@ -14,7 +14,6 @@ import os
 from typing import Any
 
 from aso.application.orchestration_service import OrchestrationService
-from aso.bootstrap import build_candidate_providers
 from aso.execution.jobs import FilaDeJobs, Job, JobRepository
 from aso.execution.workspace import WorkspaceError
 from aso.observability.agent_runs import mascarar_segredos
@@ -101,7 +100,7 @@ def criar_fila(
         )
 
     def _race(job: Job) -> Any:
-        providers = build_candidate_providers(svc.get(job.orchestration_id).target_path)
+        providers = svc.candidatos_da_corrida(job.orchestration_id, _p(job, "executores"))
         return svc.race_card(job.orchestration_id, str(job.card_id), providers)
 
     def _review(job: Job) -> Any:

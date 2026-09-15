@@ -26,6 +26,9 @@ from aso.execution.worktree import lock_do_repositorio
 
 SANDBOX_CODEX = "read-only"
 PERMISSAO_CLAUDE = "plan"
+_FLAGS_DE_AUTONOMIA_TOTAL = frozenset(
+    {"--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox"}
+)
 
 
 @dataclass(frozen=True)
@@ -62,7 +65,8 @@ def e_repositorio_git(caminho: str | None) -> bool:
 def comando_somente_leitura(command: list[str]) -> list[str]:
     """Acrescenta (ou força) o modo de leitura dos CLIs conhecidos; outros ficam iguais."""
     nomes = [os.path.basename(token) for token in command]
-    resultado = list(command)
+    # Flags de autonomia total anulariam o modo de leitura (ADR-0076): saem antes de forçá-lo.
+    resultado = [token for token in command if token not in _FLAGS_DE_AUTONOMIA_TOTAL]
     if "codex" in nomes:
         if "--sandbox" in resultado:
             i = resultado.index("--sandbox")

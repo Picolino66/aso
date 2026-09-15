@@ -147,6 +147,11 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         (segmento literal, mesmo cuidado de `routing-rules/reorder`, ADR-0042)."""
         return svc.get_agent_real_roles()
 
+    @router.get("/v1/agent-definitions/roles/reservados")
+    def get_agent_reserved_roles() -> Any:
+        """Papéis sem card planejado hoje (ADR-0075): o console os marca como reservados."""
+        return svc.get_agent_reserved_roles()
+
     @router.get("/v1/agent-definitions/{definition_id}")
     def get_agent_definition(definition_id: str) -> Any:
         try:

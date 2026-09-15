@@ -295,29 +295,3 @@ class FakeLlmClient:
         self.esquemas.append(esquema)
         texto = self._responder(system, user) if self._responder else self._default
         return RespostaLlm(texto=texto, uso=self._uso or UsoDoAgente())
-
-
-def build_llm_client_from_env(prefix: str = "ASO_LLM") -> LlmClient | None:
-    """Constrói um LlmClient a partir do ambiente, ou None se não configurado.
-
-    Variáveis (com o prefixo dado, default `ASO_LLM`):
-    - `{prefix}_PROVIDER` = openai | deepseek | anthropic
-    - `{prefix}_API_KEY`, `{prefix}_MODEL`, `{prefix}_BASE_URL` (opcional)
-    """
-    provider = os.environ.get(f"{prefix}_PROVIDER", "").strip().lower()
-    api_key = os.environ.get(f"{prefix}_API_KEY", "").strip()
-    model = os.environ.get(f"{prefix}_MODEL", "").strip()
-    base_url = os.environ.get(f"{prefix}_BASE_URL", "").strip()
-    if not (provider and api_key and model):
-        return None
-    if provider == "anthropic":
-        if base_url:
-            return AnthropicClient(api_key=api_key, model=model, base_url=base_url)
-        return AnthropicClient(api_key=api_key, model=model)
-    # openai/deepseek/local — todos OpenAI-compatible.
-    default_base = (
-        "https://api.deepseek.com" if provider == "deepseek" else "https://api.openai.com/v1"
-    )
-    return OpenAICompatibleClient(
-        api_key=api_key, model=model, base_url=base_url or default_base, client_id=provider
-    )

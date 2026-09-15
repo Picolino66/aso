@@ -41,23 +41,27 @@ def fase_padrao(role: str) -> Phase:
 _DEFAULT_AGENTS: list[dict[str, object]] = [
     {
         "role": "OrchestratorAgent",
+        "reservado": True,
         "context_sections": ["orchestration"],
         "capabilities": ["coordinate"],
     },
     {
         "role": "ProductStrategyAgent",
+        "reservado": True,
         "context_sections": ["product", "market", "business", "scope"],
     },
-    {"role": "RequirementsAgent", "context_sections": ["requirements", "scope"]},
+    {"role": "RequirementsAgent", "reservado": True, "context_sections": ["requirements", "scope"]},
     {"role": "ArchitectureDesignAgent", "context_sections": ["architecture"]},
     {"role": "DataApiContractsAgent", "context_sections": ["contracts"]},
-    {"role": "UxPlanningAgent", "context_sections": ["ux", "engineering", "kanban"]},
+    {
+        "role": "UxPlanningAgent",
+        "reservado": True,
+        "context_sections": ["ux", "engineering", "kanban"],
+    },
     {
         "role": "BackendDevelopmentAgent",
         "context_sections": ["engineering"],
         "default_executor": ExecutorType.CLI_AGENT,
-        "allowed_tools": ["read_file", "write_file", "run_tests", "run_lint", "run_build"],
-        "requires_approval_for": ["delete_file", "database_reset", "deploy"],
     },
     {
         "role": "FrontendDevelopmentAgent",
@@ -65,25 +69,17 @@ _DEFAULT_AGENTS: list[dict[str, object]] = [
         "default_executor": ExecutorType.CLI_AGENT,
     },
     {"role": "DatabaseAgent", "context_sections": ["contracts", "engineering"]},
-    {
-        "role": "DevOpsAgent",
-        "context_sections": ["operations"],
-        "requires_approval_for": ["deploy"],
-    },
+    {"role": "DevOpsAgent", "context_sections": ["operations"]},
     {
         "role": "TestingAgent",
         "context_sections": ["quality", "engineering"],
         "default_executor": ExecutorType.CLI_AGENT,
     },
-    {
-        "role": "SecurityAgent",
-        "context_sections": ["architecture", "quality"],
-        "requires_approval_for": ["write_file", "deploy"],
-    },
+    {"role": "SecurityAgent", "context_sections": ["architecture", "quality"]},
     {"role": "DocumentationAgent", "context_sections": ["engineering", "agentic"]},
     {"role": "ReviewAgent", "context_sections": ["quality"]},
     {"role": "ConflictResolutionAgent", "context_sections": ["conflicts", "adrs"]},
-    {"role": "FinalResponseAgent", "context_sections": ["metadata"]},
+    {"role": "FinalResponseAgent", "reservado": True, "context_sections": ["metadata"]},
 ]
 
 
@@ -111,8 +107,8 @@ class AgentRegistry:
     def seed_from_catalog(self, definitions: list[AgentDefinition]) -> None:
         """Semeia os 16 papéis-base e aplica o catálogo persistente por cima
         (Tela 30, wf §32, ADR-0053) — quando existe uma `AgentDefinition` ativa
-        vinculada a um `role`, ELA passa a decidir `allowed_tools`/
-        `context_sections` daquele papel, substituindo o hardcoded (fonte de
+        vinculada a um `role`, ELA passa a decidir as `context_sections` daquele
+        papel, substituindo o hardcoded (fonte de
         verdade das permissões, decisão confirmada com o operador). Papel sem
         definição correspondente mantém o hardcoded — nunca fica sem entrada
         (isso revogaria a permissão por omissão, o oposto do que o catálogo
@@ -124,14 +120,7 @@ class AgentRegistry:
             base = self._agents.get(definicao.role)
             if base is None:
                 continue
-            self.register(
-                base.model_copy(
-                    update={
-                        "allowed_tools": list(definicao.ferramentas),
-                        "context_sections": list(definicao.permissoes),
-                    }
-                )
-            )
+            self.register(base.model_copy(update={"context_sections": list(definicao.permissoes)}))
 
     def permission_map(self) -> dict[str, list[str]]:
         """Deriva o mapa de permissões (agente -> seções) para o ContextBus."""

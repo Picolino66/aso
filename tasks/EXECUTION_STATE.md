@@ -8,9 +8,9 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Última atualização: 2026-09-15
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
-* Task atual: MEL-53 (implementing)
-* Última task concluída: MEL-50
-* Próxima task candidata: MEL-53 · MEL-54 · MEL-44 · MEL-50 · MEL-52 · MEL-55 · MEL-06
+* Task atual: MEL-54 (implementing)
+* Última task concluída: MEL-53
+* Próxima task candidata: MEL-54 · MEL-44 · MEL-52 · MEL-55 · MEL-06
 * Estado: analyzing
 
 ## Tasks concluídas
@@ -436,10 +436,13 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
   Done": test_mvp2, test_supervisor_concurrency, test_bugs_pontuais_mel20.
     * Falta: bateria, ADR-0074, docs, governança.
 
-## Task em andamento
-
-* ID: MEL-53 — remover código morto e abstrações vazias (ADR-0075)
-* Decisões por item (evidência medida em 2026-09-15): AgentExecutor, `_agent_order`, passos vazios
+* MEL-53 — remoção de código morto (ADR-0075).
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic up/down/check OK · pytest
+    1734 passed, 7 skipped / 94.77% · Docker: smoke OK, migration converteu estratégia antiga e
+    removeu colunas; API lê o plano migrado.
+  * Histórico do andamento:
+    * ID: MEL-53 — remover código morto e abstrações vazias (ADR-0075)
+    * Decisões por item (evidência medida em 2026-09-15): AgentExecutor, `_agent_order`, passos vazios
   do ContextBus → remover; `ExecutionStrategy` → só `single_agent`/`sequential_agents`/
   `parallel_agents` (MEL-50: são as que mudam execução; `evaluator_optimizer` e `supervisor_worker`
   viram `sequential_agents` com o motivo preservado; migration de dados); `PlannedAgent.parallel_group`/
@@ -449,9 +452,36 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
   desatualizada); `ConflictType` nunca levantados → remover; card do ReviewAgent → deixar de criar;
   congelamento (MEL-17) → mantido; `recover_invalid_execution`/`_LEGACY_CODEX_NAMES` → mantidos com
   data de remoção.
-* Checklist: [ ] 53.1 executor/_agent_order/passos vazios · [ ] 53.2 estratégias · [ ] 53.3 campos de
-  plano/agente · [ ] 53.4 ConflictType, papéis reservados, AgentDefinition informativo · [ ] 53.5
-  card do ReviewAgent · [ ] 53.6 datas de remoção, ADR, docs, governança
+    * Checklist: [x] 53.1 executor/_agent_order/passos vazios (docs 6 etapas) · [x] 53.2 estratégias
+  (migration `c3986f6a1a5d` com mapa de dados) · [x] 53.3 campos de plano/agente · [x] 53.4
+  ConflictType, papéis reservados (`AgentSpec.reservado`, GET `/v1/agent-definitions/roles/reservados`,
+  OpenAPI regenerado), AgentDefinition informativo (UI) · [ ] 53.5 card do ReviewAgent (em curso:
+  decision_engine não cria mais; ajustar testes) · [ ] 53.6 datas de remoção, ADR, docs, governança
+
+
+## Task em andamento
+
+* ID: MEL-54 — catálogo único de executores (ADR-0076, atualiza ADR-0007/ADR-0011)
+* Desenho: 54.1 perfil com `streaming` e `permissao_escrita` (nenhuma|edicoes|total; vazio = não
+  gerenciado) e flags montadas por família (Claude `--output-format stream-json --verbose` /
+  `--permission-mode plan|acceptEdits|bypassPermissions`; Codex `--json` / `--sandbox
+  read-only|workspace-write|danger-full-access`); migração automática e idempotente de perfis salvos
+  (tira as flags do comando e liga os campos); saem `enable-agent-stream.sh` e
+  `fix-executor-permissions.sh`. 54.2 bootstrap sem provider global nem `RoutingExecutionProvider`;
+  planejamento pelo executor LLM do catálogo (etapa `planejamento` ou LLM padrão). 54.3 corrida
+  com perfis do catálogo (`executores` no corpo ou perfis `candidato`). 54.4 env só no seed
+  (`build_catalog_from_env`; chave do LLM semeado vira `api_key_env`), teste que varre `src`.
+* Feito (suíte 1723 passed antes dos testes novos): `execution/flags_de_cli.py`; perfil com
+  `streaming`/`permissao_escrita`/`candidato` + validator que migra flags; store migra e grava
+  (cópia `.antes-adr-0076`); seed único em `build_catalog_from_env` (+`ASO_CANDIDATE_COMMANDS`);
+  bootstrap sem provider; `routing_provider.py` removido; `PLANNING_KEY`;
+  `cliente_de_planejamento` e `candidatos_da_corrida` (settings) + rotas; codex gerenciado com
+  `permissao_escrita=edicoes`; `comando_somente_leitura` tira flags de autonomia total;
+  conftest isola `ASO_EXECUTORS_FILE`. `.aso/executors.json` real do operador JÁ foi migrado
+  (16 perfis, conferido token a token; backup `.aso/executors.json.antes-adr-0076`).
+* Falta: UI (form ⚙ Config com campos; etapa planejamento no detalhe), apagar os 2 scripts e
+  referências (docs/operations.md, README, next_step), testes novos (flags, migração, store,
+  planejamento, corrida com `executores`, varredura de env), export OpenAPI, ADR-0076, governança.
 
 ## Bloqueios
 
@@ -472,12 +502,12 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 
 ## Próximas tasks elegíveis
 
-1. MEL-06 · MEL-53 · MEL-54 · MEL-55 (P2)
+1. MEL-06 · MEL-54 · MEL-55 (P2)
 2. MEL-04 (aguarda decisão do operador) → MEL-07
 
 ## Classificação do backlog (verificada em 2026-09-15 contra código @164c6ab)
 
-* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34, MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50
+* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34, MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50, MEL-53
 * IN_PROGRESS: —
 * READY: MEL-03, MEL-04, MEL-06, MEL-40, MEL-44, MEL-42, MEL-43, MEL-54,
   MEL-30, MEL-35, MEL-36, MEL-51, MEL-55
