@@ -75,8 +75,8 @@ def test_set_validation_checks_substitui_a_bateria_inteira(tmp_path) -> None:  #
 def _svc_com_bateria(
     tmp_path: object, checks: list[ValidationCheck]
 ) -> tuple[OrchestrationService, str]:
-    """`seed_cards=False`: sem cards, `context_has_output`/`cards_entregues` ficam
-    vacuamente ok (mesma regra dos dois já existentes) — isola o teste na bateria."""
+    """`seed_cards=False`: sem cards, os critérios de entrega não se aplicam (ADR-0060)
+    — o gate fica só com a bateria, isolando o teste nela."""
     svc = OrchestrationService()
     orch = svc.create_orchestration("backend", target_path=str(tmp_path), seed_cards=False)
     svc.set_validation_checks(orch.id, checks)
@@ -119,7 +119,11 @@ def test_bateria_roda_inteira_mesmo_quando_o_primeiro_falha(tmp_path) -> None:  
 def test_check_nao_bloqueante_que_falha_nao_reprova_o_gate(tmp_path) -> None:  # type: ignore[no-untyped-def]
     svc, oid = _svc_com_bateria(
         tmp_path,
-        [ValidationCheck(nome="aviso", comando="bash -c 'exit 1'", bloqueante=False)],
+        [
+            ValidationCheck(nome="aviso", comando="bash -c 'exit 1'", bloqueante=False),
+            # Sem nenhum bloqueante o gate seria SKIPPED (ADR-0060), não PASSED.
+            ValidationCheck(nome="testes", comando="bash -c 'exit 0'", bloqueante=True),
+        ],
     )
     result = svc.run_quality_gate(oid, Phase.F5)
     assert result.status.value == "PASSED"

@@ -130,6 +130,10 @@ class PullRequest(BaseModel):
     title: str = ""
     status: str = "open"  # open | merged | closed
     ci_status: str = "pending"  # pending | passed | failed
+    # Origem do `ci_status` (ADR-0056): "executada" = `run_pr_ci` rodou a validação;
+    # "declarada" = um humano informou o resultado via `report_ci`. "" = CI ainda não
+    # reportada; "desconhecida" = PR anterior à distinção (não dá para afirmar nada).
+    ci_origem: str = ""
     review_status: str = "pending"  # pending | approved | changes_requested
     # Veredito da revisão independente (ADR-0017), serializado como dict (mesmo
     # padrão de demand_brief): vazio = ainda não revisada. `reviewed_by` é o

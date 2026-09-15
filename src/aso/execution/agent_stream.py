@@ -177,6 +177,64 @@ def interpretar(linha: str) -> list[Interpretada]:
     return [Interpretada(KIND_BRUTO, _corta(crua))]
 
 
+def extrair_resposta_final(saida: str) -> str:
+    """Texto da **resposta final** do agente, para quem precisa interpretá-la (ADR-0059).
+
+    Com `--output-format stream-json` (necessário para custo, ADR-0026) o stdout vira
+    NDJSON e `parse_llm_json` não acha o objeto pedido no meio dos envelopes. Ordem de
+    preferência, sem truncar (ao contrário de `extrair_texto`, que é para mensagens):
+
+    1. o último envelope `result` do Claude Code (campo `result`, texto integral);
+    2. o último texto de mensagem `assistant` (Claude) ou item de fala do Codex;
+    3. a saída crua — texto puro (`claude -p` sem flags) passa intacto.
+    """
+    resultado: str | None = None
+    ultima_fala: str | None = None
+    reconheceu_ndjson = False
+    for linha in saida.splitlines():
+        crua = linha.strip()
+        if not (crua.startswith("{") and crua.endswith("}")):
+            continue
+        try:
+            evento = json.loads(crua)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(evento, dict) or "type" not in evento:
+            continue
+        tipo = evento.get("type")
+        if tipo == "result" and isinstance(evento.get("result"), str):
+            reconheceu_ndjson = True
+            resultado = evento["result"]
+        elif tipo == "assistant" and isinstance(evento.get("message"), dict):
+            reconheceu_ndjson = True
+            conteudo = evento["message"].get("content")
+            textos = (
+                [
+                    b.get("text", "")
+                    for b in conteudo
+                    if isinstance(b, dict) and b.get("type") == "text"
+                ]
+                if isinstance(conteudo, list)
+                else [conteudo]
+                if isinstance(conteudo, str)
+                else []
+            )
+            junto = "".join(t for t in textos if isinstance(t, str))
+            if junto.strip():
+                ultima_fala = junto
+        elif isinstance(evento.get("item"), dict):
+            reconheceu_ndjson = True
+            item = evento["item"]
+            fala = item.get("text") or item.get("content") or item.get("message")
+            if isinstance(fala, str) and fala.strip() and not item.get("command"):
+                ultima_fala = fala
+    if resultado is not None and resultado.strip():
+        return resultado
+    if ultima_fala is not None:
+        return ultima_fala
+    return saida if not reconheceu_ndjson else (resultado or "")
+
+
 def extrair_uso(linha: str) -> UsoDoAgente | None:
     """Lê tokens/custo do envelope final, quando o CLI os informa (§26A.11, ADR-0026).
 

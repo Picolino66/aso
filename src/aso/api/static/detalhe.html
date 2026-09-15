@@ -121,6 +121,7 @@
   </main>
 
   <script src="/ui/header.js"></script>
+  <script src="/ui/jobs.js"></script>
   <script>
     const ID = new URLSearchParams(location.search).get('id');
     ASOHeader.mount(document.getElementById('app-header'), {
@@ -203,7 +204,8 @@
         try { detalhe = (await resposta.json()).detail || detalhe; } catch (_) {}
         throw new Error(detalhe);
       }
-      return resposta.status === 204 ? null : resposta.json();
+      if (resposta.status === 204) return null;
+      return window.asoResolverResposta(resposta.status, await resposta.json(), headers);
     }
     function el(tag, className, text) {
       const node = document.createElement(tag);

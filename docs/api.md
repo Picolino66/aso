@@ -1,15 +1,18 @@
 # API — ASO Runtime
 
-> Fase F3. Contrato-first. Versão base **v1**. Spec de máquina em [`contracts/openapi.yaml`](../contracts/openapi.yaml).
-> Consistência forte; erros padronizados; idempotência em operações de criação (ver [ADR-0005](adrs/ADR-0005-data-consistency-and-api-versioning.md)).
+> Versão base **v1**. Spec de máquina **gerada do código** em [`contracts/openapi.json`](../contracts/openapi.json) (ADR-0064; regenerar com `python scripts/export-openapi.py`) e ao vivo em `/docs` / `/openapi.json`.
+> Consistência forte por orquestração (ver [ADR-0005](adrs/ADR-0005-data-consistency-and-api-versioning.md)). Não há idempotência por cabeçalho.
 
 ## Convenções
 
 - Prefixo de versão: `/v1`.
-- Formato de erro (RFC 7807-like): `{ "type", "title", "status", "detail", "instance" }`.
-- Idempotência: header `Idempotency-Key` em `POST` de criação (orchestrations, cards, adrs, approvals).
-- Paginação: `?page`, `?page_size`; resposta `{ items[], total, page, page_size }`.
-- Datas em ISO8601 UTC. IDs em UUID (exceto ADR: `ADR-XXXX`).
+- Formato de erro: o padrão do FastAPI, `{ "detail": "<mensagem em pt-BR>" }` (validação de
+  corpo: `detail` com a lista de erros do Pydantic). Não há RFC 7807.
+- Idempotência: **não implementada** (não há `Idempotency-Key`).
+- Paginação: nas listagens paginadas, a resposta é a lista e o total vem no cabeçalho
+  `X-Total-Count`.
+- Datas em ISO8601 UTC. IDs no formato `<prefixo>_<uuid hex>` (ex.: `orch_…`, `card_…`,
+  `pr_…`); ADRs usam `ADR-XXXX`, sequencial **por orquestração**.
 
 ## Superfície de endpoints
 
@@ -17,7 +20,7 @@
 ```
 GET    /v1/fs/dirs                         # navegador de pastas; só diretórios
 GET    /v1/fs/analyze/stream?path=/projeto # SSE de pré-análise somente leitura
-POST   /v1/orchestrations/{id}/analyze-folder # gera/atualiza docs-first governado
+POST   /v1/orchestrations/{id}/analyze-folder # docs-first por card Documentation + PR; body: {inicializar_git?} (ADR-0062)
 ```
 
 `GET /v1/fs/analyze/stream` retorna eventos SSE com `percent`, `current`, `total`
@@ -142,6 +145,8 @@ GET    /v1/learning                                  # mesmo relatório, consoli
 PUT    /v1/orchestrations/{id}/budget                # eleva/remove o teto de gasto; admin (ADR-0026)
 GET    /v1/orchestrations/{id}/worktrees             # worktrees em disco, com `orfao` marcado (ADR-0027)
 POST   /v1/orchestrations/{id}/worktrees/prune       # remove só os órfãos; admin (ADR-0027)
+POST   /v1/orchestrations/{id}/pulls/{pr}/ci/run       # executa a validação na branch (ci_origem=executada)
+POST   /v1/orchestrations/{id}/pulls/{pr}/ci           # declara a CI; `passed` exige admin + justificativa (ADR-0056)
 GET    /v1/orchestrations/{id}/pulls/{pr}/review       # veredito completo da revisão (§14)
 POST   /v1/orchestrations/{id}/pulls/{pr}/review/run   # roda o agente revisor sobre o diff real
 POST   /v1/orchestrations/{id}/pulls/{pr}/review       # reporta o resultado (governado, ADR-0017)
@@ -151,7 +156,8 @@ GET    /v1/orchestrations/{id}/agent-log?after={seq}&limit={n}   # saída ao viv
 GET    /v1/phases                           # catálogo didático da esteira F1..F7
 POST   /v1/orchestrations/{id}/resume
 POST   /v1/orchestrations/{id}/cancel
-POST   /v1/orchestrations/{id}/rollback     # body: { to_snapshot: "O3" }
+POST   /v1/orchestrations/{id}/restaurar-ledger  # body: { to_snapshot: "O3" }; só o ledger do contexto, admin (ADR-0061)
+POST   /v1/orchestrations/{id}/rollback          # alias obsoleto de restaurar-ledger
 POST   /v1/orchestrations/{id}/retry
 PATCH  /v1/orchestrations/{id}/execution-settings
 ```
@@ -390,6 +396,13 @@ candidato for o próprio implementador, a revisão recusa com
 omissão. O fallback de indisponibilidade do agente é **sempre** `necessita_humano` —
 nunca `aprovado` (diferente de `naming`/`triagem`, não existe revisão determinística).
 O veredito sai em `review_verdict` no `GET` da PR e em `GET .../pulls/{pr}/review`.
+**CI executada × declarada ([ADR-0056](adrs/ADR-0056-ci-executada-e-declarada.md)).**
+`POST .../pulls/{pr}/ci/run` executa a validação e grava `ci_origem: "executada"`.
+`POST .../pulls/{pr}/ci` apenas declara: `status: "passed"` exige papel `admin` (403) e
+`justificativa` não vazia (409), gera o evento `CIDeclared` e grava
+`ci_origem: "declarada"`; `failed` segue aberto a operator. A ficha de encerramento do
+card traz `ci_origem` (PRs legadas: `desconhecida`).
+
 `POST .../pulls/{pr}/review` reporta o resultado: `status: "approved"` só é aceito com
 um veredito `aprovado`/`aprovado_com_sugestoes` já registrado **e**, se o risco da
 demanda exigir confirmação humana (`exige_confirmacao_humana`, §4.3 da ADR-0017 —
@@ -474,6 +487,15 @@ POST   /v1/agent-router/preview
 POST   /v1/agent-router/select
 ```
 
+### Jobs de execução assíncrona (ADR-0067)
+```
+GET    /v1/jobs/{job_id}                         # estado, resultado, erro/erro_status
+GET    /v1/orchestrations/{id}/jobs?status=      # fila da orquestração (ordem de chegada)
+POST   /v1/jobs/{job_id}/cancel                  # operator; na fila → cancelled; rodando → mata o agente
+```
+Com `ASO_EXECUCAO_ASSINCRONA=1`, as rotas que acionam agentes respondem `202` com
+`{job_id, status, operacao, acompanhar}` em vez do resultado.
+
 ### Governança (§28.4–28.7)
 ```
 GET    /v1/orchestrations/{id}/quality-gates
@@ -508,12 +530,12 @@ GET    /v1/orchestrations/{id}/conflicts
 
 ## Regras de contrato relevantes
 
-- `POST /v1/context-patches` nunca escreve direto: enfileira no ContextBus, que roda o pipeline de 7 etapas (§19) e responde `applied | rejected | queued_conflict`.
+- `POST /v1/context-patches` nunca escreve direto: enfileira no ContextBus, que roda as 8 etapas de validação (6 com efeito, §19) e responde `applied | rejected | pending`.
 - `POST /v1/cards/{id}/run` recusa (`409`) e move o card para `Blocked` se alguma
   dependência (`card.dependencies`, populado do `depends_on` do plano multiagente —
   [ADR-0018](adrs/ADR-0018-kanban-fiel-colunas-e-dependencias.md)) ainda não estiver
-  `Done`; a execução automática via `run_plan` já ordena por `depends_on` nas suas
-  próprias ondas e não passa por este guard.
+  `Done`; a execução automática via `run_plan` monta ondas pelas `card.dependencies` de
+  cada card `Ready` (MEL-20) e não roda card com dependência externa pendente.
 - `POST /v1/cards/{id}/run` também re-tenta internamente em falha (ADR-0019, §13): se
   o roteamento decidir `mesmo_agente`/`aumentar_effort`/`trocar_executor`, o mesmo
   `run_card` já tenta de novo antes de devolver a resposta; só `bloquear`/

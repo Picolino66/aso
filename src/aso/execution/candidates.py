@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,7 +56,9 @@ class CandidateRunner:
 
         if len(providers) > 1:
             with ThreadPoolExecutor(max_workers=min(4, len(providers))) as pool:
-                return list(pool.map(_one, providers))
+                # Contexto copiado por candidato: o cancelamento do job alcança os CLIs.
+                futuros = [pool.submit(copy_context().run, _one, p) for p in providers]
+                return [futuro.result() for futuro in futuros]
         return [_one(p) for p in providers]
 
     @staticmethod

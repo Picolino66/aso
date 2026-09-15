@@ -267,6 +267,8 @@ class NextStepInput:
     # agente travado (`ASO_AGENT_TIMEOUT`) é o sinal de que ninguém mais pode estar
     # trabalhando num card parado em `InProgress` há mais tempo que isso.
     agent_timeout_seconds: float = 1800.0
+    # Planejamento LLM que falhou na criação (MEL-20) — "" = sem falha pendente.
+    planejamento_falhou: str = ""
 
 
 def next_phase_of(phase: Phase) -> Phase | None:
@@ -377,17 +379,32 @@ def _demand_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
     `SEVERITY_BLOCKS` na ordenação: aparece com destaque, mas não trava a esteira — o
     orquestrador *poderá* pedir mais informação, não *deverá* parar.
     """
-    perguntas = inp.demand_brief.perguntas_abertas
-    if not perguntas:
-        return []
-    return [
-        NextStepBlocker(
-            code="demanda_incompleta",
-            severity=SEVERITY_HUMAN,
-            title="A triagem ficou com perguntas em aberto",
-            detail=" · ".join(perguntas[:3]),
+    found: list[NextStepBlocker] = []
+    if inp.planejamento_falhou:
+        found.append(
+            NextStepBlocker(
+                code="planejamento_falhou",
+                severity=SEVERITY_OPERATOR,
+                title="O planejamento LLM falhou e a esteira ficou sem backlog",
+                detail=inp.planejamento_falhou,
+                action=NextStepAction(
+                    label="Replanejar",
+                    path=_orch_path(inp.orchestration.id, "/plan"),
+                    body={"idea": inp.orchestration.user_request},
+                ),
+            )
         )
-    ]
+    perguntas = inp.demand_brief.perguntas_abertas
+    if perguntas:
+        found.append(
+            NextStepBlocker(
+                code="demanda_incompleta",
+                severity=SEVERITY_HUMAN,
+                title="A triagem ficou com perguntas em aberto",
+                detail=" · ".join(perguntas[:3]),
+            )
+        )
+    return found
 
 
 def _governance_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
@@ -834,7 +851,8 @@ def _card_blockers(inp: NextStepInput, phase: Phase) -> list[NextStepBlocker]:
         por_status.setdefault(card.status, []).append(card)
     # Gate já aprovado nesta fase: o trabalho acabou — quem fala é a aprovação/avanço.
     gate = _last_gate(inp, phase)
-    gate_aprovado = gate is not None and gate.status == GateStatus.PASSED
+    # SKIPPED (fase sem nada bloqueante, ADR-0060) libera o avanço como PASSED.
+    gate_aprovado = gate is not None and gate.status in (GateStatus.PASSED, GateStatus.SKIPPED)
     found: list[NextStepBlocker] = []
     if phase == Phase.F1:
         discovery_blocker = _discovery_blocker(orch.id, inp.discovery_report)
@@ -967,8 +985,8 @@ def _card_blockers(inp: NextStepInput, phase: Phase) -> list[NextStepBlocker]:
                 severity=SEVERITY_OPERATOR,
                 title=f"Nenhum card na fase {phase.value}",
                 detail=(
-                    "Sem trabalho na fase, o gate é vacuamente aprovado: rodar a fase "
-                    "avalia o gate e abre a aprovação de avanço."
+                    "Sem trabalho na fase, o gate fica SKIPPED (ADR-0060): rodar a fase "
+                    "registra o pulo — sem aprovação humana de fase vazia — e libera o avanço."
                 ),
                 action=NextStepAction(
                     label=f"Rodar fase {phase.value}",

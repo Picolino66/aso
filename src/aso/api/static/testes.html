@@ -89,7 +89,7 @@
         ? '<table><tr><th>Fase</th><th>Status</th><th>Critérios</th></tr>' +
           gates.map(function (g) {
             return '<tr><td>' + esc(g.phase) + '</td>' +
-              '<td><span class="pill ' + (g.status === 'PASSED' ? 'ok' : 'err') + '">' + esc(g.status) + '</span></td>' +
+              '<td><span class="pill ' + (g.status === 'PASSED' ? 'ok' : g.status === 'SKIPPED' ? 'info' : 'err') + '">' + esc(g.status) + '</span></td>' +
               '<td>' + g.criteria.length + ' critério(s), ' + g.blocking_issues.length + ' bloqueante(s)</td></tr>';
           }).join('') + '</table>'
         : '<p class="muted">Nenhum quality gate rodado ainda.</p>';

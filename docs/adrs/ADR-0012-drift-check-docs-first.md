@@ -37,7 +37,9 @@ Adotar a **opção 2**. Novo módulo determinístico `execution/docs_drift.py` c
 O self-heal (`OrchestrationService.heal_docs`) resolve o drift em duas camadas: (1)
 **determinística** — cria `docs/modules/<módulo>/` para módulos de código sem doc via
 `write_scaffold`; (2) **agente** (se houver executor real) — preenche placeholders e
-conserta links num worktree isolado, com o diff mesclado (governado). Registra evento
+conserta links num worktree isolado, com o diff mesclado (governado). _(Ajustado pela
+[ADR-0062](ADR-0062-docs-first-via-entrega-governada.md): o self-heal abre card
+`Documentation` + PR em vez de mesclar.)_ Registra evento
 `DocsHealed` + `ContextPatch` em `engineering.docs_drift` pelo ContextBus
 ([ADR-0003](ADR-0003-contextbus-governance.md)), **sem** aprovação humana (baixo risco).
 Endpoints `GET /v1/orchestrations/{id}/docs-drift` (relatório) e `POST .../docs-heal`; no

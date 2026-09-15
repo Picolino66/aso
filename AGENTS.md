@@ -11,11 +11,12 @@ requisitos originais em [requerimentos.md](requerimentos.md).
 
 ## Regras invioláveis de governança
 
-Estas regras são a razão de existir do projeto — não as contorne:
+Estas regras são a razão de existir do projeto — não as contorne. Onde cada uma é
+aplicada no código e qual teste a protege: [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
 
 1. **O ContextBus é o único escritor do contexto canônico.** Nunca mute o estado
    de governança fora dele. Toda mudança é um `ContextPatch` que passa pelo
-   pipeline de validação de 8 etapas em
+   pipeline de validação de 8 etapas (6 com efeito) em
    [src/aso/governance/contextbus.py](src/aso/governance/contextbus.py).
 2. **Deny-by-default nas permissões.** Um agente só escreve nas chaves que sua
    `PermissionPolicy` autoriza.
@@ -85,20 +86,23 @@ anteriores (nunca contrarie uma ADR aceita sem supersedê-la).
 ## Estrutura (onde mexer)
 
 ```
-src/aso/control/       # OrchestrationService (glue), decision engine, planner, run_plan, aprovações
+src/aso/application/   # serviços por caso de uso (execução, entrega, fluxo, aprovações…) — ADR-0066
+src/aso/control/       # OrchestrationService (façade), decision engine, planner, triagem, revisão
 src/aso/governance/    # ContextBus, ContextPatch, ConflictDetector, ADR, QualityGate, Snapshot
 src/aso/execution/     # WorktreeManager, CliAgentExecutionProvider, CandidateRunner, PR/merge
 src/aso/kanban/        # Board, cards, automação por eventos
 src/aso/agents/        # AgentRegistry, AgentSupervisor, ExecutionProvider
 src/aso/observability/ # logging, ratelimit, tracing, metrics, broker (SSE)
-src/aso/api/           # FastAPI (app.py, auth.py, static/index.html = console)
+src/aso/api/           # FastAPI (app.py = gateway, routers/ por recurso, auth.py, static/ = console)
 src/aso/cli/           # Typer
 src/aso/db/            # ORM normalizado + repository
 migrations/            # Alembic
 ```
 
-O ponto de entrada que amarra tudo é
-[src/aso/control/orchestration_service.py](src/aso/control/orchestration_service.py).
+O ponto de entrada usado por API e CLI é a façade
+[src/aso/control/orchestration_service.py](src/aso/control/orchestration_service.py);
+a lógica fica nos serviços de [src/aso/application/](src/aso/application/), montados em
+[composicao.py](src/aso/application/composicao.py).
 
 ## Armadilhas conhecidas
 

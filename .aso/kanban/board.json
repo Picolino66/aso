@@ -129,6 +129,11 @@
       "id": "EPIC-11",
       "title": "Corre\u00e7\u00f5es de qualidade (code-review)",
       "priority": "high"
+    },
+    {
+      "id": "EPIC-12",
+      "title": "Melhorias arquiteturais MEL (feedback.md)",
+      "priority": "critical"
     }
   ],
   "cards": [
@@ -4507,6 +4512,550 @@
         "Achado 6 (api/app.py, agent_catalog_service.py): AgentDefinitionBody.ferramentas/.permissoes tinham default [] \u2014 um PUT que so queria mudar nome/ativo enviava [] de qualquer forma (default do Pydantic), e AgentCatalogService.update fazia list(x or []) incondicional, substituindo em vez de mesclar \u2014 revogacao silenciosa de permissao real (AgentRegistry.seed_from_catalog usa este catalogo como fonte de verdade, ADR-0053). Verificado: a UI existente (agentes.html) sempre envia o objeto completo, entao nao era explor\u00e1vel pela tela hoje, mas violava deny-by-default como contrato de API. Corrigido: defaults viram None (campo omitido/null explicito preserva o valor atual); create_agent_definition continua tratando None como lista vazia (correto para definicao nova); update trata None como 'nao mude este campo', so lista explicita (inclusive [] explicito) substitui. Testes: tests/unit/test_agent_catalog.py (2 novos) + tests/integration/test_agent_catalog_api.py (atualizado, o teste antigo afirmava o comportamento do bug como correto: 'PUT substitui, nao faz merge').",
         "ADR-0055 registrada com os 6 achados, decisoes e riscos aceitos.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (1 migration nova, sem diff pendente), pytest com cobertura >=80% \u2014 todos verdes (1356 testes, 93.42%). Validacao adicional no Postgres real (docker compose down -v && up -d --build, /health=200, ./scripts/smoke.sh OK, docker compose down -v) por causa da migration nova em kanban_cards."
+      ]
+    },
+    {
+      "id": "MEL-10",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Avanco de fase exige gate aprovado e papel admin (regra inviolavel 3)",
+      "description": "feedback.md \u00a72 item 5/\u00a713.3: advance_phase mudava current_phase sem consultar gate e a rota caia no papel operator \u2014 6 chamadas levavam F1\u2192F7 com 0 gates. Agora o avanco so ocorre com o ULTIMO gate da fase atual PASSED, verificado dentro do lock, e /advance-phase exige admin.",
+      "acceptance_criteria": [
+        "advance_phase sem gate executado na fase atual devolve erro e nao altera current_phase",
+        "Ultimo gate da fase FAILED (mesmo com PASSED anterior) recusa o avanco",
+        "Ultimo gate PASSED avanca como antes",
+        "Rota responde 409 na recusa e 403 para token operator",
+        "Autopilot (aprovar fase_gate) continua avancando e rodando a proxima fase",
+        "Evento PhaseAdvanceRefused aparece na timeline quando ha recusa"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "orchestration_service.py advance_phase: busca o ultimo QualityGateResult com phase == current_phase em b.gate_results; ausente ou != PASSED => evento PhaseAdvanceRefused {phase, reason}, _persist e ValueError ('gate de F1 nunca executado' / 'gate de F1 nao aprovado: FAILED'); tudo dentro de _lock_for (check-then-act)",
+        "_advance_after_phase_gate passa pelo mesmo advance_phase; recusa vira log autopilot_advance_refused e o autopilot para sem desfazer a aprovacao humana ja persistida",
+        "auth.py required_role: sufixo /advance-phase na lista admin (next_step ja anunciava role=admin)",
+        "tests/unit/test_advance_phase_gate.py (8 testes): sem gate, FAILED, PASSED seguido de FAILED, PASSED de outra fase nao libera, PASSED avanca, autopilot avanca, autopilot nao arrasta fase com gate reprovado apos aprovacao, rota 403 operator/409 sem gate/200 admin com gate",
+        "Testes-atalho ajustados para rodar o gate antes: test_phase_runner, test_agent_assignments (_avancar + run_plan antes de F5), test_brief_api (POST quality-gates/run)",
+        "Achado: orquestracao recem-criada tem cards em F5 e o gate de F5 reprova sem output (context_has_output) \u2014 antes era contornado pelo avanco livre; agora exige run_plan",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK (93 arquivos), alembic upgrade head + check sem diffs, pytest 1364 passed / 93.45%. Sem mudanca de persistencia/boot (Docker nao exigido)"
+      ]
+    },
+    {
+      "id": "MEL-11",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Aprovacao de estrategia pendente bloqueia a execucao (regra inviolavel 4)",
+      "description": "feedback.md \u00a72 item 8/\u00a714 exp. 8: create_orchestration abria HumanApproval tipo=estrategia para plano critico, mas nada a consultava \u2014 DatabaseAgent executava com a aprovacao pendente, e rejeitar so mudava o status. Agora um guard unico recusa execucao com estrategia pendente ou rejeitada, e a rejeicao cancela a orquestracao.",
+      "acceptance_criteria": [
+        "Com estrategia pendente as entradas de execucao recusam com mensagem pt-BR e nenhum agente e chamado",
+        "Apos aprovar, a execucao segue normalmente",
+        "Apos rejeitar, a orquestracao fica cancelled e continua recusando execucao",
+        "Orquestracoes sem aprovacao de estrategia nao mudam de comportamento",
+        "A API devolve 409 nas rotas de execucao enquanto houver pendencia"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "orchestration_service.py _recusar_se_estrategia_pendente(b) (staticmethod): pendente => ValueError 'Estrategia aguardando aprovacao humana...'; ultima estrategia rejected => 'Estrategia rejeitada pelo humano' (fecha a burla via resume, que volta status para running)",
+        "Guard chamado na entrada de run_card, run_plan (que nao passava por run_card nem checava kill-switch), run_phase, race_card, start_autopilot (antes de marcar running/analyze_folder), analyze_folder e heal_docs (decisao: heal_docs tambem aciona agente real)",
+        "decide_approval: rejeicao de tipo estrategia => orchestration.status=cancelled + evento StrategyRejected {approval_id, by}",
+        "next_step ja listava aprovacao pendente como bloqueio acionavel (code aprovacao_pendente) \u2014 sem mudanca",
+        "tests/unit/test_strategy_approval_guard.py (12): provider contador com 0 chamadas nas 7 entradas; aprovar => >=1 chamada; rejeitar => cancelled + StrategyRejected + resume nao reabilita; sem estrategia nao muda; API 409 em autopilot, cards/{id}/run, run-plan, run-phase",
+        "test_governance_endpoints::test_gates_and_approvals_persist ajustado: decide a aprovacao (persistida) antes de run_plan",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade head + check sem diffs, pytest 1376 passed / 93.50%. Sem mudanca de persistencia/boot"
+      ]
+    },
+    {
+      "id": "MEL-12",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Restringir a CI declarada manualmente (regra inviolavel 6, ADR-0056)",
+      "description": "feedback.md \u00a72 item 9/\u00a714 exp. 6: POST .../pulls/{pr}/ci aceitava status passed de qualquer operator e report_ci gravava ci_status sem executar nada; como merge_pr confia no campo, a exigencia de CI aprovada era satisfeita por declaracao. Agora a declaracao de passed e critica (admin + justificativa), rastreada (CIDeclared) e distinguivel da CI executada (ci_origem).",
+      "acceptance_criteria": [
+        "Operator nao consegue declarar CI passed (403)",
+        "Admin sem justificativa recebe 409; com justificativa a PR fica passed com ci_origem=declarada",
+        "ci/run grava ci_origem=executada",
+        "A ficha de encerramento (card.closure) mostra a origem da CI",
+        "Migration aplicada e alembic check sem diff (SQLite e Postgres)"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "governance/models.py PullRequest.ci_origem ('' | executada | declarada | desconhecida); db/models.py PullRequestRow.ci_origem",
+        "migrations/versions/20755cca5b90_ci_origem_em_pull_requests.py: add_column server_default '' + UPDATE 'desconhecida' onde ci_status <> 'pending' (nao inventa origem para legadas)",
+        "orchestration_service.py report_ci(..., actor, justificativa): passed sem justificativa => ValueError (409); grava ci_origem=declarada e evento CIDeclared {pr_id,status,actor,justificativa}; run_pr_ci grava executada; _build_card_closure inclui ci_origem e evidencia 'CI: passed (origem)'",
+        "api/app.py CIStatusBody + handler: status passed sem papel admin => 403 (checagem fina no handler, padrao report_review/ADR-0017); failed segue livre a operator",
+        "tests/integration/test_ci_declarada.py (8): servico recusa sem justificativa e merge segue bloqueado; declarado rastreado; failed livre; ci/run executada; ficha com origem (declarada/executada); API 403/409/200 + failed por operator; round-trip SQL do ci_origem",
+        "8 arquivos de teste que usavam CI declarada como atalho passam JUST_CI; scripts/e2e_candidates.sh envia justificativa",
+        "Docs: ADR-0056, docs/api.md (rotas ci/run e ci), README.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade/downgrade/upgrade/check OK, pytest 1384 passed / 93.67%",
+        "Docker/Postgres: compose down -v && up -d --build, /health 200, smoke.sh SMOKE OK, alembic_version=20755cca5b90, coluna ci_origem default '', downgrade -1/upgrade/check no container OK"
+      ]
+    },
+    {
+      "id": "MEL-15",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Seguranca por padrao: dev mode explicito, comandos no host so admin, raizes de workspace (ADR-0057)",
+      "description": "feedback.md \u00a73/\u00a713.3 problema 8: sem ASO_API_KEYS todo cliente virava admin, compose publicava API e Postgres em 0.0.0.0, operator configurava e disparava comandos no host, /v1/fs navegava todo o host, ?token= valia em qualquer rota e /metrics hidratava todas as orquestracoes. Corrigido com modelo de ameaca local registrado na ADR-0057.",
+      "acceptance_criteria": [
+        "Subir a API sem ASO_API_KEYS e sem ASO_DEV_MODE=1 falha com mensagem em pt-BR",
+        "Token operator recebe 403 ao configurar comandos de validacao/deploy e ao executar deploy",
+        "GET /v1/fs/dirs?path=/etc responde 400 com raiz padrao",
+        "?token= e ignorado fora do SSE",
+        "/metrics nao chama _bundle para nenhuma orquestracao",
+        "docker compose up expoe portas so em 127.0.0.1; smoke continua passando"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "api/auth.py AuthService.from_env: sem ASO_API_KEYS e ASO_DEV_MODE != '1' => RuntimeError pt-BR; required_role: escrita em /validation-checks, /deploy/config, /deploy/pipeline, /deploy/run => admin (GET segue viewer)",
+        "api/app.py _exigir_admin_para_comando: validation_command no corpo de POST /v1/orchestrations e PATCH /execution-settings exige admin (403); gateway aceita ?token= so em paths terminando com /events/stream; /v1/fs/dirs mapeia WorkspaceRootError => 400",
+        "execution/workspace.py workspace_roots() (ASO_WORKSPACE_ROOTS, default $HOME) + _dentro_das_raizes com resolve() (symlink/.. nao escapam); validate e list_dirs recusam fora da raiz; parent nao sai da raiz; cobre criacao de projeto (project_service usa validate)",
+        "observability/metrics.py prometheus: gauges de SLO vem de aggregate_metrics()['slo_latest'] (ultima SloEvaluation por orquestracao; SQL com subquery MAX(created_at), memoria por max) \u2014 sem slo_report/_bundle",
+        "docker-compose.yml: 127.0.0.1:8000 e 127.0.0.1:5432, POSTGRES_PASSWORD por variavel, ASO_DEV_MODE ${ASO_DEV_MODE:-1}, ASO_WORKSPACE_ROOTS ${ASO_WORKSPACE_ROOTS:-/tmp}; scripts/manager.sh: ASO_DEV_MODE=1 e --host ${ASO_HOST:-127.0.0.1}",
+        "tests/integration/test_seguranca_por_padrao.py (20): from_env sem/com dev mode e com tokens; matriz papel x rotas de comando; operator 403 em validation-checks/deploy config/pipeline/run/execution-settings e na criacao com comando; raiz padrao HOME, symlink e .., multiplas raizes, API fs/criacao/projeto 400; ?token= 401 fora do SSE e aceito no SSE; /metrics com _bundle proibido (memoria e SQL)",
+        "tests/conftest.py (raiz): ASO_DEV_MODE=1 e ASO_WORKSPACE_ROOTS=/ via setdefault. Ajustados: test_slo_history, test_deploy_api (pipeline admin), test_projects_api (validation_command via admin)",
+        "Docs: ADR-0057, docs/operations.md, README.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1401 passed / 93.79%",
+        "Docker/Postgres: compose down -v && up --build, /health 200, smoke OK, portas 127.0.0.1:8000/5432, /v1/fs/dirs?path=/etc 400, import com ASO_DEV_MODE=0 sem chaves => RuntimeError, POST slo/evaluate + /metrics expoe gauges da orquestracao via Postgres"
+      ]
+    },
+    {
+      "id": "MEL-13",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Claim atomico do card antes de executar (ADR-0058)",
+      "description": "feedback.md \u00a73/\u00a714 exp. 7: run_card nao adquiria lock nem checava execucao em andamento; AgentStarted so era aplicado apos o agente terminar \u2014 duas threads executavam o agente 2x, o card ficava Ready durante a execucao e um crash nao deixava rastro. Agora ha claim/lease persistido adquirido sob lock antes do provider, execucao fora do lock, release em finally e recuperacao de execucao interrompida na reidratacao.",
+      "acceptance_criteria": [
+        "Duas chamadas concorrentes a run_card no mesmo card resultam em 1 execucao do agente; a segunda recebe 'ja em execucao' (409 na API)",
+        "Durante a execucao o card aparece InProgress",
+        "Apos sucesso ou falha em_execucao_desde volta a vazio",
+        "Reiniciar o servico com card em execucao marca o card Failed com o motivo registrado",
+        "Migration do novo campo validada no Postgres"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "kanban/models.py + db/models.py KanbanCard/CardRow: em_execucao_desde, execution_id, execucao_dono; migration e4b1c8382290 (colunas nulas)",
+        "orchestration_service.py: _instancia_id=gen_id('runtime'); _reivindicar_card (sob _lock_for; recusa se em_execucao_desde; grava campos; AgentStarted com effort/phase/execution_id; _persist imediato; mover=False p/ corrida); _liberar_claim; _recusar_se_em_execucao",
+        "run_card: guards + claim sob lock, provider fora do lock, _apply_execution sob lock, retry mantem claim (novo execution_id + AgentStarted por tentativa), release+persist em finally; _apply_execution nao aplica mais AgentStarted",
+        "run_plan: claim por card Ready antes da onda (pula card ja reivindicado), apply sob lock, release em finally; race_card: lease sem mudar coluna, release em finally; move_card_validado recusa card com claim",
+        "_bundle -> _recuperar_execucoes_interrompidas: claim de outra instancia => libera, Failed 'execucao interrompida (reinicio do runtime)', evento ExecutionInterrupted, persiste",
+        "tests/integration/test_claim_de_execucao.py (12, threading.Event deterministico): 2 execucoes concorrentes => 1 chamada + ValueError; InProgress e claim no banco durante execucao; AgentStarted e resultado com mesmo execution_id; falha do provider e excecao inesperada liberam claim; reidratacao => Failed persistido sem duplicar evento; claim da propria instancia intocado; run_plan pula card reivindicado; race recusa/libera sem mudar coluna; move manual recusa; API 409",
+        "test_race_stress.py e test_supervisor_concurrency.py verdes (suite completa)",
+        "Docs: ADR-0058 (complementa ADR-0027), docs/operations.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade/downgrade/upgrade/check OK, pytest 1413 passed / 93.82%",
+        "Docker/Postgres: /health 200, smoke OK (2x), alembic_version=e4b1c8382290, downgrade/upgrade/check no container OK, claim persistido e recuperacao Failed persistida (evento unico) com repositorio Postgres"
+      ]
+    },
+    {
+      "id": "MEL-14",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "critical",
+      "title": "Contrato do wrapper CLI: perguntas x execucao (TaskEnvelope v1, ADR-0059)",
+      "description": "feedback.md \u00a74/\u00a72 item 27: o wrapper so reconhecia kind naming como pergunta; triagem, discovery, especificacao e revisao perdiam o system (schema JSON) e recebiam instrucao de implementar; contexto_adicional/nudge/effort nao entravam no prompt; stream-json quebrava parse_llm_json; wrapper sem testes. Agora ha contrato versionado, renderizador testavel e extracao da resposta final do NDJSON.",
+      "acceptance_criteria": [
+        "Para cada task_type de pergunta, o prompt contem o system completo e nao contem instrucao de implementar",
+        "Para execucao, o prompt contem criterios, correcoes, contexto_adicional e nudge quando presentes",
+        "Resposta NDJSON stream-json do Claude com o JSON final e interpretada por perguntar_ao_agente",
+        "Agente CLI fake que so responde certo quando recebe o schema produz ficha de triagem com origem = executor",
+        "Envelope com schema_version desconhecida e recusado com erro claro"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "src/aso/agents/contract.py: SCHEMA_VERSION='1', CardBrief, TaskEnvelope (kind execute|ask, task_type, system, request, card, nudge, effort, validation_command, commit_subject, output_schema, phase, target_path), ler_envelope => ContratoInvalido (versao desconhecida, pergunta sem system, execute fora de card|docs)",
+        "src/aso/agents/render_prompt.py (so stdlib): renderizar_prompt ask/execute, conversao do formato antigo, nudge/effort do topo vencem, main() exit 2 em contrato invalido; scripts/aso-agent-wrapper.sh virou adaptador (python3 render_prompt.py, fallback python3 -m)",
+        "Produtores do envelope mantendo formato antigo: OrchestrationService._build_task (card), _docs_task/_docs_heal_task (docs), agent_ask._rodar_cli (ask)",
+        "execution/agent_stream.py extrair_resposta_final (ultimo result do Claude > ultima fala assistant/Codex > saida crua) usado em perguntar_ao_agente antes de parse_llm_json",
+        "tests/unit/test_contrato_task_envelope.py (20): tabela de 6 task_types de pergunta, formato antigo sem perder system, execucao com criterios/correcoes/contexto/nudge, override nudge/effort, _build_task real, versoes iguais, versao desconhecida recusada (contrato, renderizador e subprocess exit 2), pergunta sem system, execute invalido, NDJSON Claude/assistant/Codex/texto",
+        "tests/integration/test_wrapper_cli_contrato.py (8): wrapper real + CLI fake em texto e stream-json: triagem origem=cli-fake, naming source=agente, revisao aprovado; execucao recebe prompt de implementacao com contexto e nudge; versao desconhecida => exit 2 sem chamar o agente",
+        "Docs: ADR-0059, docs/modules/executores/contrato-wrapper-cli.md (+index), README",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK (95 arquivos), alembic upgrade + check OK, pytest 1441 passed / 93.76%; bandit sem achado novo (so LOW de subprocess pre-existentes). Sem mudanca de persistencia/boot"
+      ]
+    },
+    {
+      "id": "MEL-34",
+      "epic": "EPIC-12",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Suite de testes negativos de governanca via API",
+      "description": "feedback.md \u00a76/\u00a713.4: nenhum teste tentava violar as regras inviolaveis pela API, por isso os bypasses corrigidos em MEL-10..15 passaram despercebidos. Nova suite de invariantes com chaves reais, obrigatoria no CI, validada por mutacao das correcoes P0.",
+      "acceptance_criteria": [
+        "Todos os testes da tabela existem e passam apos as tasks P0",
+        "Reverter qualquer uma das correcoes P0 faz ao menos um teste falhar (verificado uma vez por regra)",
+        "docs/GOVERNANCE.md aponta para cada teste"
+      ],
+      "dependencies": [
+        "MEL-10",
+        "MEL-11",
+        "MEL-12",
+        "MEL-13",
+        "MEL-14",
+        "MEL-15",
+        "MEL-01"
+      ],
+      "evidence": [
+        "tests/integration/test_governanca_invariantes.py (27): regra 1 (varredura AST: store.apply_patch so no ContextBus; restore_from/restore_section so nas restauracoes governadas; patch via API registrado; rollback/restore-section 403 operator), regra 2 (agente real em secao alheia e agente inventado => rejected + conflito, 0 aplicados), regra 3 (advance sem gate 409; F1..F4 com gate; F5 gate FAILED => 409), regra 4 (estrategia pendente => 409 em cards/run, run-plan, run-phase, autopilot com 0 chamadas; 15 rotas criticas => 403 operator), regra 5 (HEAD da base intacto apos execucao do card, muda so no merge), regra 6 (merge sem CI executada / sem review / com comentario obrigatorio pendente => 409; operator nao declara CI), execucao unica (409 + 1 chamada), regra 9 (valor de chave ausente de GET executors, executors.json e banco SQLite)",
+        "Mutacao (script temporario, restauracao em finally): MEL-10 gate => 1 falha; MEL-10 admin => 1; MEL-11 => 1; MEL-12 => 2; MEL-13 => 1; MEL-15 => 4. Codigo restaurado: 27 passed",
+        ".github/workflows/ci.yml: passo 'Invariantes de governanca (obrigatorio)' antes da suite completa",
+        "docs/GOVERNANCE.md referencia cada teste (MEL-01)",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1468 passed / 93.75%"
+      ]
+    },
+    {
+      "id": "MEL-01",
+      "epic": "EPIC-12",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Mapa regra inviolavel -> codigo -> teste (docs/GOVERNANCE.md)",
+      "description": "feedback.md \u00a72/\u00a712 Fase 1: as 9 regras eram citadas como razao de existir do projeto sem documento dizendo onde sao aplicadas nem qual teste as protege; regras declaradas e nao aplicadas (3, 4, 5, 6) passaram sem alarme.",
+      "acceptance_criteria": [
+        "As 9 regras aparecem com funcao e arquivo reais",
+        "Cada lacuna aponta para a task que a corrige",
+        "Nenhuma linha afirma cobertura sem teste citado",
+        "O CLAUDE.md aponta para o documento"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "docs/GOVERNANCE.md: tabela das 9 regras com arquivo+funcao (ContextBus.submit/apply_patch, PermissionPolicy, advance_phase, _recusar_se_estrategia_pendente/required_role, WorktreeManager/CliAgentExecutionProvider, merge_pr/report_ci/report_review, AdrRegistry/SnapshotEngine.create/_build_card_closure, ExecutorProfile/AuthService.from_env), pontos de entrada, testes citados (GI + unit/integration existentes) e lacunas com task (MEL-02, MEL-16, MEL-17, MEL-18, MEL-30, MEL-40, MEL-53; sem MEL: allowed_tools inerte, regra 7 de processo, DISCOVERED-03 segredos em saida de agente)",
+        "Funcoes citadas verificadas no codigo (grep): PermissionPolicy, SnapshotEngine.restore, ExecutorProfile.public, frozen_sections=[], _step_conflict_detection/_step_quality_gate_impact; ausencia de git push em src/",
+        "CLAUDE.md e AGENTS.md (secao Regras inviolaveis) e docs/index.md apontam para docs/GOVERNANCE.md",
+        "Validado junto da MEL-34: bateria completa verde (1468 passed / 93.75%)"
+      ]
+    },
+    {
+      "id": "MEL-16",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Quality gate escopado por fase, sem aprovacao vazia (ADR-0060)",
+      "description": "feedback.md \u00a72 item 7/\u00a714 exp. 2-3: context_has_output = store.version > 0 or not has_work era global e vacuamente verdadeiro; F1-F4 viravam 4 aprovacoes humanas de fases vazias e F6 sem cards passava. Criterios agora declarados por fase e fase sem nada bloqueante fica SKIPPED.",
+      "acceptance_criteria": [
+        "Um patch aplicado em F5 nao aprova o gate de F2",
+        "Fase sem cards resulta em SKIPPED, sem snapshot e sem aprovacao humana; a timeline mostra PhaseSkipped",
+        "Fase com card ainda em Ready resulta em FAILED com o card listado na evidencia",
+        "Criterios de discovery, deploy, bateria de validacoes e docs drift mantem o comportamento",
+        "O console mostra SKIPPED de forma distinta de PASSED",
+        "Os gates por fase estao documentados numa tabela gerada a partir das definicoes"
+      ],
+      "dependencies": [
+        "MEL-10"
+      ],
+      "evidence": [
+        "src/aso/governance/gate_definitions.py (sem importar control): CardNoGate, VerificacaoDaBateria, EstadoDoGate, DEFINICOES (cards_da_fase_entregues, output_da_fase_aplicado, discovery_aprovado F1, deploy_aprovado F6, bateria F5/F6, cards_entregues F5/F6 com cards, docs_in_sync nao bloqueante), criterios_da_fase, tabela_markdown",
+        "shared/types.py GateStatus.SKIPPED; quality_gate_engine.run: nenhum criterio bloqueante => SKIPPED + criterio fase_sem_trabalho, nao bloqueantes viram warnings",
+        "orchestration_service.run_quality_gate monta EstadoDoGate (patches APPLIED por fase, cards da fase, discovery/deploy/bateria/docs); _check_predicate removido (morto); advance_phase aceita PASSED|SKIPPED; run_phase registra PhaseSkipped e com autopilot=True avanca e roda a proxima fase (fases_puladas); _advance_after_phase_gate devolve o resultado; next_step trata SKIPPED como liberado; snapshot e 'testes aprovados' do deploy seguem exigindo PASSED",
+        "CLI aso run avalia o gate de cada fase com cards; console index.html/card-detalhe.html/testes.html: SKIPPED = pill info; scripts/smoke.sh roda o gate da fase do card e valida o snapshot dela",
+        "tests/unit/test_gate_por_fase.py (19): 7 fases sem cards => SKIPPED sem snapshot; patch de outra fase nao aprova; card Ready => FAILED listado; fase entregue => PASSED + O2; cancelados fora; Testing com branch espera merge; run_phase PhaseSkipped sem aprovacao; autopilot pula F1/F3/F4 e para no gate FAILED de F6; discovery/deploy reprovados reprovam mesmo sem cards; so nao bloqueante => SKIPPED com aviso; tabela da doc == tabela_markdown()",
+        "~77 testes que dependiam da aprovacao vazia revistos um a um: fixtures de deploy/incidentes ganharam validation_command='true' (PASSED real), snapshots usam F2+F5, gates passam a fase do card, autopilot/advance usam orquestracao multifase",
+        "Docs: ADR-0060, docs/quality-gates.md (tabela gerada + SKIPPED), docs/GOVERNANCE.md regra 3",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1488 passed / 93.84%",
+        "Docker/Postgres: /health 200, smoke.sh atualizado => SMOKE OK"
+      ]
+    },
+    {
+      "id": "MEL-17",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Decidir e aplicar o congelamento de snapshots (Opcao A, ADR-0061)",
+      "description": "feedback.md \u00a72 item 6/\u00a77/\u00a714 exp. 4: frozen_sections sempre [] e locked_paths nunca preenchido, logo check_snapshot_lock/check_adr_contradiction nunca bloqueavam; snapshots duplicados por fase; rollback so restaurava o ledger com nome enganoso. Decisao: implementar (Opcao A) com mapa por fase, override ADR + aprovacao humana, locked_paths do plano, sem duplicacao e restaurar_ledger.",
+      "acceptance_criteria": [
+        "ADR aceita com a opcao escolhida e consequencias",
+        "Opcao A: patch em secao congelada sem ADR de override e rejeitado com SNAPSHOT_LOCK_CONFLICT num fluxo real",
+        "Rodar o gate da mesma fase duas vezes nao duplica snapshots",
+        "restaurar_ledger documentado com o limite do que restaura"
+      ],
+      "dependencies": [
+        "MEL-16"
+      ],
+      "evidence": [
+        "ADR-0061 (Opcao A; reafirma ADR-0003): justificativa = MEL-19 no backlog aprovado e garantia declarada no CLAUDE.md/ADR-0003",
+        "governance/snapshot_engine.py SECOES_CONGELADAS_POR_FASE/secoes_congeladas (F1 product..feasibility, F2 architecture, F3 contracts, F4 ux, F5-F7 nenhuma) usado em run_quality_gate; b.snapshots substitui a mesma versao",
+        "governance/contextbus.py _step_snapshot_lock: override valido em secao congelada marca requires_approval => pendente + HumanApproval tipo=patch",
+        "control/planning.py PlannedAdr.locked_paths (+ schema do prompt); populate_from_plan repassa; persistido na tabela de relacao existente",
+        "restaurar_ledger no servico (rollback alias), POST .../restaurar-ledger admin (rollback alias deprecated), CLI restaurar-ledger (rollback deprecated), auth.required_role",
+        "tests/integration/test_congelamento_snapshot.py (8): O2 congela architecture; escrita sem override => rejected + SNAPSHOT_LOCK_CONFLICT via API; override com ADR => pending, operator 403 na aprovacao, admin aprova => aplicado; reexecutar agente de F2 congelada bloqueia card; gate 2x sem duplicar; congelamento sobrevive a reidratacao SQL; ADR do plano com locked_paths exige referencia (persistido); restaurar-ledger/rollback admin-only, board intacto, payload == snapshot",
+        "tests/unit/test_contextbus.py::test_frozen_section_allowed_with_adr_override atualizado: pending ate apply_approved",
+        "Docs: docs/snapshots.md (mapa, override, restaurar-ledger), docs/context.md, docs/api.md, README, docs/GOVERNANCE.md (regras 1, 3, 8)",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1496 passed / 93.87%. Sem mudanca de schema (frozen_sections em value_items)"
+      ]
+    },
+    {
+      "id": "MEL-18",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Docs-first e self-heal via entrega governada (ADR-0062)",
+      "description": "feedback.md \u00a72 item 10: analyze_folder/heal_docs/_maybe_autoheal_docs faziam commit_all e merge direto na branch base sem PR/CI/revisao, com except WorktreeError: pass, e ensure_git inicializava git sem confirmacao. Regras 5 e 6 violadas sob a justificativa 'docs = baixo risco' (ADR-0008).",
+      "acceptance_criteria": [
+        "analyze_folder em projeto existente cria card Documentation com PR aberta e nao altera a branch base",
+        "O merge da documentacao exige as mesmas condicoes de merge_pr",
+        "Conflito de merge gera DocsMergeFailed e o card nao e marcado como entregue",
+        "O autoheal ao fim de F5/F6 cria card, sem commit na branch base",
+        "Nenhum except WorktreeError: pass restante no servico"
+      ],
+      "dependencies": [
+        "MEL-12"
+      ],
+      "evidence": [
+        "orchestration_service.analyze_folder/heal_docs reescritos: _garantir_git (sem flag => WorkspaceError; com flag => ensure_git + WorkspaceGitInitialized), _entregar_docs_por_pr (card Documentation + open_pr), _scaffold_em_branch (worktree proprio, commit, remove); commit direto so com report.is_empty e WorkspaceService.sem_historico; retorno entrega/card_id/pr_id",
+        "_maybe_autoheal_docs nao abre nova PR se ha PR de docs aberta; merge_pr captura WorktreeError => DocsMergeFailed/MergeFailed + ValueError 409; WorktreeManager.merge aborta merge em conflito; grep: nenhum except WorktreeError: pass",
+        "execution/workspace.py MENSAGEM_INIT e sem_historico; api/app.py inicializar_git em AnalyzeFolderBody/AutopilotBody (docs-heal usa AnalyzeFolderBody); rota autopilot mapeia WorkspaceError => 409; start_autopilot repassa a flag",
+        "Console: nova.html, demanda-nova.html, index.html confirmam git init e reenviam com inicializar_git",
+        "Testes: test_workspace_docs.py (11: sem git exige confirmacao; pasta vazia commit direto; retry por PR com base intacta e feature no branch; agente CLI => PR, base intacta, merge exige CI+review e so entao docs na base; conflito => DocsMergeFailed, card nao Done, PR aberta, merge abortado; heal com agente nao altera base; autopilot sem git 409 e com flag 200), test_docs_drift_flow.py (heal => PR com core.md no branch; autoheal F5 => PR sem mudar HEAD e sem PR duplicada), test_next_step_api ajustado",
+        "Docs: ADR-0062 (supersede trecho da ADR-0008, ajusta ADR-0012; ambas anotadas), docs/operations.md, docs/api.md, docs/GOVERNANCE.md regra 5; scripts/smoke.sh confirma git e aceita commit_direto|pr",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1500 passed / 94.12%",
+        "Docker/Postgres: /health 200, smoke.sh => SMOKE OK"
+      ]
+    },
+    {
+      "id": "MEL-19",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "ContextBuilder e injecao de contexto nos providers (ADR-0063)",
+      "description": "feedback.md \u00a71/\u00a74: nenhum provider recebia o OrchestratorContext, PromptBuilder so usava a demanda global (cortando JSON em 6000 chars), target_path mock_<papel> sobrescrevia saidas e F1-F4 nao chegavam a F5. Agora ha ContextBuilder puro com prioridade e orcamento, contexto no TaskEnvelope e chave por card no ledger.",
+      "acceptance_criteria": [
+        "Prompt LLM de um card contem titulo, criterios e correcoes do card",
+        "Card nascido da spec recebe o resumo do discovery e o item de origem",
+        "Contexto acima do orcamento omite itens inteiros de menor prioridade e registra a omissao",
+        "Dois cards do mesmo papel nao sobrescrevem a mesma chave do ledger",
+        "A ADR define o OrchestratorContext como memoria de trabalho consumida via ContextBuilder"
+      ],
+      "dependencies": [
+        "MEL-14"
+      ],
+      "evidence": [
+        "src/aso/agents/context_builder.py: FontesDoContexto, AdrResumida, ItemDeContexto, ContextoDaTarefa, construir_contexto (prioridade estrita, card sempre, omissao inteira em cascata, ASO_CONTEXTO_MAX_CHARS padrao 12000), renderizar_contexto",
+        "contract.TaskEnvelope.contexto (aditivo, schema_version 1); render_prompt._renderizar_contexto (stdlib, mesmo texto); PromptBuilder renderiza envelope.contexto (context_provider legado como fallback)",
+        "orchestration_service: _fontes_do_contexto (spec por titulo recursivo, discovery aprovado, demand_brief filtrado, ADRs aceitas da fase/linked_adrs, secoes do ledger); _build_task target_path '<secao>.<card.id>' e envelope.contexto; AgentExecuted com contexto_chars/contexto_omitidos",
+        "tests/unit/test_context_builder.py (6): ordem de prioridade; orcamento omite em cascata sem cortar; item grande intacto; card sempre entra; renderizador LLM == wrapper; prompt LLM (espiao) contem titulo/criterios/correcoes/ledger/ADR",
+        "tests/integration/test_contexto_injetado.py (4): card F5 recebe saida do card F2 (chave do card); card da spec recebe item de origem (filho) e discovery aprovado; dois cards do mesmo papel geram chaves distintas; AgentExecuted registra tamanho e omissao",
+        "Docs: ADR-0063, docs/context.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1510 passed / 94.15%. Sem mudanca de persistencia/boot"
+      ]
+    },
+    {
+      "id": "MEL-20",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Correcao de bugs pontuais encontrados na revisao (fase por papel, run_plan, titulo, planejamento)",
+      "description": "feedback.md \u00a73/\u00a76/\u00a714 exp. 5 e 9: fase adivinhada por substring, run_plan perdendo cards do mesmo papel, titulo/criterio genericos do motor e 500 quando o planejamento LLM falha apos a criacao. Bug 5 (snapshot duplicado) ja resolvido na MEL-17.",
+      "acceptance_criteria": [
+        "Os 16 papeis tem fase declarada e _phase_for_agent nao usa substring",
+        "run_plan executa todos os cards Ready respeitando dependencias",
+        "Card criado pelo motor tem titulo e criterios derivados da demanda",
+        "Falha simulada do LLM de planejamento nao produz 500 e deixa evento PlanningFailed"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "agents/registry.py FASE_PADRAO_POR_PAPEL (16 papeis) + fase_padrao (desconhecido => F5); orchestration_service._phase_for_agent usa a tabela",
+        "run_plan reescrito: candidatos = cards Ready nao pausados; ondas por card.dependencies (Done ou executado neste run); dependencia externa pendente => nao roda; ciclo puro => quebra defensiva; guards kill-switch e orcamento (fecha DISCOVERED-01)",
+        "create_orchestration: titulo = _resumo_da_demanda (brief.objetivo ou 1a linha, <=80) + ' \u2014 <papel>' quando ha varios cards; descricao = motivo do motor; criterios = brief.criterios_de_aceite ou 'A entrega atende a demanda: <resumo>'",
+        "api/app.py POST /v1/orchestrations full-pipeline: LlmError/ValueError do planejamento => svc.registrar_falha_de_planejamento (PlanningFailed) + 201 com aviso; NextStepInput.planejamento_falhou => blocker planejamento_falhou com acao POST .../plan",
+        "tests/unit/test_bugs_pontuais_mel20.py (17): tabela papel->fase (9), 16 papeis declarados, sem substring; run_plan com 2 cards do mesmo papel, dependencias em 2 ondas, dependencia externa bloqueada, kill-switch; titulo/criterios da ficha e resumo sem ficha; LLM que falha => 201 + aviso + PlanningFailed + next-step Replanejar",
+        "test_header_summary::test_search_escopada ajustado (card agora tem titulo da demanda; assercao passa a ser escopo por projeto)",
+        "Docs: docs/agents.md (fase padrao por papel)",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1528 passed / 94.20%. Observacao: os testes de regressao foram escritos a partir da analise do codigo antigo; nao foram re-executados contra a versao anterior"
+      ]
+    },
+    {
+      "id": "MEL-02",
+      "epic": "EPIC-12",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Corrigir documentacao contraditoria e desatualizada",
+      "description": "feedback.md \u00a72 itens 1-4, 11, 14-22, 24: docs de nucleo descreviam componentes e garantias inexistentes. Corrigidas para refletir o codigo atual (apos MEL-10..20), marcando lacunas com a task correspondente.",
+      "acceptance_criteria": [
+        "Cada linha da tabela da task aplicada (adaptada ao estado atual do codigo)",
+        "Nenhuma mencao restante a componentes inexistentes (grep)",
+        "Onde a garantia ainda nao existe, a doc diz isso e aponta a task"
+      ],
+      "dependencies": [
+        "MEL-01"
+      ],
+      "evidence": [
+        "docs/context.md: 8 funcoes de etapa (6 com efeito, 2 ganchos), rejeicao => Conflict + card Blocked + card ADRTask (sem agente automatico), RLock por orquestracao, sem Idempotency-Key; secao de ContextBuilder (MEL-19) ja descrevia o contexto consumido",
+        "contextbus.py docstring e _validate atualizados; README/CLAUDE/AGENTS: '8 etapas (6 com efeito)'",
+        "docs/quality-gates.md e docs/snapshots.md: tabelas de estado do processo de construcao removidas (apontam para a API e MEL-04); criterios reais e congelamento ja documentados por MEL-16/MEL-17",
+        "docs/architecture.md: tabela de planes com componentes reais, nota explicita dos inexistentes, regra de dependencia nao verificada + ciclo control<->observability (MEL-36), console /ui, processo unico com threadpool (MEL-31), seguranca sem ToolPermissionEngine",
+        "docs/api.md: erro {detail}, sem idempotencia, X-Total-Count, IDs prefixo_hex e ADR sequencial por orquestracao; 8 etapas/pending; run_plan por card.dependencies",
+        "docs/agents.md: papel x executor x funcao; 5 papeis sem card (Orchestrator, ProductStrategy, Requirements, UxPlanning, FinalResponse) verificados por grep; allowed_tools declarado mas nao aplicado",
+        "docs/index.md: 63 ADRs geradas dos arquivos; removido 'F7 concluida / O7' (processo de construcao)",
+        "README.md: sem contagem fixa de testes; aviso de que a imagem Docker nao tem scripts/ nem codex/claude; agents/README.md sem providers.yaml; skills/README.md marca SkillResolver/ExternalSkillResolver como nao implementados; deploy.md e requirements.md sem HumanApprovalEngine/7 etapas",
+        "grep dos nomes inexistentes: so aparecem na nota explicita de architecture.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1528 passed / 94.22%"
+      ]
+    },
+    {
+      "id": "MEL-03",
+      "epic": "EPIC-12",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "OpenAPI gerado a partir do FastAPI, verificado no CI (ADR-0064)",
+      "description": "feedback.md \u00a72 item 19: contracts/openapi.yaml manual com 19 paths contra ~200 rotas e paths inexistentes. Contrato passa a ser gerado do codigo e verificado por teste.",
+      "acceptance_criteria": [
+        "Arquivo gerado contem todas as rotas /v1/*",
+        "Mudar uma rota sem regenerar faz o teste falhar",
+        "docs/api.md e README.md apontam para o arquivo gerado e para /docs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "src/aso/api/openapi_export.py (gerar_openapi com servico em memoria + auth dev injetada; serializar com sort_keys) e scripts/export-openapi.py => contracts/openapi.json (167 paths, 164 /v1, nenhum /ui; saida deterministica verificada por md5 em duas geracoes)",
+        "contracts/openapi.yaml removido do working tree (sem staging)",
+        "tests/integration/test_openapi_contract.py (3): arquivo == gerado (com instrucao de regeneracao); toda APIRoute /v1 no schema e nenhum /ui; rota nova sem regenerar => diverge",
+        "Docs: ADR-0064 (supersede trecho da ADR-0005, anotada), docs/api.md, docs/index.md (indice de ADRs regenerado), README.md",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade + check OK, pytest 1531 passed / 94.20%"
+      ]
+    },
+    {
+      "id": "MEL-05",
+      "epic": "EPIC-12",
+      "type": "Task",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "HOW_IT_WORKS.md com fluxo real e glossario",
+      "description": "feedback.md \u00a71/\u00a75/\u00a78: um desenvolvedor novo precisava ler run_phase/run_card/decide_approval num arquivo de 7 mil linhas; termos centrais ambiguos. Documento curto com glossario, fluxo e mapa de onde mexer.",
+      "acceptance_criteria": [
+        "Todo termo do glossario aponta para a classe/funcao real",
+        "O diagrama bate com o codigo atual (run_phase, run_card, decide_approval, merge_pr)",
+        "README aponta para o documento logo no inicio"
+      ],
+      "dependencies": [
+        "MEL-02"
+      ],
+      "evidence": [
+        "docs/HOW_IT_WORKS.md: glossario com 11 termos e referencias a AgentRegistry/FASE_PADRAO_POR_PAPEL, ExecutorProfile/ExecutorCatalog, perguntar_ao_agente, Phase, KanbanCard, OrchestratorContextStore/ContextBus/context_builder, run_quality_gate/gate_definitions, SnapshotEngine, HumanApproval/decide_approval, restaurar_ledger; tabela fase x etapa do fluxo.md",
+        "Diagrama Mermaid revisado contra o codigo: create_with_triage -> TriageService.analisar, ExecutionPlanner(MultiAgentDecisionEngine), start_autopilot -> run_phase (SKIPPED/PhaseSkipped), run_card (claim) -> TaskEnvelope -> _apply_execution -> ContextBus.submit -> open_pr, ci/run, review/run, merge_pr, run_quality_gate -> snapshot + fase_gate, decide_approval -> _advance_after_phase_gate -> advance_phase (nomes verificados por grep)",
+        "Tabela 'quero mudar X' (10 linhas) e limites atuais com MEL-31/32/30/41/40/36/04",
+        "README.md (logo apos a introducao) e docs/index.md ('Comece aqui') apontam para o documento",
+        "Bateria: ruff check OK, ruff format --check OK, mypy strict OK, alembic check OK, pytest 1531 passed / 94.20% (so docs mudaram)"
+      ]
+    },
+    {
+      "id": "MEL-30",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Registro persistido de execucoes (agent_runs) e IDs propagados (ADR-0065)",
+      "description": "feedback.md \u00a79: prompt, tarefa, saida, ferramentas e perguntas a agentes nao eram persistidos e os IDs ficavam espalhados. Nova entidade AgentRun append-only com repositorio proprio, gravada em inicio e fim, com run_id propagado e segredos mascarados.",
+      "acceptance_criteria": [
+        "Toda execucao de card e toda pergunta a agente geram um AgentRun com prompt, envelope, duracao e resultado",
+        "Uma falha roteada tem a decisao registrada no mesmo AgentRun",
+        "run_id aparece no CardEvent e no ambiente do processo do agente",
+        "Reiniciar a API nao perde o registro",
+        "Teste garante que um valor com formato de chave (sk-...) nao e persistido",
+        "Migration validada no Postgres"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "observability/agent_runs.py: AgentRun, mascarar_segredos/mascarar_json, AgentRunRepository, InMemoryAgentRunRepository, retencao_em_dias; db/models.py AgentRunRow (sem FK) + db/repository.py SqlAlchemyAgentRunRepository (merge, listar, expurgar_textos); migration accd40ad02c2 (com import Text); bootstrap injeta o SQL",
+        "orchestration_service: _abrir_run/_fechar_run em _execute_isolated (prompt via PromptBuilder ou render_prompt, envelope, uso, stdout, diff, branch, exit_code, erro), _registrar_decisao_no_run em run_card e run_plan, run_id=execution_id em task/AgentExecuted/FailureRouted, _perguntar_registrando em 8 chamadas (triagem x2, discovery, spec, revisao de spec, revisao documental, revisao de codigo, nomeacao), list_agent_runs/get_agent_run",
+        "control/agent_ask.py: ContextoDeRun + contexto_de_run (ContextVar), registro kind=ask em inicio/sucesso/falha, ASO_RUN_ID no env do CLI; cli_provider: ASO_RUN_ID no env",
+        "API GET /v1/orchestrations/{id}/runs e GET /v1/runs/{run_id}; contracts/openapi.json regenerado",
+        "tests/integration/test_agent_runs.py (9): mascara padroes e env; repositorio memoria/SQLite (upsert, listar, expurgo, segredo fora do arquivo); run_card CLI => registro completo + ASO_RUN_ID == run_id + CardEvent + AgentExecuted; falha roteada => decisao no mesmo run + FailureRouted.run_id; triagem => run ask; reinicio com SQLite preserva e nao grava sk-/valor de env; retencao; endpoints 200/404",
+        "Docs: ADR-0065, docs/operations.md, README (ASO_RUN_RETENCAO_DIAS, ASO_CONTEXTO_MAX_CHARS), docs/GOVERNANCE.md regras 8 e 9, indice de ADRs",
+        "Bateria: ruff check OK, ruff format OK, mypy strict OK, alembic upgrade/downgrade/upgrade/check OK, pytest 1540 passed / 94.25%",
+        "Docker/Postgres: /health 200, smoke OK, run do smoke gravado (status sucesso, prompt presente), alembic_version=accd40ad02c2, downgrade/upgrade/check no container OK"
+      ]
+    },
+    {
+      "id": "MEL-32",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Extrair servi\u00e7os do OrchestrationService e dividir app.py (camada de aplica\u00e7\u00e3o)",
+      "description": "OrchestrationService (7.834 linhas, ~260 m\u00e9todos, 12 subdom\u00ednios) e app.py (2.756 linhas, 200 rotas com regra de neg\u00f3cio) extra\u00eddos em 13 passos com a su\u00edte verde a cada passo e API p\u00fablica inalterada: 20 servi\u00e7os por caso de uso em src/aso/application/, raiz de composi\u00e7\u00e3o, fa\u00e7ade declarativa tipada e routers por recurso.",
+      "acceptance_criteria": [
+        "orchestration_service.py reduzido a fa\u00e7ade (< 500 linhas): 466 linhas, sem l\u00f3gica \u2014 tabela de Delegado + resolu\u00e7\u00e3o de colaboradores",
+        "app.py < 300 linhas com rotas em routers por recurso: 170 linhas; 11 routers em api/routers/",
+        "Nenhuma regra de neg\u00f3cio em handlers HTTP: planejamento LLM em IntakeService.planejar/planejar_na_criacao",
+        "Todo m\u00e9todo mutador passa pelo lock do BundleStore: teste AST test_todo_mutador_persiste_sob_o_lock_do_bundle_store (exce\u00e7\u00f5es documentadas) + test_lock_so_nasce_no_bundle_store",
+        "Su\u00edte completa verde a cada passo; contrato HTTP inalterado (test_openapi_contract passa sem regenerar contracts/openapi.json)"
+      ],
+      "dependencies": [
+        "MEL-10",
+        "MEL-11",
+        "MEL-12",
+        "MEL-13"
+      ],
+      "evidence": [
+        "src/aso/application/{bundles,queries,intake,classificacao,preparation,settings,agent_task,execution,candidates,cards,delivery,docs_first,workflow,recovery,approvals,qa,release,governanca,insights,catalogs}.py (todos <= 800 linhas)",
+        "src/aso/application/composicao.py (LimitesDoRuntime, Colaboradores, compor_servicos) e delegacao.py (Delegado[S, **P, R])",
+        "src/aso/api/app.py (gateway + composi\u00e7\u00e3o), api/routers/*.py (criar_router), api/deps.py, api/schemas.py; ordem de casamento verificada: 221 rotas, 10 sobreposi\u00e7\u00f5es, 0 invertidas",
+        "tests/unit/test_camada_de_aplicacao.py (sem import da fa\u00e7ade, <= 800 linhas, app s\u00f3 comp\u00f5e, paths do contrato declarados nos routers, lock em todo _persist), tests/unit/test_bundle_store.py, tests/unit/test_query_service.py",
+        "ADR-0066 (passos 1\u201313, alternativas descartadas: __getattr__ din\u00e2mico e delegadores manuais)",
+        "ruff check/format OK; mypy --strict OK (136 arquivos); alembic upgrade head + check OK; pytest 1610 passed / 94.79%; Docker/Postgres /health 200 + smoke.sh OK"
+      ]
+    },
+    {
+      "id": "MEL-31",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Execu\u00e7\u00e3o ass\u00edncrona com fila persistida e workers",
+      "description": "Rotas que acionam agentes deixam de segurar a requisi\u00e7\u00e3o: com ASO_EXECUCAO_ASSINCRONA=1 enfileiram um Job (tabela jobs) consumido por ASO_WORKERS threads, respondem 202 e s\u00e3o acompanhadas/canceladas por /v1/jobs; aprova\u00e7\u00e3o de fase enfileira a pr\u00f3xima fase; boot recupera a fila.",
+      "acceptance_criteria": [
+        "Nenhuma rota de execu\u00e7\u00e3o mant\u00e9m a requisi\u00e7\u00e3o aberta: provider lento \u2192 202 em < 1 s, conclus\u00e3o por polling (test_run_card_responde_202_na_hora_e_conclui_por_polling)",
+        "Aprovar fase_gate retorna em < 1 s e a pr\u00f3xima fase aparece na fila (test_autopilot_assincrono_de_ponta_a_ponta_e_aprovacao_enfileira_a_proxima_fase)",
+        "Cancelar run em andamento encerra o subprocess e libera o card (test_cancelar_run_em_andamento_encerra_o_subprocess_e_libera_o_card)",
+        "Rein\u00edcio: job running vira failed e queued executa ap\u00f3s o boot (test_boot_marca_running_orfao_failed_e_executa_os_da_fila; verificado tamb\u00e9m no Docker/Postgres com restart do container)",
+        "Autopilot de ponta a ponta com provider fake continua funcionando nos dois modos",
+        "Smoke do Docker adaptado (executar com polling + passo 8 da fila) e verde"
+      ],
+      "dependencies": [
+        "MEL-13",
+        "MEL-30"
+      ],
+      "evidence": [
+        "src/aso/execution/jobs.py (Job, FilaDeJobs, cancelamento cooperativo, recupera\u00e7\u00e3o no boot); src/aso/db/models.py JobRow + SqlAlchemyJobRepository; migration ffabdb4f1996",
+        "src/aso/api/execucao_assincrona.py (11 opera\u00e7\u00f5es, classificar_erro), src/aso/api/routers/jobs.py, ApiDeps.enfileirar, create_app(execucao_assincrona=, job_repository=) + lifespan, bootstrap.build_job_repository",
+        "WorkflowService.definir_agendador_de_fase + evento PhaseScheduled; verificar_cancelamento em run_card/run_plan/run_phase; CliAgentExecutionProvider registra o subprocess; contexto copiado nos ThreadPoolExecutor",
+        "static/jobs.js + helpers api de 6 telas (node --check OK); scripts/smoke.sh executar/polling; docker-compose ASO_EXECUCAO_ASSINCRONA:-1 e ASO_WORKERS:-2; manager.sh",
+        "tests/unit/test_fila_de_jobs.py (12), tests/integration/test_execucao_assincrona.py (8), test_candidates_api.py::test_race_assincrona_devolve_202_e_a_comparacao_fica_no_job",
+        "ADR-0067; docs/operations.md, api.md, architecture.md, HOW_IT_WORKS.md, GOVERNANCE.md, index.md; OpenAPI regenerado",
+        "ruff/format OK; mypy strict OK (139); alembic upgrade+downgrade+check OK; pytest 1632 passed / 94.77%; Docker/Postgres /health 200 + smoke.sh (modo ass\u00edncrono, jobs analyze_folder e run_card done no Postgres) + restart: job running \u2192 failed, queued \u2192 done"
       ]
     }
   ]

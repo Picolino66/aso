@@ -51,10 +51,12 @@ def test_frozen_section_allowed_with_adr_override(store: OrchestratorContextStor
     bus = ContextBus(store, permissions=permissions, adr_registry=registry)
     bus.submit(make_patch())
     store.freeze(["architecture"])
-    result = bus.submit(
-        make_patch(content="microservices", requires_adr=True, linked_adrs=[adr.id])
-    )
-    assert result.status == PatchStatus.APPLIED
+    override = make_patch(content="microservices", requires_adr=True, linked_adrs=[adr.id])
+    result = bus.submit(override)
+    # ADR libera a validação, mas a aplicação exige decisão humana (ADR-0061).
+    assert result.status == PatchStatus.PENDING
+    assert store.get_path("architecture.pattern") == "modular-monolith"
+    assert bus.apply_approved(override).status == PatchStatus.APPLIED
     assert store.get_path("architecture.pattern") == "microservices"
 
 

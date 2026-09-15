@@ -33,7 +33,8 @@ def test_run_card_and_gate() -> None:
     assert run.status_code == 200
     assert run.json()[0]["status"] == "applied"
 
-    gate = client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={})
+    # Gate da fase do card (F5): o patch aplicado ali aprova F5 (ADR-0060).
+    gate = client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F5"})
     assert gate.json()["status"] == "PASSED"
     assert client.get(f"/v1/orchestrations/{oid}/snapshots").json()
 

@@ -8,12 +8,16 @@
 
 Cada fase F1–F7 tem um **quality gate** que valida critérios verificáveis antes de permitir o avanço. Regras:
 
-- **Gate falho bloqueia o avanço** de fase.
+- **Gate falho bloqueia o avanço** de fase. Imposto em `advance_phase` (MEL-10): só
+  avança quando o **último** `QualityGateResult` da fase atual é `PASSED` ou `SKIPPED`
+  (fase sem nada bloqueante a verificar, ADR-0060) — gate nunca
+  executado, `FAILED` ou `PASSED` antigo seguido de `FAILED` recusam com 409, gravam o
+  evento `PhaseAdvanceRefused` e mantêm `current_phase`. O autopilot usa o mesmo caminho.
 - Gate falho pode gerar cards automáticos e acionar o agente responsável.
 - Gate crítico pode exigir aprovação humana.
 - **Fase aprovada gera um snapshot** (ver [`snapshots.md`](snapshots.md)).
 
-Cada resultado (`QualityGateResult`) registra: `phase`, `status` (`PASSED`/`FAILED`/`WARNING`), lista de `criteria` (com `evidence` e `failure_reason`), `blocking_issues`, `warnings`, `required_actions`, `approved_by` e se exigiu aprovação humana.
+Cada resultado (`QualityGateResult`) registra: `phase`, `status` (`PASSED`/`FAILED`/`WARNING`/`SKIPPED`), lista de `criteria` (com `evidence` e `failure_reason`), `blocking_issues`, `warnings`, `required_actions`, `approved_by` e se exigiu aprovação humana.
 
 ### Bateria de validações nomeada (§12, ADR-0022)
 
@@ -32,19 +36,34 @@ determinística por stack em `GET .../validation-checks/suggest`
 ([`docs/api.md`](api.md)). Ver
 [ADR-0022](adrs/ADR-0022-bateria-de-validacoes-e-effort-automatico.md).
 
-## 2. Gates por fase e estado atual
+### Critérios do runtime por fase (ADR-0060)
 
-| Fase | Gate | Estado | Snapshot gerado | Evidência |
-|---|---|---|---|---|
-| F1 → F2 | Discovery & Strategy | ✅ PASSED | O1 | [F1 §12](phases/F1-discovery.md) · `.aso/quality-gates/F1-gate.json` |
-| F2 → F3 | Architecture & Design | ✅ PASSED | O2 | [F2 §12](phases/F2-architecture.md) · `.aso/quality-gates/F2-gate.json` |
-| F3 → F4 | Data & API Contracts | ✅ PASSED | O3 | [F3 §8](phases/F3-contracts.md) · `.aso/quality-gates/F3-gate.json` |
-| F4 → F5 | UX/UI & Planning | ✅ PASSED | O4 | [F4 §8](phases/F4-planning.md) |
-| F5 → F6 | Engineering Execution | ⏳ pendente | O5 | — |
-| F6 → F7 | Quality, Docs & Deploy | ⏳ pendente | O6 | — |
-| F7 | Operate & Evolve | ⏳ pendente | O7 | — |
+Declarados em [`src/aso/governance/gate_definitions.py`](../src/aso/governance/gate_definitions.py);
+a tabela abaixo é **gerada** das definições (`tabela_markdown()`) e um teste falha se ela
+divergir do código. Gate sem nenhum critério bloqueante aplicável fica `SKIPPED`: não gera
+snapshot nem aprovação humana; `advance_phase` o aceita como `PASSED`; o autopilot registra
+`PhaseSkipped` e segue para a próxima fase.
 
-**Estado atual: gates F1–F4 PASSED.** Os resultados JSON de F1–F3 estão em [`.aso/quality-gates/`](../.aso/quality-gates/); o gate F4→F5 está registrado em [F4 §8](phases/F4-planning.md) (snapshot O4). A próxima fase é F5 (Engineering Execution).
+<!-- gate-definitions:inicio -->
+| Critério | Fases | Bloqueia | Regra |
+|---|---|---|---|
+| `cards_da_fase_entregues` | todas | sim | Todo card da fase (fora Cancelled/Archived) está Done, ou Testing sem branch. |
+| `output_da_fase_aplicado` | todas | sim | Ao menos um ContextPatch aplicado com a fase igual à do gate (quando há cards). |
+| `discovery_aprovado` | F1 | sim | Último relatório de discovery aprovado (só se o discovery foi rodado). |
+| `deploy_aprovado` | F6 | sim | Implantação aceita / pipeline completo (só se houve implantação). |
+| `bateria de validações (1 critério por verificação)` | F5, F6 | sim | Cada verificação configurada roda na pasta de trabalho (bloqueia conforme a verificação). |
+| `cards_entregues` | F5, F6 | sim | Com validação configurada e cards na fase: todos mesclados (Done). |
+| `docs_in_sync` | F5, F6 | não | Documentação docs-first sem drift em relação ao código (aviso, não bloqueia). |
+| _(nenhum critério bloqueante aplicável)_ | todas | — | Gate `SKIPPED`: sem snapshot e sem aprovação humana de fase vazia. |
+<!-- gate-definitions:fim -->
+
+## 2. Estado do processo de construção do ASO
+
+As tabelas "F1–F4 PASSED / F5 pendente" que existiam aqui descreviam o **processo de
+construção do próprio ASO** (artefatos mantidos à mão em `.aso/quality-gates/`), não o
+estado de uma orquestração do runtime. O estado real de cada orquestração vem de
+`GET /v1/orchestrations/{id}/quality-gates`. A separação dos artefatos de construção é a
+MEL-04 (aguardando decisão do operador).
 
 ## Referências
 

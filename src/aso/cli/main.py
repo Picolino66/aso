@@ -44,8 +44,15 @@ def run(request: str) -> None:
     for card in _service.get_cards(orch.id):
         typer.echo(f"  [{card.status.value:>10}] {card.title}")
 
-    gate = _service.run_quality_gate(orch.id)
-    typer.echo(f"\nQuality gate: {gate.status.value}")
+    # Gate escopado por fase (ADR-0060): avalia cada fase que recebeu trabalho — o gate
+    # da fase corrente vazia seria só SKIPPED e não diria nada sobre o ciclo executado.
+    fases = sorted({card.phase for card in _service.get_cards(orch.id)}) or [
+        _service.get(orch.id).current_phase
+    ]
+    typer.echo("")
+    for fase in fases:
+        gate = _service.run_quality_gate(orch.id, fase)
+        typer.echo(f"Quality gate {fase.value}: {gate.status.value}")
 
     ctx = _service.get_context(orch.id)
     chash = str(ctx["context_hash"])
@@ -120,13 +127,24 @@ def approve(approval_id: str) -> None:
     typer.echo(f"Aprovado: {a.id} [{a.status}]")
 
 
-@app.command()
+@app.command("restaurar-ledger")
+def restaurar_ledger(
+    orchestration_id: str, to: str = typer.Option(..., "--to", help="Snapshot alvo")
+) -> None:
+    """Restaura só o ledger do contexto a um snapshot (não reverte código nem board)."""
+    orch = _service.restaurar_ledger(orchestration_id, to)
+    typer.echo(
+        f"Ledger restaurado: snapshot={orch.snapshot_version} status={orch.status} "
+        "(código, branches e board não foram alterados)"
+    )
+
+
+@app.command(deprecated=True)
 def rollback(
     orchestration_id: str, to: str = typer.Option(..., "--to", help="Snapshot alvo")
 ) -> None:
-    """Restaura o contexto para um snapshot (gera ADR de rollback)."""
-    orch = _service.rollback(orchestration_id, to)
-    typer.echo(f"Rollback concluído: snapshot={orch.snapshot_version} status={orch.status}")
+    """Alias obsoleto de `restaurar-ledger` (mantido por uma versão, ADR-0061)."""
+    restaurar_ledger(orchestration_id, to)
 
 
 @app.command()

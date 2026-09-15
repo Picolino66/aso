@@ -43,6 +43,7 @@
   </div>
 
   <script src="/ui/header.js"></script>
+  <script src="/ui/jobs.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     const ID = new URLSearchParams(location.search).get('id');
@@ -59,7 +60,7 @@
       let corpo = null;
       try { corpo = await r.json(); } catch (e) { corpo = null; }
       if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return corpo;
+      return window.asoResolverResposta(r.status, corpo, headers);
     }
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

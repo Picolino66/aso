@@ -13,6 +13,9 @@ from pathlib import Path
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _init_repo(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -34,7 +37,7 @@ def _merge_governado(tmp_path: Path) -> tuple[OrchestrationService, str, str]:
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)  # já abre a PR sozinho (branch presente no output)
     pr = svc.list_pulls(orch.id)[0]
-    svc.report_ci(orch.id, pr.id, "passed")
+    svc.report_ci(orch.id, pr.id, "passed", justificativa=JUST_CI)
     svc.report_review(orch.id, pr.id, "approved", justificativa="revisão manual do teste")
     svc.merge_pr(orch.id, pr.id)
     return svc, orch.id, card.id
@@ -87,7 +90,7 @@ def test_acoes_de_severidade_sugestao_viram_riscos_residuais(tmp_path: Path) -> 
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)  # já abre a PR sozinho (branch presente no output)
     pr_ref = svc.list_pulls(orch.id)[0]
-    svc.report_ci(orch.id, pr_ref.id, "passed")
+    svc.report_ci(orch.id, pr_ref.id, "passed", justificativa=JUST_CI)
     # Simula um veredito já aprovado, com uma ação de severidade `sugestao` pendente
     # (não bloqueou a aprovação, mas fica registrada como risco residual no §23).
     pr_ref.review_verdict = {

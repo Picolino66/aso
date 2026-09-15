@@ -9,16 +9,43 @@
 
 | Plane (§10) | Módulo | Responsabilidade (resumo) |
 |---|---|---|
-| Control | `control` | OrchestratorRuntime, PhaseController, MultiAgentDecisionEngine, AgentSupervisor, AgentRouter, ExecutionPlanner, DependencyGraph, HumanApprovalEngine |
-| Kanban | `kanban` | Board, Card, Swimlane, dependências, assignment, eventos de card |
-| Agent | `agents` | AgentRegistry, AgentSupervisor, AgentExecutor, AgentAdapterRegistry, Skill/Tool permissions |
-| Execution | `execution` | ExecutionProvider (Local/Mock, Cli, AgentWrapper), WorktreeManager, TerminalRuntime, observers |
-| Governance | `governance` | OrchestratorContext, ContextBus, ContextPatchValidator, ConflictDetector, QualityGateEngine, ADRRegistry, SnapshotEngine, ContractValidator |
-| Observability | `observability` | TraceService, EventLog, CostTracker, TokenUsageTracker, AgentRunTimeline, AuditLog |
+| Control | `control` | `OrchestrationService` (serviço de aplicação que concentra fases, aprovações, gates e execução), `MultiAgentDecisionEngine`, `ExecutionPlanner`, `PlanningService`, triagem/discovery/spec/revisão, `next_step` |
+| Kanban | `kanban` | `BoardService`, `KanbanCard`, transições manuais validadas, hierarquia, eventos de card |
+| Agent | `agents` | `AgentRegistry`, `AgentSupervisor` (retry/nudge), `PromptBuilder`, `ContextBuilder`, contrato `TaskEnvelope` |
+| Execution | `execution` | `ExecutionProvider` (mock, LLM, CLI, roteamento), `WorktreeManager`, `CandidateRunner`, catálogo de executores, workspace/docs-first |
+| Governance | `governance` | `OrchestratorContextStore`, `ContextBus`, `ConflictDetector`, `QualityGateEngine` + definições por fase, `ADRRegistry`, `SnapshotEngine` |
+| Observability | `observability` | logging estruturado (structlog), `EventBroker` (SSE), métricas/SLO, rate limit, tracing opcional, log de agentes, aprendizado |
+
+> **Camada de aplicação (ADR-0066, MEL-32):** toda a lógica do antigo `OrchestrationService`
+> (7.834 linhas) está em `src/aso/application/`, um serviço por caso de uso:
+> `bundles.py` (`BundleStore` — cache, hidratação, persistência e **lock por orquestração, fonte
+> única**), `queries.py` (leituras), `intake.py` (criação, triagem, planejamento),
+> `classificacao.py` (reclassificação, replanejamento, duplicação), `preparation.py` (discovery,
+> especificação, documentos), `settings.py` (executor/esforço efetivos, atribuições, validações,
+> orçamento, worktrees), `agent_task.py` (tarefa do agente e `AgentRun`), `execution.py` (claim,
+> execução, falhas, freios), `candidates.py` (corrida), `cards.py` (operações do board),
+> `delivery.py` (PR, CI, revisão, merge), `docs_first.py` (análise e self-heal de docs),
+> `workflow.py` (fases, gate, autopilot — único lugar que muda fase), `recovery.py` (retry),
+> `approvals.py` (aprovações, kill-switch, restauração), `qa.py`, `release.py`, `governanca.py`
+> (patches, conflitos, auditoria, SLO), `insights.py` (aprendizado e próximo passo) e
+> `catalogs.py` (projetos, executores, regras, agentes). `composicao.py` é a raiz de composição;
+> `control/orchestration_service.py` virou façade declarativa (`delegacao.py::Delegado`, tipada
+> pela assinatura do serviço). Na API, `app.py` só compõe o gateway (auth, rate limit, tracing,
+> log) e os routers de `api/routers/` (um por recurso, com `api/deps.py` e `api/schemas.py`).
+
+> Componentes citados em versões anteriores deste documento **não existem** no código:
+> `OrchestratorRuntime`, `PhaseController`, `AgentRouter`, `DependencyGraph`,
+> `HumanApprovalEngine`, `TerminalRuntime`, `AuditLog` (como componente), `ToolPermissionEngine`,
+> `CostTracker`, `TokenUsageTracker`, `AgentRunTimeline`. Aprovações vivem em
+> `OrchestrationService` (`HumanApproval`); a trilha de auditoria é o `EventLog` + patches do
+> bus; custo vem do envelope do agente (ADR-0026).
 
 ## 2. Mapa de camadas e módulos
 
-Regra de dependência aponta para dentro (Clean Architecture); verificável por lint de imports; **sem ciclos**.
+Regra de dependência aponta para dentro (Clean Architecture). **Ainda não é verificada por
+lint** e há um ciclo real `control` ↔ `observability` (`observability/metrics.py` importa
+`OrchestrationService`, e `control` importa `observability`) — a verificação automática é a
+MEL-36.
 
 ```
 driving adapters:   api (FastAPI)   |   cli (Typer)
@@ -42,7 +69,7 @@ shared  ◄─ governance ◄─ kanban ◄─ observability
 
 ## 3. Stack (locked — ADR-0004)
 
-Python 3.12+ · FastAPI + Uvicorn · Pydantic v2 · PostgreSQL 16 (JSONB) + SQLAlchemy 2.x + Alembic · asyncio · `httpx`/SDK Anthropic (abstração `LLMProvider`) · `subprocess`/PTY (`AgentAdapter`) · git via subprocess (`WorktreeManager`) · Typer (CLI) · pytest + coverage · ruff + mypy · `pyproject.toml` (src layout) · Docker Compose (Postgres). UI web **diferida**: MVP 1 entrega API + CLI. Ver [ADR-0004](adrs/ADR-0004-tech-stack-python.md) (supera a stack TS sugerida no §37 do requisito).
+Python 3.12+ · FastAPI + Uvicorn · Pydantic v2 · PostgreSQL 16 (JSONB) + SQLAlchemy 2.x + Alembic · `httpx` (clientes LLM, `LlmClient`) · `subprocess` (agentes CLI) · git via subprocess (`WorktreeManager`) · Typer (CLI) · pytest + coverage · ruff + mypy · `pyproject.toml` (src layout) · Docker Compose (Postgres). Há **console web** servido pela própria API em `/ui` (páginas estáticas em `src/aso/api/static/`). Ver [ADR-0004](adrs/ADR-0004-tech-stack-python.md) (supera a stack TS sugerida no §37 do requisito).
 
 Executores Codex gerenciados são adapters descobertos pelo App Server (`model/list`),
 conforme ADR-0011. O domínio não depende do protocolo do fornecedor: o catálogo recebe
@@ -54,8 +81,8 @@ capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
 - **Catálogo multi-repo:** `Project` usa porta própria com adapters in-memory e SQLAlchemy;
   tabelas `projects`/`project_events` e FKs restritivas separam metadados de catálogo do
   agregado da orquestração. Arquivamento preserva rastreabilidade (ADR-0010).
-- **Segurança:** secrets env-only (chave nunca exibida por inteiro); `ToolPermissionEngine` com allowlist por papel; `HumanApprovalEngine` obrigatório para ações críticas; worktree isolado por agente que altera código; I/O validado por Pydantic; `AuditLog` append-only.
-- **Infra:** local-first, processo único (API + workers asyncio); Docker Compose para Postgres; escala vertical primeiro; sem execução remota distribuída no MVP.
+- **Segurança:** secrets env-only (chave nunca exibida por inteiro); RBAC por papel com ações críticas e comandos no host só para `admin` (ADR-0057); aprovações humanas (`HumanApproval`) para estratégia crítica, patches e fases; worktree isolado por agente que altera código; I/O validado por Pydantic; trilha append-only no `EventLog`. `allowed_tools` por papel é persistido, mas **não aplicado**. Mapa regra → teste: [`GOVERNANCE.md`](GOVERNANCE.md).
+- **Infra:** local-first, **processo único**; handlers FastAPI síncronos no threadpool do Starlette; com `ASO_EXECUCAO_ASSINCRONA=1` as rotas que acionam agentes enfileiram jobs (tabela `jobs`) consumidos por `ASO_WORKERS` threads do mesmo processo (ADR-0067); Docker Compose para Postgres; escala vertical primeiro (múltiplas réplicas: MEL-56).
 
 ## Referências
 

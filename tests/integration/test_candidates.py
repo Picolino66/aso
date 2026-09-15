@@ -8,6 +8,9 @@ from pathlib import Path
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _init_repo(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -43,7 +46,7 @@ def test_race_candidates_and_merge_recommended(tmp_path: Path) -> None:
     # abre PR do candidato recomendado e faz merge governado (git real)
     svc._provider = claude  # noqa: SLF001 — provider com WorktreeManager para o merge
     pr = svc.open_pr(orch.id, card.id, branch=str(comparison["recommended_branch"]))
-    svc.report_ci(orch.id, pr.id, "passed")
+    svc.report_ci(orch.id, pr.id, "passed", justificativa=JUST_CI)
     # Aprovação governada (ADR-0017) sem revisor de agente configurado neste teste:
     # exige justificativa humana explícita — o clique sem revisão não existe mais.
     svc.report_review(orch.id, pr.id, "approved", justificativa="revisão manual do teste")

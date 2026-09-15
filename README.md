@@ -10,6 +10,9 @@ imutáveis por fase.
 > Toda a documentação, a UI e os comentários de código estão em **português do
 > Brasil (pt-BR)**.
 
+> **Chegou agora?** Comece por [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) — glossário,
+> fluxo de uma demanda e onde mexer — e depois [docs/GOVERNANCE.md](docs/GOVERNANCE.md).
+
 ---
 
 ## Por que o ASO existe
@@ -24,7 +27,7 @@ deny-by-default).
 ## Princípios de governança
 
 - **ContextBus é o único escritor** do contexto canônico. Patches passam por um
-  pipeline de validação de 8 etapas (schema, permissão, conflito, lock de
+  pipeline de validação de 8 etapas (6 com efeito) (schema, permissão, conflito, lock de
   snapshot, consistência/contradição de ADR, compatibilidade de contrato,
   impacto em quality gate).
 - **Não avança de fase** com quality gate reprovado.
@@ -96,6 +99,10 @@ e tenha os binários `codex`/`claude` no PATH. Os comandos já usam o wrapper co
 
 ### Com Docker (recomendado)
 
+> **Limite atual:** a imagem Docker não inclui `scripts/` (wrapper de agentes) nem os binários
+> `codex`/`claude`; agentes CLI reais rodam no modo local (`manager.sh`/venv). No Docker, use
+> executores mock ou LLM via API.
+
 Sobe Postgres + API (migrations no boot, healthcheck `/health`):
 
 ```bash
@@ -140,7 +147,7 @@ aso adrs <orchestration_id>                      # ADRs registradas
 aso metrics <orchestration_id>                   # métricas + SLOs
 aso approvals <orchestration_id>                 # aprovações pendentes
 aso approve <approval_id>                        # aprova ação crítica
-aso rollback <orchestration_id> <snapshot>       # rollback para snapshot estável
+aso restaurar-ledger <orchestration_id> --to O3  # restaura só o ledger do contexto (alias: rollback)
 aso stats <orchestration_id>                     # agregações (CQRS-lite)
 aso feedback <orchestration_id> "texto"          # feedback → backlog
 ```
@@ -159,7 +166,7 @@ POST /v1/orchestrations/{id}/cards/{cid}/run    # executa um card
 GET  /v1/orchestrations/{id}/context            # contexto canônico atual
 GET  /v1/orchestrations/{id}/kanban ...cards    # Kanban
 POST .../cards/{cid}/open-pr                     # abre PR do worktree do card
-POST .../pulls/{pr}/ci | /review/run | /review | /merge  # CI, revisão (ADR-0017), merge (admin)
+POST .../pulls/{pr}/ci/run | /ci | /review/run | /review | /merge  # CI executada/declarada (ADR-0056), revisão (ADR-0017), merge (admin)
 GET  .../cards/{cid}/failures | POST .../cards/{cid}/route  # roteamento de falha (ADR-0019)
 GET  .../cards/{cid}/closure                     # ficha de encerramento (ADR-0021, §23)
 GET/POST .../discovery | .../discovery/run | .../discovery/decide  # discovery (ADR-0020)
@@ -204,15 +211,21 @@ catálogo de executores.
 
 ### Autenticação / RBAC
 
-Chaves via `ASO_API_KEYS` (JSON, papéis `viewer` < `operator` < `admin`).
-Endpoints críticos (`/merge`, `/approve`, `/reject`, `/rollback`, arquivar/restaurar
-projeto) exigem `admin`.
+Chaves via `ASO_API_KEYS` (JSON, papéis `viewer` < `operator` < `admin`). Sem chaves a
+API só sobe com `ASO_DEV_MODE=1` (ADR-0057). Endpoints críticos (`/merge`, `/approve`,
+`/reject`, `/restaurar-ledger` (alias `/rollback`), `/advance-phase`, arquivar/restaurar projeto) e os que configuram
+ou disparam comandos no host (`validation-checks`, `deploy/*`) exigem `admin`.
 Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 
 | Variável | Descrição |
 |---|---|
 | `ASO_DATABASE_URL` | URL do banco (default SQLite; Postgres no Docker) |
 | `ASO_API_KEYS` | mapa JSON de chave → papel |
+| `ASO_DEV_MODE` | `1` libera o modo dev (admin anônimo) quando não há `ASO_API_KEYS`; sem ele a API não sobe |
+| `ASO_RUN_RETENCAO_DIAS` | dias até limpar prompt/stdout dos registros de execução (`agent_runs`); sem a variável, nada é limpo |
+| `ASO_CONTEXTO_MAX_CHARS` | orçamento de caracteres do contexto entregue ao agente (padrão 12000, ADR-0063) |
+| `ASO_WORKSPACE_ROOTS` | raízes permitidas para pastas de trabalho e `/v1/fs/*` (separadas por `:`; default `$HOME`) |
+| `POSTGRES_PASSWORD` | senha do Postgres no compose (default `aso`, só local) |
 | `ASO_RATE_LIMIT` | limite de requisições por IP |
 | `ASO_OTEL` | `1` habilita tracing OpenTelemetry (extra `[otel]`) |
 | `ASO_CLI_COMMAND` / `ASO_TARGET_REPO` | comando do agente CLI e repo alvo dos worktrees |
@@ -245,8 +258,11 @@ aprovações. Passos:
    - **comando CLI** (caminho absoluto do wrapper + o agente):
      `/app/scripts/aso-agent-wrapper.sh codex exec` (ou, local, o caminho do repo)
 5. O **wrapper** [`scripts/aso-agent-wrapper.sh`](scripts/aso-agent-wrapper.sh) traduz a
-   tarefa (JSON no stdin) em um prompt em pt-BR e chama `codex exec "<prompt>"` no worktree
-   do card. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
+   tarefa (JSON no stdin, contrato `TaskEnvelope` v1 — ADR-0059) em um prompt em pt-BR via
+   `src/aso/agents/render_prompt.py` e chama `codex exec "<prompt>"`. Execução de card
+   recebe critérios, correções, contexto adicional e `nudge`; perguntas (naming, triagem,
+   discovery, spec, revisão) recebem o `system` completo e respondem só JSON — também com
+   `--output-format stream-json`. Para o Claude Code, use `... aso-agent-wrapper.sh claude -p`.
 
 > **Permissão de escrita (causa nº 1 de card `Blocked` com "diff vazio", ADR-0019)**: em modo
 > não-interativo os CLIs não editam arquivos sem autorização explícita — respondem em texto,
@@ -282,8 +298,7 @@ alembic check                 # migrations em dia
 pytest -q --cov=src/aso --cov-fail-under=80
 ```
 
-Estado atual: **815 testes verdes**, cobertura **~92%**, ruff/mypy limpos,
-`alembic check` sem diffs, Docker e2e validado no Postgres. CI em
+O número de testes e a cobertura atuais são reportados pelo CI (mínimo exigido: 80%). CI em
 [.github/workflows/ci.yml](.github/workflows/ci.yml); release por tag no GHCR em
 [.github/workflows/release.yml](.github/workflows/release.yml).
 
@@ -296,7 +311,7 @@ src/aso/          # runtime (planes control/kanban/agents/execution/governance/o
 docs/             # documentação canônica (fonte de verdade) — adrs/, phases/
 specs/            # specs executáveis por task
 tasks/ agents/ skills/   # backlog, mapa de agentes, mapa de skills
-contracts/        # openapi.yaml (v1)
+contracts/        # openapi.json gerado das rotas (python scripts/export-openapi.py; ADR-0064)
 migrations/       # Alembic
 tests/            # unit/ + integration/
 .aso/             # estado do runtime: context, kanban/board.json, snapshots, quality-gates

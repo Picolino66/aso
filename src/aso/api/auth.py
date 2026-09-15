@@ -1,13 +1,14 @@
 """Autenticação por API key + RBAC (§34).
 
 Tokens são configurados via `ASO_API_KEYS` (JSON: {token: {actor, role}}).
-Sem tokens configurados, roda em **modo dev** (principal `dev`/`admin`) para não
-travar desenvolvimento/UI; em produção defina `ASO_API_KEYS` para exigir token.
+Sem tokens, o **modo dev** (principal `dev`/`admin` anônimo) só é aceito quando pedido
+explicitamente com `ASO_DEV_MODE=1` (ADR-0057): admin anônimo por omissão de variável
+transformava qualquer cliente da rede em administrador capaz de rodar comandos no host.
 
 Papéis (hierárquicos): viewer < operator < admin.
 - viewer: leitura (GET)
 - operator: escrita (criar orquestração, rodar, patches, feedback, cards...)
-- admin: ações críticas (aprovar/rejeitar aprovação, rollback)
+- admin: ações críticas (aprovar/rejeitar aprovação, rollback, avançar fase, comandos no host)
 """
 
 from __future__ import annotations
@@ -39,6 +40,14 @@ class AuthService:
     def from_env(cls) -> AuthService:
         raw = os.environ.get("ASO_API_KEYS")
         if not raw:
+            # Fail-closed (regra 4/9, ADR-0057): sem tokens e sem pedido explícito de
+            # modo dev, a API não sobe — melhor falhar no boot que servir admin anônimo.
+            if os.environ.get("ASO_DEV_MODE") != "1":
+                raise RuntimeError(
+                    "ASO_API_KEYS não configurada. Defina ASO_API_KEYS (JSON "
+                    '{"token": {"actor": "...", "role": "admin|operator|viewer"}}) ou, só '
+                    "para desenvolvimento local, ASO_DEV_MODE=1 (todo cliente vira admin)."
+                )
             return cls({}, dev_mode=True)
         data = json.loads(raw)
         tokens = {
@@ -65,6 +74,7 @@ def required_role(method: str, path: str) -> str:
             "/approve",
             "/reject",
             "/rollback",
+            "/restaurar-ledger",
             "/merge",
             "/race",
             "/restore-section",
@@ -73,11 +83,19 @@ def required_role(method: str, path: str) -> str:
             "/spec/approve",
             "/budget",
             "/worktrees/prune",
+            # Avanço de fase (regra inviolável 3/4): muda o estágio da esteira inteira.
+            "/advance-phase",
         )
     ):
         return "admin"
     if method == "GET":
         return "viewer"
+    # Comandos no host (ADR-0057): configurar a bateria de validação/deploy ou disparar
+    # a implantação roda `subprocess` na máquina do runtime — mesmo nível de /executors.
+    # `validation_command` enviado no corpo (criação/execution-settings) é checado no
+    # handler, porque `required_role` não lê o corpo.
+    if path.endswith(("/validation-checks", "/deploy/config", "/deploy/pipeline", "/deploy/run")):
+        return "admin"
     # Configuração de executores (criar/editar/remover perfis) é ação administrativa.
     if method != "GET" and "/executors" in path:
         return "admin"

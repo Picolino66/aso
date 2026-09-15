@@ -91,8 +91,11 @@ api_start() {
   if api_running; then warn "API já está rodando (PID $(cat "$PID"))."; return 0; fi
   mkdir -p "$RUNDIR"
   info "Iniciando a API local (uvicorn :$PORT)…"
-  ASO_DATABASE_URL="$DB_URL" PYTHONPATH="$ROOT/src" nohup \
-    "$VENV/bin/uvicorn" aso.api.app:app --host 0.0.0.0 --port "$PORT" >"$LOG" 2>&1 &
+  # Uso local (ADR-0057): sem ASO_API_KEYS, liga o modo dev EXPLICITAMENTE e escuta só
+  # em 127.0.0.1 — admin anônimo nunca fica exposto na rede por padrão.
+  ASO_DATABASE_URL="$DB_URL" PYTHONPATH="$ROOT/src" ASO_DEV_MODE="${ASO_DEV_MODE:-1}" \
+    ASO_EXECUCAO_ASSINCRONA="${ASO_EXECUCAO_ASSINCRONA:-1}" nohup \
+    "$VENV/bin/uvicorn" aso.api.app:app --host "${ASO_HOST:-127.0.0.1}" --port "$PORT" >"$LOG" 2>&1 &
   echo $! > "$PID"
   for _ in $(seq 1 20); do
     if curl -fsS "http://localhost:$PORT/health" >/dev/null 2>&1; then

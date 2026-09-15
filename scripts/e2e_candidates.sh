@@ -39,7 +39,7 @@ echo "4) abrir PR do recomendado + CI/review + merge governado"
 PR=$(curl -fsS "${AUTH[@]}" -X POST "$BASE/v1/orchestrations/$OID/cards/$CARD/open-pr" \
   -H 'content-type: application/json' -d "{\"branch\":\"$REC\"}" | pyget "['id']")
 curl -fsS "${AUTH[@]}" -X POST "$BASE/v1/orchestrations/$OID/pulls/$PR/ci" \
-  -H 'content-type: application/json' -d '{"status":"passed"}' >/dev/null
+  -H 'content-type: application/json' -d '{"status":"passed","justificativa":"CI externa verificada no e2e"}' >/dev/null
 curl -fsS "${AUTH[@]}" -X POST "$BASE/v1/orchestrations/$OID/pulls/$PR/review" \
   -H 'content-type: application/json' -d '{"status":"approved"}' >/dev/null
 curl -fsS "${AUTH[@]}" -X POST "$BASE/v1/orchestrations/$OID/pulls/$PR/merge" | grep -q '"merged"'

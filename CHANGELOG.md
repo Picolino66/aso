@@ -13,7 +13,139 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   (FID-01…FID-27) no Backlog do board, sob os épicos EPIC-9 (lacunas da esteira) e
   EPIC-10 (shell e telas).
 
+### Alterado
+- **MEL-31 — execução assíncrona com fila e workers (ADR-0067):** tabela `jobs` + `FilaDeJobs`
+  (`ASO_WORKERS`); com `ASO_EXECUCAO_ASSINCRONA=1` (ligado no Docker e no manager) as 11 rotas que
+  acionam agentes respondem `202` com `job_id`; `GET /v1/jobs/{id}`, `GET …/jobs` e
+  `POST /v1/jobs/{id}/cancel` (mata o subprocess do agente e libera o card); aprovar `fase_gate`
+  enfileira a próxima fase; boot marca `running` órfão como `failed` e retoma a fila; console com
+  polling (`/ui/jobs.js`) e `smoke.sh` nos dois modos.
+- **MEL-32 (concluída) — camada de aplicação e routers da API (ADR-0066):** passos 9–13 fecham a
+  extração — `CatalogService`; `api/routers/` por recurso (`app.py` 2.756 → 170 linhas, contrato
+  OpenAPI idêntico); resíduo da façade em `settings`, `docs_first`, `cards`, `governanca`,
+  `insights` e `classificacao`; raiz de composição (`application/composicao.py`) e façade
+  declarativa tipada (`Delegado`, 7.834 → 466 linhas); todo `_persist` sob o lock do `BundleStore`,
+  verificado por teste AST.
+- **MEL-32 (passo 8/10) — `IntakeService` (ADR-0066):** criação da orquestração, triagem, regra de
+  roteamento e planejamento LLM em `application/intake.py`; o handler `POST /v1/orchestrations` deixa de
+  conter regra de planejamento.
+- **MEL-32 (passo 7/10) — `WorkflowService`, `RecoveryService` e `ApprovalService` (ADR-0066):**
+  fases/gate/autopilot/`run_plan` (único lugar que muda fase), retry e aprovações/restauração
+  saem para `application/`; façade com 4.038 linhas.
+- **MEL-32 (passo 6/10) — `QaService` e `ReleaseService` (ADR-0066):** QA humano, bugs e
+  encerramento em `application/qa.py`; implantação, pipeline, rollback e incidentes em
+  `application/release.py`; façade com 4.841 linhas.
+- **MEL-32 (passo 5/10) — `PreparationService` (ADR-0066):** discovery, especificação,
+  documentos, revisão documental e materialização da spec em cards em `application/preparation.py`;
+  façade com 5.631 linhas.
+- **MEL-32 (passo 4/10) — execução extraída (ADR-0066):** `AgentTaskService` (tarefa, contexto,
+  `AgentRun`), `ExecutionService` (claim, `run_card`, aplicação do resultado, roteamento de falha,
+  freios) e `CandidateRaceService` (corrida) em `application/`; façade com 6.168 linhas.
+- **MEL-32 (passo 3/10) — `DeliveryService` (ADR-0066):** PR, CI, revisão independente,
+  comentários e merge governado saem para `application/delivery.py`; teste garante que
+  `application/*` não importa a façade e fica ≤ 800 linhas.
+- **MEL-32 (passo 2/10) — `QueryService` (ADR-0066):** 35 consultas de leitura (listagens, busca,
+  header, dashboard, auditoria, leituras por orquestração) saem para `application/queries.py`;
+  a façade delega com assinaturas idênticas e contrato HTTP inalterado.
+- **MEL-32 (passo 1/10) — `BundleStore` (ADR-0066):** cache, hidratação, persistência e lock por
+  orquestração saem do `OrchestrationService` para `application/bundles.py` (fonte única de
+  lock); a façade delega sem mudar a API pública.
+
+### Adicionado
+- **MEL-30 — registro persistido de execuções (`agent_runs`, ADR-0065):** toda execução de card e
+  toda pergunta a agente geram um `AgentRun` (prompt, envelope, status, duração, stdout, diff,
+  branch, exit code, tokens/custo, erro, decisão do roteamento), gravado no início e no fim em
+  tabela própria fora do agregado (migration `accd40ad02c2`); `run_id` = `execution_id`, presente em
+  `CardEvent`, `AgentExecuted`, `FailureRouted` e `ASO_RUN_ID` do agente; segredos mascarados;
+  retenção `ASO_RUN_RETENCAO_DIAS`; `GET /v1/orchestrations/{id}/runs` e `GET /v1/runs/{id}`.
+
 ### Corrigido
+- **MEL-05 — `docs/HOW_IT_WORKS.md`:** glossário (papel, executor, função de agente, fase ×
+  etapa, ledger, gate, snapshot, aprovação, restaurar ledger) apontando para as classes/funções
+  reais, diagrama de sequência de uma demanda revisado contra `run_phase`/`run_card`/
+  `decide_approval`/`merge_pr`, tabela "quero mudar X → onde" e limites atuais com links para as
+  MEL; README e `docs/index.md` apontam para ele logo no início.
+- **MEL-03 — OpenAPI gerado do código (ADR-0064):** o `contracts/openapi.yaml` manual (19 paths
+  contra ~200 rotas, com paths inexistentes) foi substituído por `contracts/openapi.json` gerado
+  de `app.openapi()` (`python scripts/export-openapi.py`); `test_openapi_contract.py` falha se o
+  arquivo versionado divergir do gerado.
+- **MEL-02 — documentação contraditória corrigida:** pipeline do ContextBus descrito como é (8
+  funções, 2 ganchos vazios) em `context.md`, docstring do bus, README/CLAUDE/AGENTS; removidos
+  componentes inexistentes de `architecture.md` (PhaseController, AgentRouter, DependencyGraph,
+  HumanApprovalEngine, TerminalRuntime, ToolPermissionEngine…), "workers asyncio" e "sem ciclos";
+  `api.md` com erro `{"detail"}`, `X-Total-Count`, IDs `prefixo_hex` e sem `Idempotency-Key`;
+  `agents.md` explica papel × executor × função e os 5 papéis sem card; `index.md` com as 63 ADRs
+  e sem o "estado F7" do processo de construção; README sem contagem fixa de testes e com o limite
+  dos agentes CLI no Docker; `providers.yaml`/`SkillResolver` marcados como inexistentes.
+- **MEL-20 — bugs pontuais da revisão:** (1) fase do card declarada por papel em
+  `FASE_PADRAO_POR_PAPEL` em vez de substring (`RequirementsAgent` ia para F4, `DevOpsAgent`
+  para F5); (2) `run_plan` executa todos os cards `Ready` em ondas por `card.dependencies` (antes
+  só o último card de cada papel) e respeita kill-switch/orçamento; (3) título e critérios do
+  card vêm da demanda, não de "`<Papel>: <motivo>`" genérico; (4) falha do planejamento LLM na
+  criação devolve 201 com aviso, evento `PlanningFailed` e próximo passo "Replanejar".
+- **MEL-19 — ContextBuilder e contexto injetado nos agentes (ADR-0063):** nenhum provider
+  recebia o `OrchestratorContext` e o prompt LLM ignorava o card; agora
+  `agents/context_builder.py` monta contexto priorizado (card → spec de origem → discovery
+  aprovado → ficha → ADRs → saídas anteriores do ledger) com orçamento e omissão inteira
+  auditável, entregue no `TaskEnvelope` e renderizado igual para LLM e wrapper CLI; a saída de
+  cada card vai para `<seção>.<card_id>` (sem sobrescrita) e `AgentExecuted` registra o
+  tamanho do contexto.
+- **MEL-18 — docs-first e self-heal via entrega governada (ADR-0062):** `analyze_folder`,
+  `heal_docs` e o autoheal de F5/F6 commitavam/mesclavam direto na branch base (engolindo
+  falha de merge) e `git init` rodava sem perguntar; agora a documentação vira card
+  `Documentation` + PR (merge governado), commit direto só em pasta vazia de repo recém-criado
+  pelo ASO, falha de merge gera `DocsMergeFailed` (merge abortado, card aberto) e `git init`
+  exige `inicializar_git` (console confirma).
+- **MEL-17 — congelamento de snapshots aplicado (ADR-0061, reafirma ADR-0003):**
+  `frozen_sections` era sempre `[]` e `locked_paths` nunca preenchido; agora cada gate
+  aprovado congela as seções da fase (F1 produto/escopo, F2 `architecture`, F3 `contracts`,
+  F4 `ux`), override exige ADR aceita **e** aprovação humana, ADRs do plano podem travar
+  `locked_paths`, o snapshot da mesma fase não duplica e `rollback` virou
+  `restaurar-ledger` (alias mantido), documentado como restauração só do ledger.
+- **MEL-16 — quality gate escopado por fase, sem aprovação vazia (ADR-0060):** o critério
+  `store.version > 0 or not has_work` era global (patch em F5 aprovava F2) e aprovava fase
+  vazia; agora os critérios são declarados em `governance/gate_definitions.py` (cards da
+  fase entregues + patch aplicado na própria fase), fase sem nada bloqueante fica `SKIPPED`
+  (sem snapshot nem aprovação humana; autopilot registra `PhaseSkipped` e segue),
+  `advance_phase` aceita `PASSED|SKIPPED`, a tabela de gates da doc é gerada das definições
+  e o console distingue `SKIPPED`.
+- **MEL-34 — suíte de invariantes de governança:** `tests/integration/test_governanca_invariantes.py`
+  (27 testes, passo obrigatório no CI) tenta violar cada regra inviolável pela API com
+  chaves reais; reverter qualquer correção P0 (MEL-10…MEL-15) faz ao menos um teste falhar.
+- **MEL-01 — mapa regra → código → teste:** `docs/GOVERNANCE.md` com as 9 regras, função e
+  arquivo reais, teste que prova e lacunas apontando para a MEL que as corrige; CLAUDE.md,
+  AGENTS.md e `docs/index.md` apontam para ele.
+- **MEL-14 — contrato do wrapper CLI (ADR-0059):** o wrapper só tratava `naming` como
+  pergunta e descartava o `system` (schema) de triagem/discovery/spec/revisão, ignorava
+  `contexto_adicional`/`nudge`/`effort` e não lia NDJSON `stream-json`; agora há
+  `TaskEnvelope` v1 (`src/aso/agents/contract.py`), renderizador testável só-stdlib
+  (`render_prompt.py`, versão desconhecida → exit 2), compatibilidade com o formato antigo e
+  `extrair_resposta_final` antes de `parse_llm_json`.
+- **MEL-13 — claim atômico do card antes de executar (ADR-0058):** duas chamadas a
+  `run_card` no mesmo card executavam o agente duas vezes e o card ficava `Ready` durante a
+  execução; agora `run_card`/`run_plan`/`race_card` reivindicam o card sob lock
+  (`em_execucao_desde`/`execution_id`/`execucao_dono`, migration), persistem antes de chamar
+  o provider, executam fora do lock e liberam em `finally` (409 para a segunda chamada);
+  claim de instância anterior vira `Failed` ("execução interrompida") na reidratação.
+- **MEL-15 — segurança por padrão (ADR-0057):** sem `ASO_API_KEYS` a API só sobe com
+  `ASO_DEV_MODE=1` (antes: admin anônimo); compose e `manager.sh` escutam só em
+  `127.0.0.1` e a senha do Postgres vem de variável; configurar/disparar comandos no host
+  (`validation-checks`, `deploy/*`, `validation_command`) exige admin;
+  `ASO_WORKSPACE_ROOTS` (default `$HOME`) limita `/v1/fs/*` e `target_path`; `?token=` só no
+  SSE; `/metrics` não hidrata orquestrações (SLO da última amostra persistida).
+- **MEL-12 — CI declarada restrita (ADR-0056):** `POST .../pulls/{pr}/ci` gravava
+  `passed` de qualquer operator sem executar nada; agora declarar `passed` exige admin +
+  `justificativa` (evento `CIDeclared`), `PullRequest.ci_origem` distingue
+  `executada`/`declarada` (migration; legadas `desconhecida`) e a ficha de encerramento
+  mostra a origem.
+- **MEL-11 — aprovação de estratégia pendente bloqueia a execução:** a aprovação
+  `tipo="estrategia"` era só informativa; agora `run_card`, `run_plan`, `run_phase`,
+  `race_card`, `start_autopilot`, `analyze_folder` e `heal_docs` recusam (409) enquanto
+  pendente, e a rejeição cancela a orquestração (`StrategyRejected`), sem reabrir via `resume`.
+- **MEL-10 — avanço de fase exige gate aprovado e papel admin:** `advance_phase`
+  mudava a fase sem consultar gate; agora só avança com o último gate da fase atual
+  `PASSED` (checado no lock), grava `PhaseAdvanceRefused` na recusa (409) e
+  `POST .../advance-phase` exige `admin`. O autopilot passa pelo mesmo caminho.
 - **6 bugs reais do `/code-review ultra` pós-FID-27 (ADR-0055):** com o
   backlog de fidelidade 100% `Done`, uma revisão multiagente sobre o diff
   acumulado (FID-22–FID-27, ainda não commitado) encontrou 6 defeitos reais.

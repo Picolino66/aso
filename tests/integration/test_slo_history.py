@@ -67,7 +67,11 @@ def _sample(svc: OrchestrationService, oid: str, m: MetricsService) -> Any:
 
 def test_prometheus_exposes_burn_rate_gauges() -> None:
     svc = OrchestrationService()
-    svc.create_orchestration("backend")
-    body = MetricsService(svc).prometheus()
-    assert "aso_slo_burn_rate{" in body
-    assert "aso_error_budget_consumed_pct{" in body
+    orch = svc.create_orchestration("backend")
+    m = MetricsService(svc)
+    # Sem amostra persistida, nada a expor: /metrics não recalcula SLO (ADR-0057).
+    assert "aso_slo_burn_rate{" not in m.prometheus()
+    svc.record_slo_evaluation(orch.id, _sample(svc, orch.id, m))
+    body = m.prometheus()
+    assert f'aso_slo_burn_rate{{orchestration_id="{orch.id}"}}' in body
+    assert f'aso_error_budget_consumed_pct{{orchestration_id="{orch.id}"}}' in body

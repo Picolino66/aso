@@ -15,4 +15,6 @@ Skills previstas para o MVP (evoluem por fase):
 | `test-planning` | TestingAgent | Planejar testes unit/integração/contrato/e2e |
 | `conflict-resolution` | ConflictResolutionAgent | Analisar conflitos e propor resolução/ADR |
 
-O `SkillResolver` (Agent Plane) seleciona a skill mais adequada; o `ExternalSkillResolver` pode delegar para skills externas mais especializadas (transversal F2–F7).
+> **Não implementado:** não existe `SkillResolver` nem `ExternalSkillResolver` no runtime; esta
+> tabela é um mapa de intenção histórico do planejamento (F4). Nenhuma skill é selecionada ou
+> executada automaticamente pelo ASO.

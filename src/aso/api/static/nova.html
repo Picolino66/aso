@@ -80,6 +80,7 @@
   </main>
 
   <script src="/ui/header.js"></script>
+  <script src="/ui/jobs.js"></script>
   <script>
     let projects = [];
     let analyzedProjectId = null;
@@ -103,7 +104,8 @@
         try { detail = (await response.json()).detail || detail; } catch (_) {}
         throw new Error(detail);
       }
-      return response.status === 204 ? null : response.json();
+      if (response.status === 204) return null;
+      return window.asoResolverResposta(response.status, await response.json(), headers);
     }
     function option(value, label) {
       const node = document.createElement('option'); node.value = value; node.textContent = label; return node;
@@ -245,9 +247,16 @@
         mark('stepDemand', 'done'); mark('stepDocs', 'active'); button.textContent = 'Gerando docs-first…';
         document.getElementById('createStatus').textContent = 'Analisando o workspace governado e sincronizando /docs…';
         try {
-          await api('/v1/orchestrations/' + encodeURIComponent(orchestration.id) + '/analyze-folder', {
-            method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({executor:executor, effort:effort})
-          });
+          const urlDocs = '/v1/orchestrations/' + encodeURIComponent(orchestration.id) + '/analyze-folder';
+          const corpoDocs = {executor:executor, effort:effort};
+          try {
+            await api(urlDocs, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(corpoDocs)});
+          } catch (gitError) {
+            // ADR-0062: git init na pasta do usuário só com confirmação explícita.
+            if (!String(gitError.message).includes('inicializar_git') || !confirm('A pasta de trabalho não é um repositório git. Inicializar um repositório nela (git init)?')) throw gitError;
+            corpoDocs.inicializar_git = true;
+            await api(urlDocs, {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(corpoDocs)});
+          }
           mark('stepDocs', 'done'); document.getElementById('createStatus').textContent = 'Docs-first concluído. Abrindo o detalhe…';
           location.href = '/ui/detalhe?id=' + encodeURIComponent(orchestration.id);
         } catch (docsError) {

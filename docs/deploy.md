@@ -53,4 +53,4 @@ curl -fsS -X POST http://localhost:8000/v1/orchestrations \
 ## Pré-requisitos de segurança (§34)
 
 - Secrets apenas via variáveis de ambiente (nunca no repositório/imagem).
-- Aprovação humana para deploy e alteração de secrets (HumanApprovalEngine — evolui no MVP-2).
+- Aprovação humana para deploy (`HumanApproval` + papel admin, ADR-0023/ADR-0057); alteração de secrets fica fora do runtime (variáveis de ambiente).

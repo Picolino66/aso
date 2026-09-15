@@ -23,6 +23,7 @@ from aso.db.models import (
     AdrOptionRow,
     AdrRow,
     AgentDefinitionRow,
+    AgentRunRow,
     Base,
     BoardColumnRow,
     BoardRow,
@@ -40,6 +41,7 @@ from aso.db.models import (
     GateCriterionRow,
     HumanApprovalRow,
     IncidentRow,
+    JobRow,
     OrchestrationRow,
     PlannedAgentRow,
     ProjectEventRow,
@@ -52,6 +54,7 @@ from aso.db.models import (
     SnapshotRow,
     ValueItemRow,
 )
+from aso.execution.jobs import Job
 from aso.governance.models import (
     ADR,
     BugReport,
@@ -68,6 +71,7 @@ from aso.governance.models import (
     Snapshot,
 )
 from aso.kanban.models import Board, BoardColumn, CardEvent, KanbanCard
+from aso.observability.agent_runs import AgentRun
 from aso.persistence.state import OrchestrationState
 from aso.shared.types import ColumnKey, GateStatus
 
@@ -706,6 +710,27 @@ class SqlAlchemyOrchestrationRepository:
                 .group_by(EventRow.type)
             ).all()
             ev = {etype: int(count) for etype, count in events}
+            # Última amostra de SLO por orquestração (ADR-0057) — subquery do MAX, sem
+            # hidratar agregados; `/metrics` expõe só o que já foi avaliado e persistido.
+            ultimo = (
+                select(
+                    SloEvaluationRow.orchestration_id,
+                    func.max(SloEvaluationRow.created_at).label("created_at"),
+                )
+                .group_by(SloEvaluationRow.orchestration_id)
+                .subquery()
+            )
+            slo_rows = session.execute(
+                select(
+                    SloEvaluationRow.orchestration_id,
+                    SloEvaluationRow.burn_rate,
+                    SloEvaluationRow.consumed_pct,
+                ).join(
+                    ultimo,
+                    (SloEvaluationRow.orchestration_id == ultimo.c.orchestration_id)
+                    & (SloEvaluationRow.created_at == ultimo.c.created_at),
+                )
+            ).all()
             return {
                 "orchestrations_total": int(orch_total),
                 "cards_by_status": {status: int(count) for status, count in cards},
@@ -714,6 +739,10 @@ class SqlAlchemyOrchestrationRepository:
                 "open_conflicts": int(conflicts),
                 "agent_retries": ev.get("AgentRetry", 0),
                 "agent_failures": ev.get("AgentFailed", 0),
+                "slo_latest": {
+                    oid: {"burn_rate": float(burn), "consumed_pct": float(pct)}
+                    for oid, burn, pct in slo_rows
+                },
             }
 
     def events_page(
@@ -1062,3 +1091,76 @@ class SqlAlchemyAgentDefinitionRepository:
                 delete(AgentDefinitionRow).where(AgentDefinitionRow.id == definition_id)
             )
             session.commit()
+
+
+class SqlAlchemyAgentRunRepository:
+    """Adapter relacional dos registros de execução (ADR-0065) — upsert por `id`."""
+
+    def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
+        self.engine = _engine(url)
+        if create_schema:
+            Base.metadata.create_all(self.engine)
+        self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+
+    def salvar(self, run: AgentRun) -> None:
+        with self._session_factory() as session:
+            session.merge(AgentRunRow(**run.mascarado().model_dump(mode="json")))
+            session.commit()
+
+    def obter(self, run_id: str) -> AgentRun | None:
+        with self._session_factory() as session:
+            row = session.get(AgentRunRow, run_id)
+            return AgentRun(**_cols(row)) if row is not None else None
+
+    def listar(self, orchestration_id: str, *, card_id: str | None = None) -> list[AgentRun]:
+        with self._session_factory() as session:
+            stmt = select(AgentRunRow).where(AgentRunRow.orchestration_id == orchestration_id)
+            if card_id is not None:
+                stmt = stmt.where(AgentRunRow.card_id == card_id)
+            rows = session.scalars(stmt.order_by(AgentRunRow.inicio)).all()
+            return [AgentRun(**_cols(r)) for r in rows]
+
+    def expurgar_textos(self, antes_de: str) -> int:
+        with self._session_factory() as session:
+            result = cast(
+                CursorResult[Any],
+                session.execute(
+                    update(AgentRunRow)
+                    .where(AgentRunRow.inicio < antes_de)
+                    .values(prompt="", stdout_cauda="", envelope={})
+                ),
+            )
+            session.commit()
+            return int(result.rowcount or 0)
+
+
+class SqlAlchemyJobRepository:
+    """Adapter relacional da fila de jobs (ADR-0067) — upsert por `id`."""
+
+    def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
+        self.engine = _engine(url)
+        if create_schema:
+            Base.metadata.create_all(self.engine)
+        self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+
+    def salvar(self, job: Job) -> None:
+        with self._session_factory() as session:
+            session.merge(JobRow(**job.model_dump(mode="json")))
+            session.commit()
+
+    def obter(self, job_id: str) -> Job | None:
+        with self._session_factory() as session:
+            row = session.get(JobRow, job_id)
+            return Job(**_cols(row)) if row is not None else None
+
+    def listar(
+        self, *, orchestration_id: str | None = None, status: str | None = None
+    ) -> list[Job]:
+        with self._session_factory() as session:
+            stmt = select(JobRow)
+            if orchestration_id is not None:
+                stmt = stmt.where(JobRow.orchestration_id == orchestration_id)
+            if status is not None:
+                stmt = stmt.where(JobRow.status == status)
+            rows = session.scalars(stmt.order_by(JobRow.criado_em)).all()
+            return [Job(**_cols(r)) for r in rows]

@@ -7,10 +7,12 @@ services:
     container_name: aso-postgres
     environment:
       POSTGRES_USER: aso
-      POSTGRES_PASSWORD: aso
+      # Senha por variável (regra 9); o default `aso` só vale para uso local.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-aso}"
       POSTGRES_DB: aso
+    # Só na interface local (ADR-0057): o banco não fica exposto na rede.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - aso_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,12 +25,21 @@ services:
     build: .
     container_name: aso-api
     environment:
-      ASO_DATABASE_URL: "postgresql+psycopg://aso:aso@postgres:5432/aso"
+      ASO_DATABASE_URL: "postgresql+psycopg://aso:${POSTGRES_PASSWORD:-aso}@postgres:5432/aso"
       ASO_API_KEYS: "${ASO_API_KEYS:-}"
+      # Modo dev explícito (ADR-0057): sem ASO_API_KEYS a API só sobe com ASO_DEV_MODE=1.
+      # O compose é de uso local (portas só em 127.0.0.1), por isso liga por padrão;
+      # para expor, defina ASO_API_KEYS e ASO_DEV_MODE=0.
+      ASO_DEV_MODE: "${ASO_DEV_MODE:-1}"
+      # Raízes onde a API pode ler/criar workspaces (ADR-0057); o smoke usa /tmp.
+      ASO_WORKSPACE_ROOTS: "${ASO_WORKSPACE_ROOTS:-/tmp}"
+      # Execução assíncrona (ADR-0067): rotas que acionam agentes respondem 202 + job.
+      ASO_EXECUCAO_ASSINCRONA: "${ASO_EXECUCAO_ASSINCRONA:-1}"
+      ASO_WORKERS: "${ASO_WORKERS:-2}"
       ASO_RATE_LIMIT: "${ASO_RATE_LIMIT:-0}"
       ASO_OTEL: "${ASO_OTEL:-0}"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

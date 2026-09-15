@@ -122,6 +122,14 @@ class KanbanCard(BaseModel):
     # hoje suporta isso) — impede a PRÓXIMA execução manual/automática deste card
     # até ser desmarcado. Reinterpretação honesta e restrita, documentada na ADR.
     pausado: bool = False
+    # Claim/lease de execução (ADR-0058): preenchido ANTES de chamar o provider e
+    # persistido na hora, para que "está rodando" sobreviva a crash e duas chamadas
+    # concorrentes não executem o mesmo card. `execution_id` = tentativa corrente;
+    # `execucao_dono` = instância do runtime que reivindicou (claim de outra instância
+    # encontrado na reidratação é execução interrompida). `None` = livre.
+    em_execucao_desde: str | None = None
+    execution_id: str | None = None
+    execucao_dono: str | None = None
     # "Adicionar contexto" (wf §17.2) — instruções extras do operador, entram no
     # próximo prompt do agente (`_build_task`) junto de `correction_actions`.
     contexto_adicional: list[str] = Field(default_factory=list)

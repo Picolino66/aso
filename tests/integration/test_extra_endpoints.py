@@ -23,13 +23,24 @@ def test_retry_reexecutes_ready_cards() -> None:
 
 
 def test_snapshot_diff() -> None:
-    client, oid, card_id = _client()
-    client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")
+    from aso.control.models import DecisionInput
+
+    # Dois snapshots reais exigem duas fases com trabalho entregue (fase vazia é
+    # SKIPPED e não gera snapshot — ADR-0060): cards em F2 (arquitetura) e F5 (backend).
+    svc = OrchestrationService()
+    client = TestClient(create_app(svc))
+    oid = svc.create_orchestration(
+        "arquitetura e backend",
+        decision_input=DecisionInput(user_request="x", domains=["architecture", "backend"]),
+    ).id
+    for card in svc.get_cards(oid):
+        if card.phase.value in ("F2", "F5"):
+            client.post(f"/v1/orchestrations/{oid}/cards/{card.id}/run")
+    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F2"})
     client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F5"})
-    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F6"})
-    diff = client.get(f"/v1/orchestrations/{oid}/snapshots/O5/diff/O6").json()
-    assert diff["from"] == "O5" and diff["to"] == "O6"
-    assert client.get(f"/v1/orchestrations/{oid}/snapshots/O5/diff/O9").status_code == 404
+    diff = client.get(f"/v1/orchestrations/{oid}/snapshots/O2/diff/O5").json()
+    assert diff["from"] == "O2" and diff["to"] == "O5"
+    assert client.get(f"/v1/orchestrations/{oid}/snapshots/O2/diff/O9").status_code == 404
 
 
 def test_card_ops_assign_move_block_unblock() -> None:

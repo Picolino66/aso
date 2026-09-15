@@ -15,6 +15,7 @@ Tudo em pt-BR (regra de governança).
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
@@ -42,6 +43,9 @@ _IGNORED_DIRS = frozenset(
 )
 
 
+MENSAGEM_INIT = "aso: init do workspace"
+
+
 class WorkspaceError(RuntimeError):
     """Falha em operação de workspace (git/bootstrap)."""
 
@@ -57,14 +61,47 @@ class WorkspaceReport(BaseModel):
     detected_modules: list[str]  # diretórios de topo candidatos a virar docs/modules/<m>
 
 
+class WorkspaceRootError(ValueError):
+    """Caminho fora das raízes permitidas (`ASO_WORKSPACE_ROOTS`, ADR-0057)."""
+
+
+def workspace_roots() -> list[Path]:
+    """Raízes onde a API pode navegar e criar workspaces (ADR-0057).
+
+    `ASO_WORKSPACE_ROOTS` usa o separador de caminhos do SO (`:` no Linux). Sem a
+    variável, a raiz é o `$HOME` de quem roda o runtime — antes qualquer caminho do
+    host (`/etc`, `/root`...) podia ser listado e virar pasta de trabalho. Lida a cada
+    chamada para que testes e operadores possam ajustar sem reiniciar o processo.
+    """
+    raw = os.environ.get("ASO_WORKSPACE_ROOTS", "")
+    roots = [Path(r).expanduser().resolve() for r in raw.split(os.pathsep) if r.strip()]
+    return roots or [Path.home().resolve()]
+
+
+def _dentro_das_raizes(path: Path) -> bool:
+    # `resolve()` segue symlinks e `..`: sem isso `~/link-para-etc` escaparia da raiz.
+    alvo = path.expanduser().resolve()
+    return any(alvo == raiz or alvo.is_relative_to(raiz) for raiz in workspace_roots())
+
+
+def _raizes_legiveis() -> str:
+    return ", ".join(str(r) for r in workspace_roots())
+
+
 class WorkspaceService:
     """Operações de sistema de arquivos e git sobre a pasta da orquestração."""
 
     def validate(self, path: str) -> Path:
-        """Normaliza (`expanduser`) e valida: precisa existir e ser diretório."""
+        """Normaliza (`expanduser`) e valida: precisa existir, ser diretório e estar
+        dentro de uma raiz permitida (ADR-0057)."""
         if not path or not path.strip():
             raise ValueError("Informe o caminho da pasta de trabalho.")
         p = Path(path).expanduser()
+        if not _dentro_das_raizes(p):
+            raise WorkspaceRootError(
+                f"Pasta fora das raízes permitidas ({_raizes_legiveis()}): {p}. "
+                "Ajuste ASO_WORKSPACE_ROOTS para liberar outra raiz."
+            )
         if not p.exists():
             raise ValueError(f"A pasta não existe: {p}")
         if not p.is_dir():
@@ -105,6 +142,25 @@ class WorkspaceService:
     def is_git(self, path: Path) -> bool:
         return (path / ".git").exists()
 
+    def sem_historico(self, path: Path) -> bool:
+        """Repo com um único commit, o `aso: init do workspace` (ADR-0062).
+
+        É a prova de que o repositório foi inicializado pelo próprio ASO e ninguém
+        trabalhou nele ainda — o único caso em que um scaffold determinístico pode ir
+        direto para a branch base sem PR.
+        """
+        if not self.is_git(path):
+            return False
+        contagem = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD"], cwd=str(path), capture_output=True, text=True
+        )
+        if contagem.returncode != 0 or contagem.stdout.strip() != "1":
+            return False
+        mensagem = subprocess.run(
+            ["git", "log", "-1", "--format=%s"], cwd=str(path), capture_output=True, text=True
+        )
+        return mensagem.stdout.strip() == MENSAGEM_INIT
+
     def commit_all(self, path: Path, message: str) -> bool:
         """Faz `git add -A` + commit em `path`. Retorna False se não havia mudança."""
         self._ensure_identity(path)
@@ -136,7 +192,7 @@ class WorkspaceService:
         self._ensure_identity(path)
         # add tolera pasta vazia; --allow-empty garante HEAD mesmo sem arquivos.
         self._git(path, "add", "-A")
-        self._git(path, "commit", "--allow-empty", "-m", "aso: init do workspace")
+        self._git(path, "commit", "--allow-empty", "-m", MENSAGEM_INIT)
         return True
 
     def _ensure_head(self, path: Path) -> None:
@@ -180,7 +236,11 @@ class WorkspaceService:
         Retorna só nome+caminho de **diretórios** — nunca conteúdo de arquivo.
         Diretórios sem permissão de leitura são omitidos.
         """
-        base = Path(path).expanduser() if path and path.strip() else Path.home()
+        base = Path(path).expanduser() if path and path.strip() else workspace_roots()[0]
+        if not _dentro_das_raizes(base):
+            raise WorkspaceRootError(
+                f"Pasta fora das raízes permitidas ({_raizes_legiveis()}): {base}."
+            )
         if not base.exists():
             raise ValueError(f"A pasta não existe: {base}")
         if not base.is_dir():
@@ -197,7 +257,9 @@ class WorkspaceService:
                     continue
         except PermissionError as exc:
             raise ValueError(f"Sem permissão para ler: {base}") from exc
-        parent = str(base.parent) if base.parent != base else None
+        # O botão "subir" não pode levar para fora da raiz (ADR-0057).
+        dentro = base.parent != base and _dentro_das_raizes(base.parent)
+        parent = str(base.parent) if dentro else None
         return {"path": str(base), "parent": parent, "dirs": dirs}
 
     def iter_files(self, path: str | Path) -> Iterator[Path]:

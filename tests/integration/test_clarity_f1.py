@@ -17,16 +17,20 @@ def test_orchestration_starts_at_f1() -> None:
     assert orch.current_phase == Phase.F1  # esteira começa no discovery
 
 
-def test_empty_phase_gate_passes_vacuously_and_opens_approval() -> None:
-    # "backend" gera 1 card de dev (F5); F1 não tem cards → não deve travar.
+def test_fase_vazia_fica_skipped_sem_aprovacao_e_nao_trava() -> None:
+    # "backend" gera 1 card de dev (F5); F1 não tem cards → não deve travar nem pedir
+    # aprovação humana de fase vazia (ADR-0060).
     svc = OrchestrationService()
     orch = svc.create_orchestration("backend")
     assert not any(c.phase == Phase.F1 for c in svc.get_cards(orch.id))
 
     result = svc.run_phase(orch.id)  # fase corrente = F1 (vazia)
     assert result["phase"] == "F1"
-    assert result["gate_status"] == "PASSED"  # vacuamente aprovado
-    assert result["approval_id"]  # abre aprovação p/ avançar
+    assert result["gate_status"] == "SKIPPED"
+    assert result["approval_id"] is None
+    assert result["snapshot"] is None
+    assert any(e.type == "PhaseSkipped" for e in svc.timeline(orch.id))
+    assert svc.advance_phase(orch.id).current_phase == Phase.F2  # não trava
 
 
 def test_agent_role_maps_to_phase() -> None:

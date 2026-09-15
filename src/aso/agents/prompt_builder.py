@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from aso.agents.context_builder import renderizar_contexto
 from aso.agents.models import AgentSpec
 
 _SYSTEM_TEMPLATE = (
@@ -43,8 +44,15 @@ class PromptBuilder:
             f"Fase atual: {task.get('phase', '?')}",
             f"Demanda do produto: {request or '(não informada)'}",
         ]
-        # Injeta apenas as seções de contexto relevantes (evita token explosion).
-        if context:
+        envelope = task.get("envelope")
+        contexto_envelope = envelope.get("contexto") if isinstance(envelope, dict) else None
+        bloco = renderizar_contexto(contexto_envelope)
+        if bloco:
+            # ContextBuilder (ADR-0063): card, spec, discovery, ADRs e saídas anteriores,
+            # priorizados e com orçamento — nunca cortados no meio.
+            parts.append(bloco)
+        elif context:
+            # Legado: sem envelope, injeta as seções relevantes do contexto (context_provider).
             relevant = {k: context.get(k) for k in agent.context_sections if k in context}
             if relevant:
                 parts.append(

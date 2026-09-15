@@ -1,6 +1,6 @@
 # agents/ — Mapa de agentes (ownership)
 
-> Estrutura agentic (F4). Detalhe de responsabilidades em [docs/agents.md](../docs/agents.md). Bindings de executor configuráveis em `.aso/providers.yaml` (§26A).
+> Estrutura agentic (F4). Detalhe de responsabilidades em [docs/agents.md](../docs/agents.md). Executores são configurados no catálogo (`.aso/executors.json`, tela ⚙ Config; ADR-0053/0054) — não existe `.aso/providers.yaml`.
 
 Os 16 agentes obrigatórios (§15) e sua área de ownership:
 

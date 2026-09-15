@@ -11,9 +11,9 @@ from aso.shared.types import Phase
 def test_run_phase_executes_gate_and_opens_approval() -> None:
     svc = OrchestrationService()
     orch = svc.create_orchestration("backend API")
-    phase = orch.current_phase
+    phase = Phase.F5  # fase com card; fase vazia seria SKIPPED sem aprovação (ADR-0060)
 
-    result = svc.run_phase(orch.id)
+    result = svc.run_phase(orch.id, phase)
     assert result["phase"] == phase.value
     assert result["gate_status"] == "PASSED"
     assert result["snapshot"]  # snapshot da fase gerado
@@ -32,11 +32,16 @@ def test_advance_phase_moves_to_next_and_blocks_at_end() -> None:
     svc = OrchestrationService()
     orch = svc.create_orchestration("backend")
     start = orch.current_phase
+    # Regra 3 (MEL-10): o avanço exige o gate da fase atual aprovado.
+    svc.run_quality_gate(orch.id)
     updated = svc.advance_phase(orch.id)
     assert updated.current_phase == OrchestrationService._next_phase(start)
 
-    # empurra até F7 e confirma o bloqueio na última fase
+    # empurra até F7 e confirma o bloqueio na última fase; o plano roda antes porque o
+    # gate de F5 reprova fase com cards sem output aplicado (MEL-10 não deixa pular).
+    svc.run_plan(orch.id)
     while OrchestrationService._next_phase(svc.get(orch.id).current_phase) is not None:
+        svc.run_quality_gate(orch.id)
         svc.advance_phase(orch.id)
     assert svc.get(orch.id).current_phase == Phase.F7
     with pytest.raises(ValueError, match="última fase"):
@@ -54,7 +59,9 @@ def test_run_phase_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
 
     res = client.post(f"/v1/orchestrations/{oid}/run-phase", json={})
     assert res.status_code == 200
-    assert res.json()["gate_status"] == "PASSED"
+    # F1 sem cards: SKIPPED, sem aprovação — e o avanço é liberado (ADR-0060).
+    assert res.json()["gate_status"] == "SKIPPED"
+    assert res.json()["approval_id"] is None
 
     adv = client.post(f"/v1/orchestrations/{oid}/advance-phase")
     assert adv.status_code == 200

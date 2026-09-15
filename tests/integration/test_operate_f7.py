@@ -9,6 +9,7 @@ from aso.api.app import create_app
 from aso.cli.main import app as cli_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.observability.metrics import MetricsService
+from aso.shared.types import Phase
 
 
 def _run() -> tuple[OrchestrationService, str]:
@@ -16,7 +17,7 @@ def _run() -> tuple[OrchestrationService, str]:
     orch = svc.create_orchestration("backend X")
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)
-    svc.run_quality_gate(orch.id)
+    svc.run_quality_gate(orch.id, Phase.F5)  # gate da fase do card (ADR-0060)
     return svc, orch.id
 
 
@@ -55,7 +56,8 @@ def test_api_metrics_slo_feedback() -> None:
     oid = client.post("/v1/orchestrations", json={"user_request": "X"}).json()["id"]
     card_id = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]["id"]
     client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")
-    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={})
+    # Gate da fase do card (ADR-0060).
+    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F5"})
 
     assert client.get("/v1/metrics").json()["orchestrations_total"] == 1
     assert client.get(f"/v1/orchestrations/{oid}/metrics").json()["cards_total"] == 1

@@ -1,6 +1,7 @@
 # ADR-0008 — Workspace por orquestração e documentação docs-first
 
-- **Status:** ACCEPTED
+- **Status:** ACCEPTED — trecho de mesclagem direta de docs **supersedido** pela
+  [ADR-0062](ADR-0062-docs-first-via-entrega-governada.md)
 - **Fase:** F5 (evolução pós-O5)
 - **Data:** 2026-07-09
 - **Relaciona-se com:** [ADR-0001](ADR-0001-runtime-architecture.md) (Hexagonal),
@@ -43,7 +44,8 @@ um **scaffold determinístico** (sem agente); **projeto existente** é documenta
 **agente selecionado** em worktree isolado, com o diff mesclado (governado) — e uma
 rede de segurança garante a navegação mínima. O passo é exposto por
 `POST /analyze-folder` e registra evento + `ContextPatch` (`engineering.docs_first`) via
-ContextBus (ADR-0003), **sem** aprovação humana (docs = baixo risco). O navegador de
+ContextBus (ADR-0003), **sem** aprovação humana (docs = baixo risco). _(Supersedido pela
+ADR-0062: a documentação passa a ser entregue por card `Documentation` + PR governada.)_ O navegador de
 pastas usa `GET /v1/fs/dirs` (lista só diretórios, nunca conteúdo de arquivo).
 
 ## Trade-offs

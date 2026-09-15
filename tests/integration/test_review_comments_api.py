@@ -10,6 +10,9 @@ from aso.control.review import ReviewCommentDraft, ReviewVerdict
 from aso.control.triage import DemandBrief
 from aso.shared.types import RiskLevel
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _orch_com_pr_e_comentario(svc: OrchestrationService) -> tuple[str, str]:
     orch = svc.create_orchestration("implementar cálculo de frete")
@@ -99,7 +102,7 @@ def test_next_step_aponta_comentario_obrigatorio_pendente_antes_do_merge() -> No
     )
     svc._apply_review_verdict(b, pr, card, verdito, actor="teste")  # noqa: SLF001
     oid, pr_id = orch.id, pr.id
-    svc.report_ci(oid, pr_id, "passed")
+    svc.report_ci(oid, pr_id, "passed", justificativa=JUST_CI)
     svc.report_review(oid, pr_id, "approved", justificativa="aprovação humana urgente")
 
     resposta = client.get(f"/v1/orchestrations/{oid}/next-step")

@@ -7,7 +7,35 @@ seções do contexto que podem escrever (usado para compor a PermissionPolicy do
 from __future__ import annotations
 
 from aso.agents.models import AgentDefinition, AgentSpec
-from aso.shared.types import ExecutorType
+from aso.shared.types import ExecutorType, Phase
+
+# Fase padrão de cada papel na esteira (MEL-20). Declarada em vez de adivinhada por
+# substring do nome — a heurística antiga mandava `RequirementsAgent` para F4 (casava "ui"
+# em "req-ui-rements"), `ProductStrategyAgent` para F5 e `DevOpsAgent` para F5.
+FASE_PADRAO_POR_PAPEL: dict[str, Phase] = {
+    "OrchestratorAgent": Phase.F1,
+    "ProductStrategyAgent": Phase.F1,
+    "RequirementsAgent": Phase.F1,
+    "ArchitectureDesignAgent": Phase.F2,
+    "SecurityAgent": Phase.F2,
+    "DataApiContractsAgent": Phase.F3,
+    "DatabaseAgent": Phase.F3,
+    "UxPlanningAgent": Phase.F4,
+    "BackendDevelopmentAgent": Phase.F5,
+    "FrontendDevelopmentAgent": Phase.F5,
+    "ConflictResolutionAgent": Phase.F5,
+    "DevOpsAgent": Phase.F6,
+    "TestingAgent": Phase.F6,
+    "DocumentationAgent": Phase.F6,
+    "ReviewAgent": Phase.F6,
+    "FinalResponseAgent": Phase.F7,
+}
+
+
+def fase_padrao(role: str) -> Phase:
+    """Fase padrão do papel; papel fora da tabela (catálogo customizado) cai em F5."""
+    return FASE_PADRAO_POR_PAPEL.get(role, Phase.F5)
+
 
 # Definição-base dos 16 agentes obrigatórios (§15). Mantida enxuta no MVP-1.
 _DEFAULT_AGENTS: list[dict[str, object]] = [

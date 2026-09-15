@@ -90,7 +90,7 @@ def test_sync_codex_idempotente_preserva_customizado(
         version="codex-cli 1",
         models=(CodexModel("gpt-atual", "GPT atual", True, "medium", ("low", "medium")),),
     )
-    monkeypatch.setattr("aso.control.orchestration_service.discover_codex", lambda: capabilities)
+    monkeypatch.setattr("aso.application.catalogs.discover_codex", lambda: capabilities)
     first = svc.sync_codex_executors()
     second = svc.sync_codex_executors()
     assert first == second
@@ -114,7 +114,7 @@ def test_sync_codex_concorrente_nao_duplica(
         version="codex-cli 1",
         models=(CodexModel("gpt-atual", "GPT atual", True, "medium", ("medium",)),),
     )
-    monkeypatch.setattr("aso.control.orchestration_service.discover_codex", lambda: capabilities)
+    monkeypatch.setattr("aso.application.catalogs.discover_codex", lambda: capabilities)
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(lambda _: svc.sync_codex_executors(), range(8)))
     assert all(result == results[0] for result in results)

@@ -22,6 +22,8 @@ def _orch_pronta(svc: OrchestrationService, tmp_path: object, *, risco: RiskLeve
         "ajustar cálculo de frete",
         target_path=str(tmp_path),
         seed_cards=False,
+        # Gate F5 PASSED de verdade (ADR-0060): sem cards, só a bateria dá o que verificar.
+        validation_command="true",
         demand_brief=DemandBrief(risco=risco),
     )
     svc.run_quality_gate(orch.id, Phase.F5)

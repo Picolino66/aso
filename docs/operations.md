@@ -9,7 +9,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
 python -m aso.cli.main run "Criar módulo X"   # ciclo completo (mock)
-uvicorn aso.api.app:app         # API v1 em :8000 (docs em /docs)
+ASO_DEV_MODE=1 uvicorn aso.api.app:app   # API v1 em :8000 (dev local; sem ASO_API_KEYS exige ASO_DEV_MODE=1)
 ```
 
 ## Stack completa em Docker (recomendado — sem dependências na máquina)
@@ -82,7 +82,14 @@ pip-audit --skip-editable       # SCA
 
 ## Autenticação e RBAC (§34)
 
-- Sem `ASO_API_KEYS`: **modo dev** (principal `dev`/`admin`) — só para desenvolvimento.
+- Sem `ASO_API_KEYS`, a API **não sobe** — a menos que `ASO_DEV_MODE=1` (principal
+  `dev`/`admin` anônimo, só para desenvolvimento local; ADR-0057). `scripts/manager.sh` e o
+  `docker-compose.yml` ligam o modo dev e escutam só em `127.0.0.1`.
+- `ASO_WORKSPACE_ROOTS` (separado por `:`; default `$HOME`) limita as pastas navegáveis
+  em `/v1/fs/*` e aceitas como `target_path` de orquestração/projeto (fora → 400).
+- `?token=` só é aceito em `…/events/stream` (EventSource); nas demais rotas use o header.
+- `/metrics` é público e não hidrata orquestrações: os gauges de SLO vêm da última
+  amostra persistida (`POST .../slo/evaluate`).
 - Em produção, defina os tokens (papéis: `viewer` < `operator` < `admin`):
 
 ```bash
@@ -91,8 +98,16 @@ curl -H "Authorization: Bearer TOKEN_OP" http://localhost:8000/v1/orchestrations
 ```
 
 - Leitura (GET) exige `viewer`; escrita exige `operator`; ações críticas (aprovar/rejeitar
-  aprovação, rollback, arquivar/restaurar projeto) exigem `admin`. O ator autenticado é
-  registrado (ex.: `approved_by` e `ProjectEvent.actor`).
+  aprovação, rollback, avançar fase, arquivar/restaurar projeto) exigem `admin`.
+  Comandos no host também: escrita em `validation-checks`, `deploy/config`,
+  `deploy/pipeline`, `deploy/run` e `validation_command` no corpo de criação /
+  `execution-settings` (403 para operator). O ator
+  autenticado é registrado (ex.: `approved_by` e `ProjectEvent.actor`).
+- Estratégia crítica (plano com `requires_human_approval`) abre uma aprovação
+  `tipo="estrategia"`. Enquanto pendente, `run-plan`, `run-phase`, `cards/{id}/run`,
+  `cards/{id}/race`, `autopilot`, `analyze-folder` e `docs-heal` respondem 409 sem acionar
+  agente (MEL-11). Rejeitá-la cancela a orquestração (`StrategyRejected`) e a execução
+  continua recusada mesmo após `resume`.
 - Públicos (sem token): `/health`, `/metrics`, `/`, `/ui`, `/docs`, `/openapi.json`.
 
 ## Execução com agentes CLI reais (MVP-3)
@@ -432,12 +447,60 @@ invente fatos nem tratar o diff vazio como perda da orquestração.
   `custo_por_entrega` (`GET .../learning`), que divide pelo que de fato chegou a
   `Done`.
 
+## Registro de execuções de agente (ADR-0065)
+
+- Toda execução de card e toda pergunta a agente (triagem, discovery, spec, revisão, nomeação)
+  gera um `AgentRun` em `agent_runs`: prompt, envelope, status, duração, stdout (cauda), diff,
+  branch, exit code, tokens/custo, erro e a decisão do roteamento de falha.
+- Consulta: `GET /v1/orchestrations/{id}/runs[?card_id=]` e `GET /v1/runs/{run_id}`. O
+  `run_id` é o `execution_id` do `CardEvent`, aparece em `AgentExecuted`/`FailureRouted` e chega
+  ao agente CLI como `ASO_RUN_ID`.
+- Segredos (padrões de chave e valores de variáveis `*KEY*`/`*TOKEN*`/`*SECRET*`/`*PASSWORD*`)
+  são mascarados antes de gravar. `ASO_RUN_RETENCAO_DIAS=N` limpa prompt/stdout/envelope com
+  mais de N dias.
+
+## Execução assíncrona (ADR-0067)
+
+- `ASO_EXECUCAO_ASSINCRONA=1` (ligado no `docker-compose.yml` e no `scripts/manager.sh`; padrão do
+  código: desligado) faz as rotas que acionam agentes responderem `202` com
+  `{job_id, status, operacao, acompanhar}`: cards/run, race, run-plan, run-phase, autopilot,
+  discovery/run, spec/run, spec/review, pulls/review/run, analyze-folder e docs-heal.
+- Acompanhar: `GET /v1/jobs/{id}` (`queued`/`running`/`done`/`failed`/`cancelled`, `resultado`,
+  `erro`, `erro_status`) e `GET /v1/orchestrations/{id}/jobs[?status=]`. O console faz polling
+  sozinho (`/ui/jobs.js`).
+- Cancelar: `POST /v1/jobs/{id}/cancel` (operator). Na fila, nunca roda; rodando, o subprocess do
+  agente CLI é encerrado, nenhuma tentativa/card/onda nova começa e o claim do card é liberado.
+- `ASO_WORKERS` (padrão 2) threads consomem a fila. Aprovar um `fase_gate` enfileira a próxima
+  fase (evento `PhaseScheduled`).
+- Reinício: jobs `running` da instância anterior viram `failed` ("interrompido por reinício do
+  runtime"); `queued` continuam e rodam após o boot.
+- `scripts/smoke.sh` funciona nos dois modos (espera o job quando recebe 202).
+
+## Docs-first e self-heal governados (ADR-0062)
+
+- `POST .../analyze-folder`, `POST .../docs-heal` e o autoheal ao fim de F5/F6 **não
+  escrevem na branch base**: a documentação vai para um branch isolado e vira card
+  `Documentation` com PR (CI quando houver bateria → revisão → merge admin). Resposta:
+  `entrega` (`commit_direto` | `pr` | `sem_alteracao`), `card_id`, `pr_id`.
+- Exceção única: pasta vazia num repositório recém-criado pelo ASO (sem histórico) recebe o
+  scaffold direto.
+- Pasta sem git: a API recusa (409) até o corpo trazer `"inicializar_git": true` (evento
+  `WorkspaceGitInitialized`); o console pergunta antes de reenviar.
+- Conflito no merge da PR: `DocsMergeFailed`/`MergeFailed` na timeline, merge abortado, PR e
+  card continuam abertos.
+
 ## Cards órfãos e worktrees órfãos após crash (ADR-0027)
 
 Se a API cair no meio de uma execução (`Ctrl-C`, OOM, deploy), dois sinais aparecem
 depois que ela sobe de novo:
 
-- **Card preso em `InProgress`**: `GET .../next-step` mostra `card_orfao` quando
+- **Card com execução interrompida** (ADR-0058): todo card em execução tem claim
+  persistido (`em_execucao_desde`, `execution_id`, `execucao_dono`). Ao reidratar a
+  orquestração depois do reinício, claim de outra instância vira `Failed` com motivo
+  "execução interrompida (reinício do runtime)" e evento `ExecutionInterrupted`. Enquanto
+  o claim está ativo, nova execução do mesmo card (`run`, `race`, `run-plan`) e o
+  movimento manual respondem 409.
+- **Card preso em `InProgress` sem claim** (legado/manual): `GET .../next-step` mostra `card_orfao` quando
   `updated_at` do card está parado há mais que `ASO_AGENT_TIMEOUT` (default 1800s) —
   o mesmo timeout que já mataria um agente travado garante que nenhum processo vivo
   pode ainda estar nele. A ação do bloqueio chama `POST .../cards/{id}/route`

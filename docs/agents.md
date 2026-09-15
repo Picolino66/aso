@@ -2,6 +2,26 @@
 
 > Fase F4. Mapa dos 16 agentes obrigatórios (§15) com responsabilidade, plane e binding de executor sugerido (§26A). Índice operacional em [`agents/README.md`](../agents/README.md).
 
+> **Papel × executor × função.** O *papel* (ex.: `BackendDevelopmentAgent`) é um rótulo com
+> seções do contexto que pode escrever (`PermissionPolicy`) e fase padrão; o *executor* é o
+> perfil do catálogo que roda a tarefa (mock, LLM via API ou CLI como Codex/Claude Code); a
+> *função* de agente (naming, triagem, discovery, especificação, revisão) é uma pergunta em
+> JSON feita a um executor (`perguntar_ao_agente`). Um mesmo executor pode servir a vários
+> papéis e funções.
+>
+> **Papéis que hoje nunca recebem card:** `OrchestratorAgent`, `ProductStrategyAgent`,
+> `RequirementsAgent`, `UxPlanningAgent` e `FinalResponseAgent` — nem o motor de decisão
+> nem o planejamento LLM (`/plan`) mapeiam domínio para eles; existem no catálogo e no
+> registro de permissões. `ReviewAgent` só recebe card em estratégias sequenciais e
+> `ConflictResolutionAgent` só em cards `ADRTask` de conflito.
+>
+> **Fase padrão do card de cada papel** (MEL-20): declarada em
+> `FASE_PADRAO_POR_PAPEL` (`src/aso/agents/registry.py`) — F1: Orchestrator, ProductStrategy,
+> Requirements · F2: ArchitectureDesign, Security · F3: DataApiContracts, Database ·
+> F4: UxPlanning · F5: Backend, Frontend, ConflictResolution · F6: DevOps, Testing,
+> Documentation, Review · F7: FinalResponse. Papel fora da tabela (catálogo customizado) cai
+> em F5; o planejamento LLM e a spec podem fixar a fase explicitamente.
+
 | Agente | Plane | Responsabilidade | Executor sugerido |
 |---|---|---|---|
 | OrchestratorAgent | control | Entender demanda, escolher modo, coordenar fases/agentes, preservar contexto, consolidar, pedir aprovação, bloquear avanço | llm_provider (reasoning) |
@@ -29,4 +49,7 @@
 
 ## Permissões de tools (§25)
 
-Cada agente tem `allowed_tools` e `requires_approval_for` no `ToolPermissionEngine`. Agentes que alteram código rodam em worktree isolado (§26A.6).
+Cada papel declara `allowed_tools` e `requires_approval_for`, mas **não há motor que os
+aplique** (não existe `ToolPermissionEngine`): o que é imposto hoje é a permissão de escrita no
+contexto (`PermissionPolicy` do ContextBus) e o isolamento em worktree para agentes que alteram
+código (§26A.6).

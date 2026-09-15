@@ -22,21 +22,24 @@ def test_gates_and_approvals_persist(tmp_path: Path) -> None:
     # Ação crítica (impacto deploy) => aprovação humana criada automaticamente.
     assert len(svc.list_approvals(orch.id)) == 1
 
+    # Nova instância sobre o mesmo banco: a aprovação pendente foi persistida e é
+    # decidida ali — a estratégia só executa depois da decisão humana (MEL-11).
+    svc2 = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url))
+    approval = svc2.list_approvals(orch.id)[0]
+    assert approval.status == "pending"
+    decided = svc2.decide_approval(approval.id, approved=True)
+    assert decided.status == "approved"
+
     # run_plan (não um loop manual de run_card): a estratégia sequencial montada aqui
     # tem ReviewAgent dependente de DevOpsAgent (ADR-0018) — run_plan já respeita essa
     # ordem nas suas próprias ondas.
-    svc.run_plan(orch.id)
-    svc.run_quality_gate(orch.id)
-    assert len(svc.list_gate_results(orch.id)) == 1
-
-    # Nova instância sobre o mesmo banco: gates e approvals persistidos.
-    svc2 = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url))
+    svc2.run_plan(orch.id)
+    svc2.run_quality_gate(orch.id)
     assert len(svc2.list_gate_results(orch.id)) == 1
-    approval = svc2.list_approvals(orch.id)[0]
-    decided = svc2.decide_approval(approval.id, approved=True)
-    assert decided.status == "approved"
-    # persistência da decisão
+
+    # Nova instância: gates e a decisão da aprovação persistidos.
     svc3 = OrchestrationService(repository=SqlAlchemyOrchestrationRepository(url))
+    assert len(svc3.list_gate_results(orch.id)) == 1
     assert svc3.get_approval(approval.id).status == "approved"  # type: ignore[union-attr]
 
 

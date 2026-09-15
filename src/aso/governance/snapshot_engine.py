@@ -11,6 +11,23 @@ from aso.governance.models import QualityGateResult, Snapshot
 from aso.shared.events import EventLog
 from aso.shared.types import GateStatus, Phase
 
+# Seções que o snapshot de cada fase congela (ADR-0061). Decisões consolidadas de
+# discovery, arquitetura, contratos e UX não mudam sem ADR de override + aprovação humana;
+# F5–F7 mantêm vivas as seções de engenharia, qualidade e operação (trabalho contínuo).
+SECOES_CONGELADAS_POR_FASE: dict[Phase, tuple[str, ...]] = {
+    Phase.F1: ("product", "market", "business", "requirements", "scope", "feasibility"),
+    Phase.F2: ("architecture",),
+    Phase.F3: ("contracts",),
+    Phase.F4: ("ux",),
+    Phase.F5: (),
+    Phase.F6: (),
+    Phase.F7: (),
+}
+
+
+def secoes_congeladas(fase: Phase) -> list[str]:
+    return list(SECOES_CONGELADAS_POR_FASE.get(fase, ()))
+
 
 class SnapshotError(RuntimeError):
     """Erro ao criar ou restaurar snapshot."""

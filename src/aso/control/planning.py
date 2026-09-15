@@ -17,7 +17,8 @@ _PLANNING_SYSTEM = (
     "A partir de uma ideia de produto, produza um plano inicial em português do Brasil.\n"
     "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
     '{"product": {"name": "...", "domain": "...", "mvp_hypothesis": "..."},\n'
-    ' "adrs": [{"title": "...", "decision": "...", "rationale": "..."}],\n'
+    ' "adrs": [{"title": "...", "decision": "...", "rationale": "...",\n'
+    '   "locked_paths": ["architecture.pattern"]}],\n'
     ' "backlog": [{"title": "...", "phase": "F5", "domain": "backend",'
     ' "acceptance_criteria": ["..."], "depends_on": ["..."]}]}\n'
     "Distribua o backlog por TODA a esteira (fases F1..F7), não só F5:\n"
@@ -43,6 +44,9 @@ class PlannedAdr(BaseModel):
     title: str
     decision: str
     rationale: str = ""
+    # Caminhos do contexto que a ADR governa (ADR-0061): escrever neles sem referenciá-la
+    # em `linked_adrs` é rejeitado pelo ContextBus.
+    locked_paths: list[str] = Field(default_factory=list)
 
 
 class BacklogItem(BaseModel):

@@ -105,3 +105,39 @@ def test_race_is_persisted_and_listed(tmp_path: Path, monkeypatch: pytest.Monkey
         f"/v1/orchestrations/{oid}/candidate-runs", params={"card_id": card_id}
     ).json()
     assert len(by_card) == 1
+
+
+def test_race_assincrona_devolve_202_e_a_comparacao_fica_no_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MEL-31 (ADR-0067): com a fila ligada, a corrida roda no worker e o resultado é o mesmo."""
+    import time
+
+    repo = tmp_path / "proj"
+    _init_repo(repo)
+    monkeypatch.setenv("ASO_TARGET_REPO", str(repo))
+    monkeypatch.setenv(
+        "ASO_CANDIDATE_COMMANDS",
+        json.dumps(
+            [
+                {"id": "claude", "command": 'bash -c "echo a > sol_claude.py"'},
+                {"id": "codex", "command": 'bash -c "echo b > sol_codex.py"'},
+            ]
+        ),
+    )
+    svc = OrchestrationService()
+    client = TestClient(create_app(svc, execucao_assincrona=True))
+    orch = svc.create_orchestration("implementar no backend")
+    card = svc.get_cards(orch.id)[0]
+
+    resp = client.post(f"/v1/orchestrations/{orch.id}/cards/{card.id}/race")
+    assert resp.status_code == 202
+    job_id = resp.json()["job_id"]
+    limite = time.monotonic() + 30
+    job = client.get(f"/v1/jobs/{job_id}").json()
+    while job["status"] in ("queued", "running") and time.monotonic() < limite:
+        time.sleep(0.05)
+        job = client.get(f"/v1/jobs/{job_id}").json()
+    assert job["status"] == "done"
+    assert {c["executor"] for c in job["resultado"]["candidates"]} == {"claude", "codex"}
+    assert svc.list_candidate_runs(orch.id)  # corrida persistida como antes

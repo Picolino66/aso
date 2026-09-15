@@ -18,9 +18,11 @@ def _orch_pronta(svc: OrchestrationService, tmp_path: Path, *, risco: RiskLevel)
         "ajustar cálculo de frete",
         target_path=str(tmp_path),
         seed_cards=False,
+        # Gate F5 PASSED de verdade (ADR-0060): sem cards, só a bateria dá o que verificar.
+        validation_command="true",
         demand_brief=DemandBrief(risco=risco),
     )
-    svc.run_quality_gate(orch.id, Phase.F5)  # vacuamente PASSED (sem cards)
+    svc.run_quality_gate(orch.id, Phase.F5)  # PASSED pela bateria (validation_command)
     return orch.id
 
 
@@ -313,12 +315,13 @@ def test_run_deploy_com_estagio_falho_classifica_e_expoe_proxima_acao(
     assert corpo["proxima_acao_falha"]
 
 
-def test_rbac_put_pipeline_exige_operator_get_aberto_a_viewer(tmp_path: Path) -> None:
+def test_rbac_put_pipeline_exige_admin_get_aberto_a_viewer(tmp_path: Path) -> None:
     svc = OrchestrationService()
     auth = AuthService(
         {
             "v": Principal(actor="viewer", role="viewer"),
             "o": Principal(actor="op", role="operator"),
+            "a": Principal(actor="adm", role="admin"),
         },
         dev_mode=False,
     )
@@ -338,6 +341,14 @@ def test_rbac_put_pipeline_exige_operator_get_aberto_a_viewer(tmp_path: Path) ->
     assert (
         client.put(
             f"/v1/orchestrations/{oid}/deploy/pipeline", json=_PIPELINE_BODY, headers=h_operator
+        ).status_code
+        == 403  # pipeline define comandos executados no host: admin (ADR-0057)
+    )
+    assert (
+        client.put(
+            f"/v1/orchestrations/{oid}/deploy/pipeline",
+            json=_PIPELINE_BODY,
+            headers={"Authorization": "Bearer a"},
         ).status_code
         == 200
     )

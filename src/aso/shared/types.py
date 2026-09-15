@@ -32,6 +32,8 @@ class GateStatus(StrEnum):
     PASSED = "PASSED"
     FAILED = "FAILED"
     WARNING = "WARNING"
+    # Nenhum critério bloqueante se aplica (fase sem trabalho, ADR-0060): não é aprovação.
+    SKIPPED = "SKIPPED"
 
 
 class PatchStatus(StrEnum):

@@ -78,7 +78,14 @@ class InMemoryOrchestrationRepository:
         states = self._all_states()
         cards_by_status: dict[str, int] = {}
         adrs = snapshots = conflicts = retries = failures = 0
+        slo_latest: dict[str, dict[str, float]] = {}
         for s in states:
+            if s.slo_evaluations:
+                ultima = max(s.slo_evaluations, key=lambda ev: ev.created_at)
+                slo_latest[s.orchestration.id] = {
+                    "burn_rate": ultima.burn_rate,
+                    "consumed_pct": ultima.consumed_pct,
+                }
             for card in s.cards:
                 cards_by_status[card.status.value] = cards_by_status.get(card.status.value, 0) + 1
             adrs += len(s.adrs)
@@ -97,6 +104,7 @@ class InMemoryOrchestrationRepository:
             "open_conflicts": conflicts,
             "agent_retries": retries,
             "agent_failures": failures,
+            "slo_latest": slo_latest,
         }
 
     def events_page(

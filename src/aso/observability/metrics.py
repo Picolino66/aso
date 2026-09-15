@@ -159,7 +159,10 @@ class MetricsService:
             lines.append(f'aso_cards{{status="{status}"}} {count}')
 
         # Burn-rate / orçamento de erro por orquestração (§F7) — para scraping/alerta externo.
-        budgets = [(o.id, self.slo_report(o.id)["error_budget"]) for o in self.svc.list_all()]
+        # Vem da ÚLTIMA amostra persistida (`POST .../slo/evaluate`), agregada no
+        # repositório (ADR-0057): `/metrics` é público e raspado a cada poucos segundos;
+        # recalcular `slo_report` hidratava TODAS as orquestrações a cada scrape.
+        budgets = sorted(g.get("slo_latest", {}).items())
         lines += [
             "# HELP aso_slo_burn_rate Burn-rate do orçamento de erro por orquestração",
             "# TYPE aso_slo_burn_rate gauge",

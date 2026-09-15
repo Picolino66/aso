@@ -13,6 +13,9 @@ import pytest
 from aso.control.orchestration_service import OrchestrationService
 from aso.control.review import ReviewAction, ReviewCommentDraft, ReviewVerdict
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _orch_com_pr(svc: OrchestrationService) -> tuple[str, str]:
     orch = svc.create_orchestration("implementar cálculo de frete")
@@ -181,7 +184,7 @@ def test_merge_pr_bloqueia_comentario_obrigatorio_pendente() -> None:
     )
     _aplicar(svc, orch_id, pr_id, reprovado)
 
-    svc.report_ci(orch_id, pr_id, "passed")
+    svc.report_ci(orch_id, pr_id, "passed", justificativa=JUST_CI)
     svc.report_review(orch_id, pr_id, "approved", justificativa="urgência aprovada por humano")
 
     pr = svc.list_pulls(orch_id)[0]

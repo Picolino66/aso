@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -66,9 +67,19 @@ def test_heal_docs_cria_doc_de_modulo_sem_doc(tmp_path: Path) -> None:
     orch = svc.create_orchestration("backend", target_path=str(tmp_path))
     before = svc.docs_drift(orch.id)
     assert "core" in before["undocumented_modules"]
-    out = svc.heal_docs(orch.id)  # mock → self-heal determinístico (scaffold)
+    out = svc.heal_docs(orch.id, inicializar_git=True)  # mock → scaffold determinístico
     assert out["mode"] == "scaffold"
-    assert (tmp_path / "docs" / "modules" / "core" / "core.md").is_file()
+    # Self-heal vai por PR (ADR-0062): a base não ganha o arquivo até o merge governado.
+    assert out["entrega"] == "pr"
+    assert not (tmp_path / "docs" / "modules" / "core" / "core.md").exists()
+    pr = next(p for p in svc.list_pulls(orch.id) if p.id == out["pr_id"])
+    mostrado = subprocess.run(
+        ["git", "show", f"{pr.branch}:docs/modules/core/core.md"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert mostrado.returncode == 0
 
 
 def test_endpoints_docs_drift_e_heal(tmp_path: Path) -> None:
@@ -77,7 +88,8 @@ def test_endpoints_docs_drift_e_heal(tmp_path: Path) -> None:
     oid = client.post(
         "/v1/orchestrations", json={"user_request": "x", "target_path": str(tmp_path)}
     ).json()["id"]
-    client.post(f"/v1/orchestrations/{oid}/analyze-folder", json={})  # gera docs
+    # Pasta vazia: inicialização confirmada → scaffold direto no repo recém-criado.
+    client.post(f"/v1/orchestrations/{oid}/analyze-folder", json={"inicializar_git": True})
     drift = client.get(f"/v1/orchestrations/{oid}/docs-drift")
     assert drift.status_code == 200
     assert drift.json()["has_docs"] is True
@@ -101,9 +113,25 @@ def test_run_phase_f5_autoheal_cria_doc_de_modulo(tmp_path: Path) -> None:
     svc = OrchestrationService(catalog=_mock_catalog())
     orch = svc.create_orchestration("backend", target_path=str(tmp_path))
     WorkspaceService().ensure_git(tmp_path)
+    base_antes = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True
+    ).stdout
     result = svc.run_phase(orch.id, Phase.F5)
-    assert result["docs_autoheal"] is not None  # auto-sincronizou ao fim de F5
-    assert (tmp_path / "docs" / "modules" / "core" / "core.md").is_file()
+    autoheal = result["docs_autoheal"]
+    assert isinstance(autoheal, dict)
+    # Autoheal abre card + PR em vez de commitar na base (ADR-0062).
+    assert autoheal["entrega"] == "pr"
+    assert not (tmp_path / "docs" / "modules" / "core" / "core.md").exists()
+    assert (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True
+        ).stdout
+        == base_antes
+    )
+    # Rodar a fase de novo não empilha outra PR de docs enquanto a primeira está aberta.
+    svc.run_phase(orch.id, Phase.F5)
+    docs_prs = [p for p in svc.list_pulls(orch.id) if p.status == "open"]
+    assert len(docs_prs) == 1
 
 
 def test_run_phase_autoheal_desligavel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

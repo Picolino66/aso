@@ -33,9 +33,11 @@ def _orch_pronta(
         "ajustar cálculo de frete",
         target_path=str(tmp_path),
         seed_cards=False,
+        # Gate F5 PASSED de verdade (ADR-0060): sem cards, só a bateria dá o que verificar.
+        validation_command="true",
         demand_brief=DemandBrief(risco=risco),
     )
-    svc.run_quality_gate(orch.id, Phase.F5)  # vacuamente PASSED (sem cards)
+    svc.run_quality_gate(orch.id, Phase.F5)  # PASSED pela bateria (validation_command)
     return orch.id
 
 
@@ -197,7 +199,8 @@ def test_gate_f6_sem_deploy_runs_nao_ganha_criterio_novo(tmp_path) -> None:  # t
     )
     resultado = svc.run_quality_gate(orch.id, Phase.F6)
     assert "deploy_aprovado" not in {c.name for c in resultado.criteria}
-    assert resultado.status.value == "PASSED"
+    # Sem cards, sem bateria e sem deploy nada bloqueia: SKIPPED, não aprovação vazia (ADR-0060).
+    assert resultado.status.value == "SKIPPED"
 
 
 def test_gate_f6_com_deploy_aprovado_ganha_criterio_passando(tmp_path) -> None:  # type: ignore[no-untyped-def]

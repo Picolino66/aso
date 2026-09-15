@@ -316,6 +316,10 @@ class CardRow(Base):
     effort_override: Mapped[str | None] = mapped_column(String, nullable=True)
     executor_override: Mapped[str | None] = mapped_column(String, nullable=True)
     pausado: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Claim/lease de execução (ADR-0058) — NULL = card livre.
+    em_execucao_desde: Mapped[str | None] = mapped_column(String, nullable=True)
+    execution_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    execucao_dono: Mapped[str | None] = mapped_column(String, nullable=True)
     contexto_adicional: Mapped[list[str]] = mapped_column(_JSONB, default=list)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
@@ -544,6 +548,8 @@ class PullRequestRow(Base):
     title: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String)
     ci_status: Mapped[str] = mapped_column(String)
+    # ADR-0056: executada | declarada | "" (sem CI) | desconhecida (PR legada).
+    ci_origem: Mapped[str] = mapped_column(String, default="")
     review_status: Mapped[str] = mapped_column(String)
     # Veredito da revisão independente (ADR-0017); mesmo motivo de demand_brief:
     # mapa pequeno, sempre lido junto da PR, então JSONB em vez de tabela filha.
@@ -666,3 +672,80 @@ class EventRow(Base):
     type: Mapped[str] = mapped_column(String)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[str] = mapped_column(String)
+
+
+class AgentRunRow(Base):
+    """Execução de agente (ADR-0065) — append-only, FORA da reescrita do agregado.
+
+    Sem FK para `orchestrations`: o `save` do agregado reescreve linhas por nível, e o
+    registro de execução precisa sobreviver a isso (e a perguntas feitas antes de a
+    orquestração existir, como a triagem na criação).
+    """
+
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        Index("ix_agent_runs_orch_inicio", "orchestration_id", "inicio"),
+        Index("ix_agent_runs_card", "card_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    orchestration_id: Mapped[str] = mapped_column(String, default="")
+    card_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    pr_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    kind: Mapped[str] = mapped_column(String)
+    task_type: Mapped[str] = mapped_column(String, default="")
+    papel: Mapped[str] = mapped_column(String, default="")
+    executor: Mapped[str] = mapped_column(String, default="")
+    modelo: Mapped[str] = mapped_column(String, default="")
+    effort: Mapped[str] = mapped_column(String, default="")
+    prompt_version: Mapped[str] = mapped_column(String, default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    envelope: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String)
+    saida_resumo: Mapped[str] = mapped_column(Text, default="")
+    stdout_cauda: Mapped[str] = mapped_column(Text, default="")
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    diff_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    inicio: Mapped[str] = mapped_column(String)
+    fim: Mapped[str | None] = mapped_column(String, nullable=True)
+    duracao_ms: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tokens_entrada: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_saida: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_cache: Mapped[int] = mapped_column(Integer, default=0)
+    custo_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    uso_origem: Mapped[str] = mapped_column(String, default="")
+    erro: Mapped[str] = mapped_column(Text, default="")
+    decisao: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    request_id: Mapped[str] = mapped_column(String, default="")
+
+
+class JobRow(Base):
+    """Job de execução enfileirado (ADR-0067) — fora da reescrita do agregado, sem FK.
+
+    Mesmo motivo de `agent_runs`: o `save` do agregado reescreve linhas por nível, e a fila
+    precisa sobreviver a isso (e a reinícios do runtime).
+    """
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_status_criado", "status", "criado_em"),
+        Index("ix_jobs_orch_criado", "orchestration_id", "criado_em"),
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    orchestration_id: Mapped[str] = mapped_column(String)
+    card_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    operacao: Mapped[str] = mapped_column(String)
+    parametros: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String)
+    resultado: Mapped[Any] = mapped_column(_JSONB, nullable=True)
+    erro: Mapped[str] = mapped_column(Text, default="")
+    erro_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ator: Mapped[str] = mapped_column(String, default="system")
+    dono: Mapped[str] = mapped_column(String, default="")
+    criado_em: Mapped[str] = mapped_column(String)
+    iniciado_em: Mapped[str | None] = mapped_column(String, nullable=True)
+    fim: Mapped[str | None] = mapped_column(String, nullable=True)
+    cancelamento_solicitado: Mapped[bool] = mapped_column(Boolean, default=False)

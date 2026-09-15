@@ -27,6 +27,11 @@ jobs:
       - name: Type-check (mypy strict)
         run: mypy src
 
+      # Regras invioláveis (MEL-34, docs/GOVERNANCE.md): passo próprio para que uma
+      # violação apareça nomeada no CI, antes da suíte completa.
+      - name: Invariantes de governança (obrigatório)
+        run: pytest -q -p no:cacheprovider tests/integration/test_governanca_invariantes.py
+
       - name: Testes + cobertura (mínimo 80%)
         run: pytest -q --cov=src/aso --cov-report=term-missing --cov-fail-under=80
 

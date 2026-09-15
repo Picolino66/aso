@@ -27,6 +27,7 @@ from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.execution.agent_stream import extrair_texto, extrair_uso, interpretar
 from aso.execution.branch_naming import unique_branch
+from aso.execution.jobs import desregistrar_processo, registrar_processo
 from aso.execution.worktree import WorktreeManager
 from aso.governance.models import ContextPatch
 from aso.shared.agent_output import STREAM_STDERR, STREAM_STDOUT, OutputBus, OutputSink
@@ -144,6 +145,8 @@ class CliAgentExecutionProvider:
         # for Python. Para os demais, quem resolve é a flag de streaming do próprio
         # agente (`--output-format stream-json`, `--json`) — ver docs/operations.md.
         env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        if task.get("run_id"):
+            env["ASO_RUN_ID"] = str(task["run_id"])  # liga o processo ao AgentRun (ADR-0065)
         proc = subprocess.Popen(
             self.command,
             cwd=cwd,
@@ -154,6 +157,16 @@ class CliAgentExecutionProvider:
             bufsize=1,
             env=env,
         )
+        # Job assíncrono (ADR-0067): cancelar o job mata este processo.
+        registrar_processo(proc)
+        try:
+            return self._acompanhar(proc, task, sink)
+        finally:
+            desregistrar_processo(proc)
+
+    def _acompanhar(
+        self, proc: subprocess.Popen[str], task: dict[str, Any], sink: OutputSink | None
+    ) -> _Saida:
         out: list[str] = []
         err: list[str] = []
         bombas = [

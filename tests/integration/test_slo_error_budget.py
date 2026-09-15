@@ -10,6 +10,7 @@ from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.observability.metrics import MetricsService
+from aso.shared.types import Phase
 
 
 class AlwaysFailProvider:
@@ -24,7 +25,9 @@ def test_slo_error_budget_healthy() -> None:
     orch = svc.create_orchestration("backend saudável")
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)
-    svc.run_quality_gate(orch.id)  # gera snapshot (SLO de snapshot ok)
+    svc.run_quality_gate(
+        orch.id, Phase.F5
+    )  # gate da fase do card (ADR-0060)  # gera snapshot (SLO de snapshot ok)
 
     report = MetricsService(svc).slo_report(orch.id)
     eb = report["error_budget"]

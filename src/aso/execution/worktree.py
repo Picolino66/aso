@@ -77,9 +77,19 @@ class WorktreeManager:
             self._git("commit", "-m", message, cwd=path)
 
     def merge(self, branch: str, *, message: str = "aso: merge governado") -> None:
-        """Faz merge governado da branch do card na branch atual do repositório base."""
+        """Faz merge governado da branch do card na branch atual do repositório base.
+
+        Em conflito, aborta o merge antes de propagar o erro (ADR-0062): a branch base não
+        pode ficar travada em estado de merge pela metade.
+        """
         with _GIT_META_LOCK:
-            self._git("merge", "--no-ff", "--no-edit", "-m", message, branch)
+            try:
+                self._git("merge", "--no-ff", "--no-edit", "-m", message, branch)
+            except WorktreeError:
+                subprocess.run(
+                    ["git", "merge", "--abort"], cwd=str(self.base), capture_output=True, text=True
+                )
+                raise
 
     def branch_diff(self, branch: str) -> str:
         """Retorna o diff de uma branch candidata contra HEAD, sem alterar o repositório."""

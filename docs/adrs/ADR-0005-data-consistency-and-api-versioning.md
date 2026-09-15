@@ -34,5 +34,6 @@ O ASO Runtime precisa de garantias fortes sobre o contexto canônico (§17, §19
 ## Consequências
 
 - `contracts.consistency_model = strong`.
-- `contracts.api_version = v1`; OpenAPI em `contracts/openapi.yaml`.
+- `contracts.api_version = v1`; OpenAPI em `contracts/openapi.yaml`. _(Supersedido pela
+  [ADR-0064](ADR-0064-openapi-gerado-do-codigo.md): contrato gerado em `contracts/openapi.json`.)_
 - Toda entidade com `id` + timestamps; DTOs sem campos `any`/`object` sem descrição (gate F3).

@@ -80,7 +80,21 @@ class QualityGateEngine:
                 else:
                     warnings.append(crit.name)
 
-        status = GateStatus.PASSED if not blocking_issues else GateStatus.FAILED
+        if blocking_issues:
+            status = GateStatus.FAILED
+        elif not any(crit.blocking for crit in gate.criteria):
+            # Nada bloqueante a verificar (ADR-0060): chamar isso de PASSED seria aprovar
+            # fase vazia. Os não bloqueantes continuam avaliados e viram warnings.
+            status = GateStatus.SKIPPED
+            results.append(
+                GateCriterionResult(
+                    name="fase_sem_trabalho",
+                    status=GateStatus.SKIPPED,
+                    evidence=["nenhum critério bloqueante aplicável (fase sem cards)"],
+                )
+            )
+        else:
+            status = GateStatus.PASSED
         result = QualityGateResult(
             orchestration_id=orchestration_id,
             phase=phase,

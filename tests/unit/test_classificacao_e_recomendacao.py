@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService, _faixa
+from aso.application.insights import _faixa
+from aso.control.orchestration_service import OrchestrationService
 from aso.control.routing_rules import RoutingAction, RoutingCondition
 from aso.kanban.models import KanbanCard
 from aso.shared.types import AssigneeType, CardType, ColumnKey, Phase, RiskLevel

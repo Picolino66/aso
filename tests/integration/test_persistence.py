@@ -97,6 +97,8 @@ def test_incidente_sobrevive_a_recarregar_o_bundle(tmp_path: Path) -> None:
         "ajustar cálculo de frete",
         target_path=str(tmp_path),
         seed_cards=False,
+        # Gate F5 PASSED de verdade (ADR-0060): sem cards, só a bateria dá o que verificar.
+        validation_command="true",
         demand_brief=DemandBrief(risco=RiskLevel.HIGH),
     )
     svc1.run_quality_gate(orch.id, Phase.F5)

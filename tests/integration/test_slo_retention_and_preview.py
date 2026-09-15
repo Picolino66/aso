@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.governance.models import SloEvaluation
+from aso.shared.types import Phase
 
 
 def test_slo_samples_are_retained_up_to_limit() -> None:
@@ -25,11 +26,15 @@ def test_slo_samples_are_retained_up_to_limit() -> None:
 
 
 def _two_snapshots(client: TestClient) -> str:
-    oid = client.post("/v1/orchestrations", json={"user_request": "X"}).json()["id"]
-    card_id = client.get(f"/v1/orchestrations/{oid}/cards").json()[0]["id"]
-    client.post(f"/v1/orchestrations/{oid}/cards/{card_id}/run")
+    # Dois snapshots reais exigem duas fases com trabalho entregue — fase vazia é SKIPPED
+    # e não gera snapshot (ADR-0060): cards em F2 (arquitetura) e F5 (backend) → O2 e O5.
+    corpo = {"user_request": "X", "demand_brief": {"dominios": ["architecture", "backend"]}}
+    oid = client.post("/v1/orchestrations", json=corpo).json()["id"]
+    for card in client.get(f"/v1/orchestrations/{oid}/cards").json():
+        if card["phase"] in ("F2", "F5"):
+            client.post(f"/v1/orchestrations/{oid}/cards/{card['id']}/run")
+    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F2"})
     client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F5"})
-    client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={"phase": "F6"})
     return oid
 
 
@@ -38,9 +43,9 @@ def test_restore_section_preview_is_readonly_and_reports_impact() -> None:
     oid = _two_snapshots(client)
     section = next(iter(client.get(f"/v1/orchestrations/{oid}/context").json()["payload"].keys()))
 
-    # restaurar do próprio O6 (idêntico ao contexto atual) → sem mudança (no_op)
+    # restaurar do próprio O5 (idêntico ao contexto atual) → sem mudança (no_op)
     prev = client.get(
-        f"/v1/orchestrations/{oid}/snapshots/O6/restore-section/preview",
+        f"/v1/orchestrations/{oid}/snapshots/O5/restore-section/preview",
         params={"section": section},
     )
     assert prev.status_code == 200
@@ -52,14 +57,14 @@ def test_restore_section_preview_is_readonly_and_reports_impact() -> None:
     # o dry-run não alterou o contexto (nenhuma versão nova por restauração)
     ctx_version = client.get(f"/v1/orchestrations/{oid}/context").json()["version"]
     client.get(
-        f"/v1/orchestrations/{oid}/snapshots/O6/restore-section/preview",
+        f"/v1/orchestrations/{oid}/snapshots/O5/restore-section/preview",
         params={"section": section},
     )
     assert client.get(f"/v1/orchestrations/{oid}/context").json()["version"] == ctx_version
 
     # seção inexistente → 404
     missing = client.get(
-        f"/v1/orchestrations/{oid}/snapshots/O6/restore-section/preview",
+        f"/v1/orchestrations/{oid}/snapshots/O5/restore-section/preview",
         params={"section": "nao_existe"},
     )
     assert missing.status_code == 404
@@ -70,7 +75,7 @@ def test_preview_reports_changes_when_section_differs() -> None:
     orch = svc.create_orchestration("backend")
     card = svc.get_cards(orch.id)[0]
     svc.run_card(orch.id, card.id)
-    svc.run_quality_gate(orch.id)
+    svc.run_quality_gate(orch.id, Phase.F5)  # gate da fase do card (ADR-0060)
     snap = svc.list_snapshots(orch.id)[0]
     section = next(iter(snap.payload.keys()))
 

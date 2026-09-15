@@ -18,6 +18,9 @@ from aso.api.auth import AuthService, Principal
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 _ENVELOPE = (
     '{"type":"result","subtype":"success","result":"ok",'
     '"total_cost_usd":0.05,"model":"claude-sonnet-5",'
@@ -53,7 +56,7 @@ def test_execucao_com_usage_reflete_custo_no_card_closure_e_aprendizado(tmp_path
     assert card.uso["execucoes_sem_custo"] == 0
 
     pr = svc.list_pulls(orch.id)[0]
-    svc.report_ci(orch.id, pr.id, "passed")
+    svc.report_ci(orch.id, pr.id, "passed", justificativa=JUST_CI)
     svc.report_review(orch.id, pr.id, "approved", justificativa="revisão manual do teste")
     svc.merge_pr(orch.id, pr.id)
     card_final = svc.get_cards(orch.id)[0]

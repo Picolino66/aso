@@ -13,6 +13,9 @@ from aso.control.models import REVIEW_KEY
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _init_repo(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -84,7 +87,10 @@ def test_review_run_persiste_veredito_recuperavel_por_get(tmp_path: Path) -> Non
 def test_risco_baixo_com_veredito_aprovado_libera_merge(tmp_path: Path) -> None:
     catalog = _catalogo('{"veredito": "aprovado", "resumo": "ok, sem ressalvas"}')
     client, oid, pr_id = _preparar(tmp_path, catalog, "ajustar relatorio mensal de vendas")
-    client.post(f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci", json={"status": "passed"})
+    client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci",
+        json={"status": "passed", "justificativa": JUST_CI},
+    )
 
     resposta = client.post(
         f"/v1/orchestrations/{oid}/pulls/{pr_id}/review/run", json={"executor": "revisor"}
@@ -111,7 +117,10 @@ def test_risco_alto_com_veredito_aprovado_fica_pendente_de_humano(tmp_path: Path
     client, oid, pr_id = _preparar(
         tmp_path, catalog, "Ajustar login com token e senha de autenticacao"
     )
-    client.post(f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci", json={"status": "passed"})
+    client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci",
+        json={"status": "passed", "justificativa": JUST_CI},
+    )
 
     resposta = client.post(
         f"/v1/orchestrations/{oid}/pulls/{pr_id}/review/run", json={"executor": "revisor"}
@@ -142,7 +151,10 @@ def test_risco_alto_com_veredito_aprovado_fica_pendente_de_humano(tmp_path: Path
 def test_aprovar_sem_veredito_aprovado_exige_justificativa(tmp_path: Path) -> None:
     catalog = _catalogo('{"veredito": "necessita_humano", "resumo": "área sensível"}')
     client, oid, pr_id = _preparar(tmp_path, catalog, "ajustar módulo qualquer")
-    client.post(f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci", json={"status": "passed"})
+    client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr_id}/ci",
+        json={"status": "passed", "justificativa": JUST_CI},
+    )
     client.post(f"/v1/orchestrations/{oid}/pulls/{pr_id}/review/run", json={"executor": "revisor"})
 
     recusado = client.post(

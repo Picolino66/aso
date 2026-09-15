@@ -165,6 +165,7 @@
     </main>
   </div>
   <script src="/ui/header.js"></script>
+  <script src="/ui/jobs.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {});
@@ -179,7 +180,7 @@
       let corpo = null;
       try { corpo = await r.json(); } catch (e) { corpo = null; }
       if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return corpo;
+      return window.asoResolverResposta(r.status, corpo, headers);
     }
 
     function linhas(id) {
@@ -277,8 +278,15 @@
       try {
         const orch = await api('/v1/orchestrations', { method: 'POST', body: JSON.stringify(body) });
         if (iniciarDepois) {
-          try { await api('/v1/orchestrations/' + orch.id + '/analyze-folder', { method: 'POST', body: JSON.stringify({}) }); }
-          catch (e) { /* docs-first best-effort — a orquestração já existe, segue para o detalhe */ }
+          const urlDocs = '/v1/orchestrations/' + orch.id + '/analyze-folder';
+          try { await api(urlDocs, { method: 'POST', body: JSON.stringify({}) }); }
+          catch (e) {
+            // ADR-0062: git init na pasta do usuário só com confirmação explícita.
+            if (String(e.message).includes('inicializar_git') && confirm('A pasta de trabalho não é um repositório git. Inicializar um repositório nela (git init)?')) {
+              try { await api(urlDocs, { method: 'POST', body: JSON.stringify({ inicializar_git: true }) }); } catch (e2) { /* best-effort */ }
+            }
+            /* docs-first best-effort — a orquestração já existe, segue para o detalhe */
+          }
         }
         location.href = '/ui/detalhe?id=' + orch.id;
       } catch (e) { mostrarErro('Não foi possível salvar: ' + e.message); }

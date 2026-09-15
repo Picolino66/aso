@@ -66,7 +66,9 @@ def test_put_e_delete_do_agente_de_triagem() -> None:
 def test_triagem_e_aceita_com_a_esteira_ja_em_f5_por_nao_ser_fase() -> None:
     client = _client(ExecutorCatalog([ExecutorProfile(name="triador", kind="mock")]))
     oid = client.post("/v1/orchestrations", json={"user_request": "demanda qualquer"}).json()["id"]
-    for _ in range(4):  # F1 → F2 → F3 → F4 → F5
+    for _ in range(4):  # F1 → F2 → F3 → F4 → F5 (gate aprovado antes — MEL-10)
+        gate = client.post(f"/v1/orchestrations/{oid}/quality-gates/run", json={})
+        assert gate.status_code == 200
         assert client.post(f"/v1/orchestrations/{oid}/advance-phase").status_code == 200
     resposta = client.put(
         f"/v1/orchestrations/{oid}/agents/{TRIAGE_KEY}", json={"executor": "triador"}

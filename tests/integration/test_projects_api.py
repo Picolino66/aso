@@ -117,7 +117,8 @@ def test_erros_de_validacao_not_found_e_conflito(tmp_path: Path) -> None:
             "execution_mode": "code-execution",
             "validation_command": "true",
         },
-        headers=headers("o"),
+        # Comando de validação executa no host: exige admin (ADR-0057).
+        headers=headers("a"),
     )
     assert mismatch.status_code == 409
     assert "diverge" in mismatch.json()["detail"]
@@ -130,7 +131,7 @@ def test_erros_de_validacao_not_found_e_conflito(tmp_path: Path) -> None:
                 "execution_mode": "code-execution",
                 "validation_command": "true",
             },
-            headers=headers("o"),
+            headers=headers("a"),
         ).status_code
         == 404
     )
@@ -143,7 +144,7 @@ def test_erros_de_validacao_not_found_e_conflito(tmp_path: Path) -> None:
             "execution_mode": "code-execution",
             "validation_command": "true",
         },
-        headers=headers("o"),
+        headers=headers("a"),
     )
     assert archived.status_code == 409
     assert "arquivado" in archived.json()["detail"]
@@ -166,7 +167,7 @@ def test_filtro_snapshot_de_workspace_e_compatibilidade_sem_projeto(tmp_path: Pa
             "execution_mode": "code-execution",
             "validation_command": "true",
         },
-        headers=headers("o"),
+        headers=headers("a"),  # comando de validação no host exige admin (ADR-0057)
     )
     assert created.status_code == 201
     orchestration_id = created.json()["id"]

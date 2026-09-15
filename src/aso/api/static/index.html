@@ -74,6 +74,7 @@
   </main>
 
   <script src="/ui/header.js"></script>
+  <script src="/ui/jobs.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {
       subtitulo: 'Console · API v1',
@@ -84,14 +85,16 @@
     const api = (p, opts={}) => {
       const h = Object.assign({}, opts.headers || {});
       const t = token(); if (t) h['Authorization'] = 'Bearer ' + t;
-      return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok ? r.json() : Promise.reject(r.status));
+      return fetch(p, Object.assign({}, opts, { headers:h })).then(r => r.ok
+        ? r.json().then(c => window.asoResolverResposta(r.status, c, h))
+        : Promise.reject(r.status));
     };
     const post = (p, body) => api(p, { method:'POST', headers:{'content-type':'application/json'}, body: body ? JSON.stringify(body) : '{}' });
     const del = (p) => api(p, { method:'DELETE' });
     const el = (h) => { const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild; };
     const esc = (s) => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
     const statusPill = (s) => {
-      const m = { applied:'ok', PASSED:'ok', approved:'ok', Done:'ok', rejected:'err', FAILED:'err', Failed:'err', Blocked:'err',
+      const m = { applied:'ok', PASSED:'ok', SKIPPED:'info', approved:'ok', Done:'ok', rejected:'err', FAILED:'err', Failed:'err', Blocked:'err',
                   pending:'warn', WARNING:'warn', WaitingHuman:'warn', NeedsFix:'warn', Testing:'info', Review:'info', InProgress:'info' };
       return `<span class="pill ${m[s]||''}">${esc(s)}</span>`;
     };
@@ -494,7 +497,13 @@
       if (!await saveExecutionSettings(id)) return;
       const status = document.getElementById('executionSettingsStatus'); status.textContent = 'Gerando docs-first no worktree isolado…';
       try {
-        await settingsRequest('/v1/orchestrations/' + encodeURIComponent(id) + '/analyze-folder', {method:'POST', body:JSON.stringify(_sel())});
+        const urlDocs = '/v1/orchestrations/' + encodeURIComponent(id) + '/analyze-folder';
+        try { await settingsRequest(urlDocs, {method:'POST', body:JSON.stringify(_sel())}); }
+        catch (gitError) {
+          // ADR-0062: git init na pasta do usuário só com confirmação explícita.
+          if (!String(gitError.message).includes('inicializar_git') || !confirm('A pasta de trabalho não é um repositório git. Inicializar um repositório nela (git init)?')) throw gitError;
+          await settingsRequest(urlDocs, {method:'POST', body:JSON.stringify(Object.assign({}, _sel(), {inicializar_git: true}))});
+        }
         status.textContent = 'Docs-first concluído.'; await openOrch(id);
       } catch (error) { status.textContent = error.message; }
     }
@@ -636,7 +645,10 @@
         panel.innerHTML = `<div class="empty" style="margin-top:14px">Corrida indisponível (${r.status}): ${esc(d.detail||'')}</div>`;
         return;
       }
-      const cmp = await r.json(); const rec = cmp.recommended_branch;
+      let cmp = await r.json();
+      try { cmp = await window.asoResolverResposta(r.status, cmp, token()?{'Authorization':'Bearer '+token()}:{}); }
+      catch (e) { panel.innerHTML = `<div class="empty" style="margin-top:14px">Corrida falhou: ${esc(e.message)}</div>`; return; }
+      const rec = cmp.recommended_branch;
       const total = cmp.candidates.length; const falhas = cmp.falhas||[]; const ok = total - falhas.length;
       panel.innerHTML = `<h3 style="margin:16px 0 6px">Candidatos — card <code>${esc(cardId)}</code></h3>
         ${falhas.length?`<div class="empty" style="color:#b3261e;margin-bottom:8px">⚠ corrida degradada: ${ok} de ${total} candidatos concluíram — a comparação NÃO é completa.</div>`:''}

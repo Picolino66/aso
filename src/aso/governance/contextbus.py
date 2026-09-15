@@ -1,18 +1,19 @@
 """ContextBus (§19, ADR-0003).
 
-Único componente autorizado a aplicar patches ao OrchestratorContext. Executa um
-pipeline de validação de 7 etapas antes de aplicar:
+Único componente autorizado a aplicar patches ao OrchestratorContext. `_validate` roda
+8 funções de etapa, em ordem — 6 com efeito e 2 ganchos ainda vazios:
 
-1. schema validation
-2. permission check
-3. conflict detection
-4. snapshot lock validation
-5. ADR consistency validation
-6. contract compatibility validation
-7. quality gate impact check
+1. schema
+2. permissão (deny-by-default)
+3. detecção de conflito entre outputs — gancho sem efeito
+4. lock de snapshot (override exige ADR + aprovação humana, ADR-0061)
+5. consistência de ADR
+6. contradição com ADR (`locked_paths`)
+7. compatibilidade de contrato
+8. impacto em quality gate — gancho sem efeito
 
-Aprovado -> aplica patch, incrementa versão, registra evento.
-Reprovado -> registra conflito e retorna status rejeitado/enfileirado.
+Aprovado -> aplica patch, incrementa versão, registra evento (ou fica pendente se
+`propose`/`requires_approval`). Reprovado -> registra conflito e retorna rejeitado.
 """
 
 from __future__ import annotations
@@ -102,7 +103,7 @@ class ContextBus:
         self.patches: list[ContextPatch] = []  # trilha de auditoria de todos os patches
 
     def _validate(self, patch: ContextPatch) -> StepResult | None:
-        """Roda o pipeline de 7 etapas; retorna o primeiro resultado que falha, ou None."""
+        """Roda as 8 etapas (2 ganchos vazios); devolve o primeiro resultado que falha, ou None."""
         steps = (
             self._step_schema,
             self._step_permission,
@@ -153,7 +154,7 @@ class ContextBus:
             return self._reject(patch, failure)
 
         # Proposta ou ação que exige aprovação: validada, porém NÃO aplicada (§8.3/§8.6).
-        # Fica pendente até promoção/aprovação humana (HumanApprovalEngine — MVP-2).
+        # Fica pendente até promoção/aprovação humana (`HumanApproval tipo=patch`).
         if patch.patch_type == PatchType.PROPOSE or patch.requires_approval:
             patch.status = PatchStatus.PENDING
             is_propose = patch.patch_type == PatchType.PROPOSE
@@ -174,7 +175,7 @@ class ContextBus:
 
         return self._apply(patch)
 
-    # --------------------------------------------------------------- etapas 1–7
+    # --------------------------------------------------------------- etapas 1–8
     def _step_schema(self, patch: ContextPatch) -> StepResult:
         # O patch já é validado pelo Pydantic; aqui garantimos coerência semântica.
         needs_content = patch.patch_type in (PatchType.ADD, PatchType.UPDATE, PatchType.PROPOSE)
@@ -203,6 +204,10 @@ class ContextBus:
 
     def _step_snapshot_lock(self, patch: ContextPatch) -> StepResult:
         check = self.conflict_detector.check_snapshot_lock(patch, self.store)
+        if check.ok and self.store.is_frozen(patch.target_path):
+            # Override de seção congelada (ADR-0061): a ADR referenciada libera a
+            # VALIDAÇÃO, mas a aplicação exige decisão humana — nunca é automática.
+            patch.requires_approval = True
         return StepResult(ok=check.ok, conflict_type=check.conflict_type, reason=check.reason)
 
     def _step_adr_consistency(self, patch: ContextPatch) -> StepResult:

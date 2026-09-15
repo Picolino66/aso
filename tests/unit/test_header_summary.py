@@ -52,11 +52,14 @@ def test_search_escopada_por_projeto_nao_traz_de_outro_projeto(tmp_path: object)
     projeto = svc.create_project(
         name="Projeto B", description="", target_path=str(tmp_path), actor="op"
     )
-    svc.create_orchestration("frete dentro do projeto", project_id=projeto.id)
-    svc.create_orchestration("frete fora do projeto")
+    dentro = svc.create_orchestration("frete dentro do projeto", project_id=projeto.id)
+    fora = svc.create_orchestration("frete fora do projeto")
 
     resultados = svc.search("frete", project_id=projeto.id)
-    assert len(resultados) == 1
+    # Demanda e card (título derivado da demanda, MEL-20) do projeto — nada do outro.
+    assert resultados
+    assert {r.orchestration_id for r in resultados} == {dentro.id}
+    assert fora.id not in {r.orchestration_id for r in resultados}
 
 
 def test_search_vazia_nao_devolve_tudo() -> None:

@@ -19,6 +19,9 @@ from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
+# CI declarada exige justificativa humana (ADR-0056, MEL-12).
+JUST_CI = "CI externa verificada pelo operador (teste)"
+
 
 def _init_repo(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
@@ -74,7 +77,10 @@ def test_candidates_to_governed_merge_via_api(
     assert blocked.status_code == 409
 
     # 4) CI passed + review approved → merge governado (git real na base)
-    client.post(f"/v1/orchestrations/{oid}/pulls/{pr['id']}/ci", json={"status": "passed"})
+    client.post(
+        f"/v1/orchestrations/{oid}/pulls/{pr['id']}/ci",
+        json={"status": "passed", "justificativa": JUST_CI},
+    )
     # Aprovação governada (ADR-0017) sem revisor de agente configurado neste teste:
     # exige justificativa humana explícita — o clique sem revisão não existe mais.
     client.post(

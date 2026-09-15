@@ -73,4 +73,4 @@ def test_orcamento_usd_na_criacao_sobrescreve_o_default() -> None:
 def test_sem_orcamento_usd_usa_o_default_de_ambiente() -> None:
     svc = OrchestrationService()
     orch = svc.create_orchestration("demanda sem orçamento explícito")
-    assert orch.orcamento_usd == svc._orcamento_padrao_usd  # noqa: SLF001
+    assert orch.orcamento_usd == svc._limites.orcamento_padrao_usd  # noqa: SLF001

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
-from aso.shared.types import ColumnKey, ExecutionMode, Phase
+from aso.shared.types import ExecutionMode, Phase
 
 
 def _client(svc: OrchestrationService) -> TestClient:
@@ -52,7 +52,8 @@ def test_next_step_pede_execucao_quando_ha_card_em_ready(tmp_path: Path) -> None
         execution_mode=ExecutionMode.CODE_EXECUTION,
         validation_command="echo ok",
     )
-    svc.analyze_folder(orch.id)  # gera a documentação docs-first (scaffold determinístico)
+    # Pasta vazia sem git: inicialização confirmada → scaffold commitado direto (ADR-0062).
+    svc.analyze_folder(orch.id, inicializar_git=True)
     assert svc.get(orch.id).workspace_prepared is True
     body = _next_step(_client(svc), orch.id)
     assert body["phase"] == "F5"
@@ -79,10 +80,8 @@ def test_next_step_aponta_aprovacao_apos_a_fase(tmp_path: Path) -> None:
     """Gate aprovado abre aprovação humana — e é ela que passa a ser o próximo passo."""
     svc = OrchestrationService(catalog=_mock_catalog())
     orch = svc.create_orchestration("Criar calculadora", target_path=str(tmp_path))
-    for card in svc.get_cards(orch.id):
-        if card.phase == Phase.F1 and card.status == ColumnKey.READY:
-            svc.run_card(orch.id, card.id)
-    resultado = svc.run_phase(orch.id, Phase.F1)
+    # O card nasce em F5: fase vazia não abre aprovação (SKIPPED, ADR-0060).
+    resultado = svc.run_phase(orch.id, Phase.F5)
     assert resultado["approval_id"] is not None
     body = _next_step(_client(svc), orch.id)
     assert body["blockers"][0]["code"] == "aprovacao_pendente"

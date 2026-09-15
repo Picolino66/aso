@@ -28,6 +28,12 @@ def _svc() -> OrchestrationService:
     return OrchestrationService(catalog=_catalogo())
 
 
+def _avancar(svc: OrchestrationService, oid: str) -> None:
+    """Avança uma fase pelo caminho governado: gate aprovado antes (regra 3, MEL-10)."""
+    svc.run_quality_gate(oid)
+    svc.advance_phase(oid)
+
+
 def _resolver(svc: OrchestrationService, oid: str, phase: Phase) -> tuple[str | None, str | None]:
     b = svc._bundle(oid)  # noqa: SLF001 - resolução interna é o objeto do teste
     executor = svc._effective_executor(b, None, phase=phase)  # noqa: SLF001
@@ -112,8 +118,8 @@ def test_fase_que_ja_passou_nao_aceita_troca_de_agente() -> None:
     # seria refeito com o novo agente.
     svc = _svc()
     orch = svc.create_orchestration("backend")
-    svc.advance_phase(orch.id)
-    svc.advance_phase(orch.id)  # F1 → F2 → F3
+    _avancar(svc, orch.id)
+    _avancar(svc, orch.id)  # F1 → F2 → F3
     with pytest.raises(ValueError, match="já passou"):
         svc.set_agent_assignment(orch.id, "F1", executor="forte")
 
@@ -121,7 +127,7 @@ def test_fase_que_ja_passou_nao_aceita_troca_de_agente() -> None:
 def test_fase_futura_aceita_troca_com_a_esteira_andando() -> None:
     svc = _svc()
     orch = svc.create_orchestration("backend")
-    svc.advance_phase(orch.id)  # F1 → F2
+    _avancar(svc, orch.id)  # F1 → F2
     svc.set_agent_assignment(orch.id, "F5", executor="forte")
     assert svc.get(orch.id).agent_assignments["F5"].executor == "forte"
 
@@ -130,8 +136,9 @@ def test_nomeador_e_sempre_editavel() -> None:
     # Não é fase da esteira: pode ser trocado a qualquer momento.
     svc = _svc()
     orch = svc.create_orchestration("backend")
+    svc.run_plan(orch.id)  # gate de F5 exige output dos cards antes de avançar (MEL-10)
     for _ in range(6):
-        svc.advance_phase(orch.id)  # até F7
+        _avancar(svc, orch.id)  # até F7
     svc.set_agent_assignment(orch.id, NAMING_KEY, executor="nomeador")
     assert svc.get(orch.id).agent_assignments[NAMING_KEY].executor == "nomeador"
 

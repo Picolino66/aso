@@ -12,6 +12,7 @@ from aso.agents.models import AgentSpec
 from aso.api.app import create_app
 from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile, build_catalog_from_env
+from aso.shared.types import Phase
 
 
 def _svc() -> OrchestrationService:
@@ -61,7 +62,8 @@ def test_build_task_threads_effort() -> None:
 def test_run_phase_with_executor_records_choice_in_approval() -> None:
     svc = _svc()
     orch = svc.create_orchestration("backend")
-    result = svc.run_phase(orch.id, executor="mock", effort="high")
+    # F5 é onde está o card: fase vazia seria SKIPPED, sem aprovação (ADR-0060).
+    result = svc.run_phase(orch.id, Phase.F5, executor="mock", effort="high")
     assert result["gate_status"] == "PASSED"
     ap = next(a for a in svc.list_approvals(orch.id) if a.id == result["approval_id"])
     assert ap.payload["executor"] == "mock"
@@ -83,7 +85,8 @@ def test_executors_endpoint_and_run_phase_body() -> None:
 
     oid = client.post("/v1/orchestrations", json={"user_request": "X"}).json()["id"]
     res = client.post(
-        f"/v1/orchestrations/{oid}/run-phase", json={"executor": "mock", "effort": "low"}
+        f"/v1/orchestrations/{oid}/run-phase",
+        json={"executor": "mock", "effort": "low", "phase": "F5"},
     )
     assert res.status_code == 200
     assert res.json()["gate_status"] == "PASSED"
