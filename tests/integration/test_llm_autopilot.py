@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from aso.agents.models import AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.planning import PlanningService
 from aso.execution.llm_client import FakeLlmClient
 from aso.execution.llm_provider import LlmExecutionProvider, parse_llm_json

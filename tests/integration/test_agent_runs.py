@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyAgentRunRepository
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.cli_provider import CliAgentExecutionProvider

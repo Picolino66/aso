@@ -8,6 +8,9 @@ OrchestratorContext permanece JSONB no Postgres (ADR-0005); restam em JSON apena
 payloads livres (contexto/eventos/approval) e sublistas de opção (pros/cons).
 A tabela `adrs` tem PK composta `(orchestration_id, id)` — ids são sequenciais por
 orquestração. Índices em FKs e nos campos consultados.
+
+`posicao` guarda a ordem da coleção no agregado: a gravação incremental (ADR-0068) atualiza
+linhas no lugar e o Postgres não garante ordem física, então a leitura ordena por ela.
 """
 
 from __future__ import annotations
@@ -124,6 +127,9 @@ class OrchestrationRow(Base):
     __tablename__ = "orchestrations"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Versão otimista do agregado (ADR-0068): cada gravação faz `UPDATE ... WHERE versao =
+    # esperada`; zero linhas = outro processo gravou antes (ConcurrentModificationError).
+    versao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     project_id: Mapped[str | None] = mapped_column(
         ForeignKey("projects.id", ondelete="RESTRICT"), nullable=True
     )
@@ -264,6 +270,7 @@ class CardRow(Base):
     __table_args__ = (Index("ix_cards_orch_status", "orchestration_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     board_id: Mapped[str] = mapped_column(ForeignKey("boards.id"), index=True)
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     phase: Mapped[str] = mapped_column(String)
@@ -309,6 +316,8 @@ class CardRow(Base):
     tentativa_falha_atual: Mapped[int] = mapped_column(Integer, default=0)
     # NULL = usa o limite global do processo (ASO_MAX_ESCALONAMENTOS).
     max_tentativas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    branch_stem: Mapped[str | None] = mapped_column(String, nullable=True)
+    commit_subject: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Ring das últimas 10 tentativas (sucesso ou falha) — ADR-0031.
     tentativas: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
     # Controles em voo (Tela 15, wf §17.2, ADR-0048) — NULL/vazio/False = nenhum
@@ -354,6 +363,7 @@ class CardEventRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"), index=True)
     card_id: Mapped[str] = mapped_column(String, index=True)
     type: Mapped[str] = mapped_column(String)
@@ -429,6 +439,7 @@ class SnapshotRow(Base):
     __tablename__ = "snapshots"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"), index=True)
     snapshot_version: Mapped[str] = mapped_column(String)
     phase: Mapped[str] = mapped_column(String)
@@ -442,6 +453,7 @@ class ConflictRow(Base):
     __tablename__ = "conflicts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"), index=True)
     type: Mapped[str] = mapped_column(String)
     description: Mapped[str] = mapped_column(Text)
@@ -454,6 +466,7 @@ class QualityGateResultRow(Base):
     __tablename__ = "quality_gate_results"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"), index=True)
     phase: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String)
@@ -500,6 +513,7 @@ class HumanApprovalRow(Base):
     __table_args__ = (Index("ix_approvals_orch_status", "orchestration_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
     requested_by_agent: Mapped[str] = mapped_column(String)
@@ -520,6 +534,7 @@ class ContextPatchRow(Base):
     __table_args__ = (Index("ix_patches_orch_status", "orchestration_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
     agent: Mapped[str] = mapped_column(String)
@@ -541,6 +556,7 @@ class PullRequestRow(Base):
     __table_args__ = (Index("ix_pulls_orch_status", "orchestration_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str] = mapped_column(String)
@@ -567,6 +583,7 @@ class ReviewCommentRow(Base):
     __table_args__ = (Index("ix_review_comments_orch_pr", "orchestration_id", "pr_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     pr_id: Mapped[str] = mapped_column(String)
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -589,6 +606,7 @@ class CandidateRunRow(Base):
     __table_args__ = (Index("ix_candidate_runs_orch_card", "orchestration_id", "card_id"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_id: Mapped[str] = mapped_column(String)
     recommended_branch: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -603,6 +621,7 @@ class IncidentRow(Base):
     __table_args__ = (Index("ix_incidents_orch_status", "orchestration_id", "status"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
     titulo: Mapped[str] = mapped_column(Text)
@@ -628,6 +647,7 @@ class BugReportRow(Base):
     )
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     card_original_id: Mapped[str] = mapped_column(String)
     card_id: Mapped[str] = mapped_column(String)
@@ -652,6 +672,7 @@ class SloEvaluationRow(Base):
     __table_args__ = (Index("ix_slo_evals_orch_created", "orchestration_id", "created_at"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    posicao: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     orchestration_id: Mapped[str] = mapped_column(ForeignKey("orchestrations.id"))
     fail_rate: Mapped[float] = mapped_column(Float, default=0.0)
     burn_rate: Mapped[float] = mapped_column(Float, default=0.0)
@@ -699,6 +720,7 @@ class AgentRunRow(Base):
     executor: Mapped[str] = mapped_column(String, default="")
     modelo: Mapped[str] = mapped_column(String, default="")
     effort: Mapped[str] = mapped_column(String, default="")
+    effort_aplicado: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     prompt_version: Mapped[str] = mapped_column(String, default="")
     prompt: Mapped[str] = mapped_column(Text, default="")
     envelope: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)

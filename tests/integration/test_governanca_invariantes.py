@@ -24,8 +24,8 @@ from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
 from aso.api.auth import AuthService, Principal
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.review import ReviewCommentDraft, ReviewVerdict
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.execution.cli_provider import CliAgentExecutionProvider
@@ -83,7 +83,7 @@ class _ProviderContador(LocalMockExecutionProvider):
 # =============================================================== Regra 1 — ContextBus
 _MUTADORES_DO_STORE = {"apply_patch", "restore_from", "restore_section"}
 # Únicos pontos autorizados a mutar o contexto canônico, cada um por um motivo registrado:
-# o bus (pipeline de 8 etapas) e os dois protocolos de restauração admin + ADR (§23).
+# o bus (pipeline de 6 etapas) e os dois protocolos de restauração admin + ADR (§23).
 _CHAMADORES_AUTORIZADOS = {
     ("src/aso/governance/contextbus.py", "apply_patch"),
     ("src/aso/governance/snapshot_engine.py", "restore_from"),

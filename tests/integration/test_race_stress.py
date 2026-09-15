@@ -12,7 +12,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 _N = int(os.environ.get("ASO_RACE_STRESS_N", "20"))

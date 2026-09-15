@@ -22,7 +22,7 @@ from aso.api.schemas import (
     PlanBody,
     RetriageBody,
 )
-from aso.control.project_service import (
+from aso.application.project_service import (
     ProjectConflictError,
     ProjectNotFoundError,
     ProjectValidationError,

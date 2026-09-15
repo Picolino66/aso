@@ -6,8 +6,8 @@ import pytest
 
 from aso.agents.models import AgentDefinition, AgentDefinitionError
 from aso.agents.registry import AgentRegistry
-from aso.control.agent_catalog_service import validar_definicao
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.agent_catalog_service import validar_definicao
+from aso.application.orchestration_service import OrchestrationService
 
 
 def test_validar_definicao_recusa_sem_nome() -> None:

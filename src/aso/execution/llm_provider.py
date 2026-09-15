@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable
+from dataclasses import asdict
 from typing import Any
 
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.agents.prompt_builder import PromptBuilder
-from aso.execution.llm_client import LlmClient, LlmError
+from aso.execution.llm_client import LlmClient, LlmError, completar
 from aso.governance.models import ContextPatch
 from aso.shared.types import PatchType, Phase
 
@@ -54,13 +55,18 @@ class LlmExecutionProvider:
         self._prompts = prompt_builder or PromptBuilder()
         self._context_provider = context_provider
 
+    def aplica_effort(self) -> bool:
+        aplica = getattr(self._client, "aplica_effort", None)
+        return bool(aplica()) if callable(aplica) else False
+
     def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
         context = None
         oid = str(task.get("orchestration_id", ""))
         if self._context_provider and oid:
             context = self._context_provider(oid)
         system, user = self._prompts.build_messages(agent, task, context)
-        raw = self._client.complete(system=system, user=user)
+        resposta = completar(self._client, system=system, user=user)
+        raw = resposta.texto
         parsed = parse_llm_json(raw)
         summary = str(parsed.get("summary") or f"[llm] {agent.role}")
         content = parsed.get("content", parsed)
@@ -80,5 +86,6 @@ class LlmExecutionProvider:
             executor_id=self.id,
             summary=summary,
             patches=[patch],
-            artifacts={"raw": raw[:2000]},
+            # Consumo do provedor (ADR-0070): acumulado no card e precificado pela tabela.
+            artifacts={"raw": raw[:2000], "uso": asdict(resposta.uso)},
         )

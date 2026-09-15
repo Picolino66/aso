@@ -12,6 +12,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from aso.application.agent_task import AgentTaskService
 from aso.application.bundles import BundleStore, OrchestrationBundle
 from aso.control.discovery import DiscoveryReport
 from aso.control.documentos import versao_atual
@@ -29,6 +30,7 @@ from aso.control.review import (
 from aso.control.spec import SpecDocument
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.execution.worktree import WorktreeError, WorktreeManager
 from aso.governance.models import PullRequest, ReviewComment
 from aso.kanban.models import KanbanCard
@@ -82,6 +84,16 @@ def _build_card_closure(
         **({"modelo": card.uso["modelo"]} if card.uso.get("modelo") else {}),
         "encerrado_em": now_iso(),
     }
+
+
+def _ultima_saida_de_ci(b: OrchestrationBundle, pr: PullRequest) -> str:
+    """Status, origem e saída da CI mais recente da PR (vazio se nunca rodou)."""
+    for evento in reversed(b.event_log.all()):
+        if evento.type == "CIReported" and evento.payload.get("pr_id") == pr.id:
+            detalhe = str(evento.payload.get("detail") or "")
+            origem = evento.payload.get("origem", "")
+            return f"status: {evento.payload.get('status')} (origem: {origem})\n{detalhe}".strip()
+    return ""
 
 
 class DeliveryService:
@@ -353,8 +365,11 @@ class DeliveryService:
                 assignment_ref = self._assignment(b, REVIEW_KEY)
                 efetivo_effort = effort or (assignment_ref.effort if assignment_ref else None)
                 assignment = AgentAssignment(executor=revisor, effort=efetivo_effort)
-                diff = self._workspace_for(b).branch_diff(pr.branch)
+                workspace = self._workspace_for(b)
+                diff = workspace.branch_diff(pr.branch)
                 brief = DemandBrief.model_validate(b.orchestration.demand_brief)
+                # Insumos do §14 além do diff (ADR-0069): spec de origem, ADRs e última CI.
+                fontes = AgentTaskService._fontes_do_contexto(b, card)
                 verdito = self._perguntar_registrando(
                     b.orchestration.id,
                     pr.card_id,
@@ -365,6 +380,10 @@ class DeliveryService:
                         card_description=card.description,
                         acceptance_criteria=card.acceptance_criteria,
                         riscos=brief.riscos,
+                        item_de_spec=fontes.item_de_spec,
+                        adrs=[(a.id, a.titulo, a.decisao) for a in fontes.adrs],
+                        saida_ci=_ultima_saida_de_ci(b, pr),
+                        repositorio=AcessoAoRepositorio(caminho=str(workspace.base), ref=pr.branch),
                     ),
                 )
             return self._apply_review_verdict(b, pr, card, verdito, actor=actor)

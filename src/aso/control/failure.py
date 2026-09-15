@@ -321,6 +321,11 @@ def decidir(
         acao = passos[idx]
         if acao == ACAO_AUMENTAR_EFFORT:
             perfil = catalogo.get(executor_atual) if catalogo else None
+            if perfil is not None and not perfil.suporte_de_effort().suporta:
+                # ADR-0073: subir o esforço num executor que o ignora só gastaria uma
+                # tentativa — passa ao próximo passo da política (trocar executor).
+                idx += 1
+                continue
             suportados = list(perfil.supported_efforts or _EFFORTS) if perfil else list(_EFFORTS)
             novo_effort = proximo_effort(effort_atual, suportados)
             if novo_effort is None:

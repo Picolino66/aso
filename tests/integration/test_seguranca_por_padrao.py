@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.api.auth import AuthService, Principal, required_role
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.execution.workspace import WorkspaceRootError, WorkspaceService
 from aso.observability.metrics import MetricsService

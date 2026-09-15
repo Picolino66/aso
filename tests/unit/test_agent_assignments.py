@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import NAMING_KEY
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.shared.types import Phase
 

@@ -13,9 +13,24 @@ from pathlib import Path
 
 from aso.execution.branch_naming import worktree_dir_name
 
-# Operações de metadados do git (worktree add/remove, merge) tomam locks internos
-# do repositório; serializamos aqui para permitir execução concorrente de candidatos.
-_GIT_META_LOCK = threading.Lock()
+# Operações que escrevem metadados do git (worktree add/remove/prune, add, commit, merge)
+# disputam lockfiles de refs/índice do MESMO repositório; serializamos por repositório
+# (MEL-51) — antes era um lock único do módulo, e orquestrações de projetos diferentes
+# esperavam umas pelas outras. Leituras (`diff`, `rev-list`, `worktree list`) não pegam lock:
+# o git atualiza refs de forma atômica, e ler não disputa lockfile.
+_LOCKS_REGISTRO = threading.Lock()
+_LOCKS_POR_REPOSITORIO: dict[str, threading.Lock] = {}
+
+
+def lock_do_repositorio(caminho: str | Path) -> threading.Lock:
+    """Lock das escritas git de um repositório (chave: caminho resolvido)."""
+    chave = str(Path(caminho).resolve())
+    with _LOCKS_REGISTRO:
+        lock = _LOCKS_POR_REPOSITORIO.get(chave)
+        if lock is None:
+            lock = threading.Lock()
+            _LOCKS_POR_REPOSITORIO[chave] = lock
+        return lock
 
 
 class WorktreeError(RuntimeError):
@@ -25,6 +40,7 @@ class WorktreeError(RuntimeError):
 class WorktreeManager:
     def __init__(self, base_repo: str) -> None:
         self.base = Path(base_repo)
+        self._lock = lock_do_repositorio(self.base)
 
     def _git(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
         result = subprocess.run(
@@ -47,7 +63,7 @@ class WorktreeManager:
         branch = branch or f"aso/{name}"
         path = self.base / ".aso" / "worktrees" / worktree_dir_name(name)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with _GIT_META_LOCK:
+        with self._lock:
             self._git("worktree", "add", "-b", branch, str(path), "HEAD")
         return path, branch
 
@@ -63,7 +79,7 @@ class WorktreeManager:
         """
         # `git add`/`commit` disputam lockfiles de ref/index com merge/worktree-add
         # concorrentes no mesmo repo base; serializamos para evitar falha espúria.
-        with _GIT_META_LOCK:
+        with self._lock:
             self._git("add", "-A", cwd=path)
             base_head = self._git("rev-parse", "HEAD").stdout.strip()
             origem = self._git("merge-base", "HEAD", base_head, cwd=path).stdout.strip()
@@ -71,7 +87,7 @@ class WorktreeManager:
 
     def commit(self, path: Path, message: str) -> None:
         """Faz commit do que restou staged; no-op se o agente já commitou tudo."""
-        with _GIT_META_LOCK:
+        with self._lock:
             if not self._git("status", "--porcelain", cwd=path).stdout.strip():
                 return  # árvore limpa: o trabalho já está nos commits do próprio agente
             self._git("commit", "-m", message, cwd=path)
@@ -82,7 +98,7 @@ class WorktreeManager:
         Em conflito, aborta o merge antes de propagar o erro (ADR-0062): a branch base não
         pode ficar travada em estado de merge pela metade.
         """
-        with _GIT_META_LOCK:
+        with self._lock:
             try:
                 self._git("merge", "--no-ff", "--no-edit", "-m", message, branch)
             except WorktreeError:
@@ -93,30 +109,26 @@ class WorktreeManager:
 
     def branch_diff(self, branch: str) -> str:
         """Retorna o diff de uma branch candidata contra HEAD, sem alterar o repositório."""
-        with _GIT_META_LOCK:
-            return self._git("diff", "HEAD..." + branch).stdout
+        return self._git("diff", "HEAD..." + branch).stdout
 
     def changed_files(self, branch: str) -> list[str]:
         """Arquivos alterados numa branch candidata contra HEAD (Tela 15, wf §17.1,
         ADR-0048) — mesma comparação de `branch_diff`, só os caminhos (`--name-only`),
         sem o diff inteiro."""
-        with _GIT_META_LOCK:
-            saida = self._git("diff", "--name-only", "HEAD..." + branch).stdout
+        saida = self._git("diff", "--name-only", "HEAD..." + branch).stdout
         return [linha for linha in saida.splitlines() if linha.strip()]
 
     def commit_count(self, branch: str) -> int:
         """Nº de commits da branch candidata que HEAD ainda não tem (Tela 18, wf
         §20.1, ADR-0049) — mesma comparação de `branch_diff`/`changed_files`."""
-        with _GIT_META_LOCK:
-            saida = self._git("rev-list", "--count", "HEAD.." + branch).stdout
+        saida = self._git("rev-list", "--count", "HEAD.." + branch).stdout
         return int(saida.strip() or "0")
 
     def line_stats(self, branch: str) -> tuple[int, int]:
         """Linhas adicionadas/removidas da branch candidata contra HEAD (Tela 18,
         wf §20.1, ADR-0049) — `git diff --shortstat`, parseado à mão porque o git
         não tem saída estruturada para isso."""
-        with _GIT_META_LOCK:
-            saida = self._git("diff", "--shortstat", "HEAD..." + branch).stdout
+        saida = self._git("diff", "--shortstat", "HEAD..." + branch).stdout
         adicionadas = re.search(r"(\d+) insertion", saida)
         removidas = re.search(r"(\d+) deletion", saida)
         return (
@@ -129,7 +141,7 @@ class WorktreeManager:
     ) -> tuple[bool, str]:
         """Executa a validação numa cópia temporária da branch da PR."""
         path = self.base / ".aso" / "worktrees" / worktree_dir_name(f"ci-{branch}")
-        with _GIT_META_LOCK:
+        with self._lock:
             self._git("worktree", "add", "--detach", str(path), branch)
         try:
             result = subprocess.run(
@@ -144,7 +156,7 @@ class WorktreeManager:
 
     def remove(self, path: Path) -> None:
         """Remove o worktree (best-effort)."""
-        with _GIT_META_LOCK:
+        with self._lock:
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(path)],
                 cwd=str(self.base),
@@ -158,13 +170,12 @@ class WorktreeManager:
         verdade que `scripts/reset.sh` usa, não uma varredura de diretório (que veria
         pasta órfã sem entrada git, ou entrada git sem pasta)."""
         raiz = str((self.base / ".aso" / "worktrees").resolve())
-        with _GIT_META_LOCK:
-            result = subprocess.run(
-                ["git", "worktree", "list", "--porcelain"],
-                cwd=str(self.base),
-                capture_output=True,
-                text=True,
-            )
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=str(self.base),
+            capture_output=True,
+            text=True,
+        )
         if result.returncode != 0:
             return []
         achados: list[dict[str, str]] = []
@@ -186,7 +197,7 @@ class WorktreeManager:
         `scripts/reset.sh` também sempre passa pela porta do git)."""
         for path in paths:
             self.remove(path)
-        with _GIT_META_LOCK:
+        with self._lock:
             subprocess.run(
                 ["git", "worktree", "prune"], cwd=str(self.base), capture_output=True, text=True
             )

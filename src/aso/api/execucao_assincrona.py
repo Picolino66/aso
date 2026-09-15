@@ -13,12 +13,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.bootstrap import build_candidate_providers
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.jobs import FilaDeJobs, Job, JobRepository
 from aso.execution.workspace import WorkspaceError
 from aso.observability.agent_runs import mascarar_segredos
 from aso.observability.broker import EventBroker
+from aso.persistence.ports import ConcurrentModificationError
 from aso.shared.types import Phase
 
 # Operações assíncronas e o método do serviço que cada uma chama.
@@ -45,6 +46,8 @@ def classificar_erro(exc: Exception) -> int | None:
 
     if isinstance(exc, KeyError):
         return 404
+    if isinstance(exc, ConcurrentModificationError):
+        return 409
     if isinstance(exc, DocumentoError):
         return 400
     if isinstance(exc, ValueError | WorkspaceError):

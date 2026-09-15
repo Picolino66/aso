@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from aso.agents.models import AgentOutput, AgentSpec
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.routing_provider import RoutingExecutionProvider
 from aso.shared.types import Phase
 

@@ -1423,8 +1423,11 @@
       // Sem agente escolhido, o esforço também herda: não faz sentido fixar "high"
       // para um modelo que ainda nem foi decidido.
       if (!nomeAgente) { const v = el('option', '', '—'); v.value = ''; select.appendChild(v); }
+      // ADR-0073: o executor ignora o esforço → a escolha fica visível, mas marcada sem efeito.
+      const semEfeito = perfil && perfil.suporta_effort === false;
+      select.title = semEfeito ? 'O esforço não tem efeito neste executor: ' + (perfil.effort_como || '') : '';
       opcoes.forEach(function(valor) {
-        const item = el('option', '', valor); item.value = valor;
+        const item = el('option', '', valor + (semEfeito ? ' (sem efeito)' : '')); item.value = valor;
         item.selected = valor === (selecionado || (perfil && perfil.effort));
         select.appendChild(item);
       });

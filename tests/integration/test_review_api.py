@@ -9,8 +9,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import REVIEW_KEY
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 
 # CI declarada exige justificativa humana (ADR-0056, MEL-12).

@@ -5,8 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.attempts import RESULTADO_FALHOU, RESULTADO_SUCESSO
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 
@@ -89,10 +89,8 @@ def test_falha_apos_sucessos_anteriores_nao_escala_prematuramente(tmp_path: Path
     falha consecutiva — 2 sucessos anteriores inflavam o contador, batendo o
     teto `max_escalonamentos=3` já na 1ª falha real e escalando direto para
     humano em 1 tentativa, em vez de percorrer `mesmo_agente` → `aumentar_effort`
-    → `escalar_humano` (§13, ADR-0019). O comando sempre falha (`AgentSupervisor`
-    consome 2 tentativas internas por falha de card, ADR-0019 nota
-    `max_attempts=2`), então a política precisa de 3 falhas REAIS de card para
-    escalar — corrigido, é exatamente isso que acontece."""
+    → `escalar_humano` (§13, ADR-0019). O comando sempre falha, então a política precisa
+    de 3 falhas REAIS de card para escalar — corrigido, é exatamente isso que acontece."""
     repo = tmp_path / "sucesso-depois-falha-proj"
     _init_repo(repo)
     comando = ["bash", "-c", 'echo "algo inesperado aconteceu" >&2; exit 1']
@@ -122,10 +120,8 @@ def test_falha_apos_sucessos_anteriores_nao_escala_prematuramente(tmp_path: Path
 def test_sucesso_zera_a_sequencia_de_falhas_consecutivas(tmp_path: Path) -> None:
     """Uma falha real de card seguida de sucesso (retry automático dentro do
     mesmo `run_card`, ACAO_MESMO_AGENTE) deve zerar `tentativa_falha_atual` — só
-    `tentativa_atual` (histórico total) continua somando os dois. O contador do
-    script precisa sobreviver às 2 tentativas internas do `AgentSupervisor`
-    (ADR-0019, `max_attempts=2`) antes de a 3ª invocação (já no retry de card)
-    ter sucesso."""
+    `tentativa_atual` (histórico total) continua somando os dois. Com retry único
+    (ADR-0071), a 1ª invocação falha e a 2ª — decidida pelo roteamento — tem sucesso."""
     repo = tmp_path / "falha-depois-sucesso-proj"
     _init_repo(repo)
     contador = tmp_path / "invocacoes"
@@ -133,7 +129,7 @@ def test_sucesso_zera_a_sequencia_de_falhas_consecutivas(tmp_path: Path) -> None
         "bash",
         "-c",
         f'n=$(( $(cat "{contador}" 2>/dev/null || echo 0) + 1 )); echo "$n" > "{contador}"; '
-        'if [ "$n" -le 2 ]; then echo "algo inesperado aconteceu" >&2; exit 1; '
+        'if [ "$n" -le 1 ]; then echo "algo inesperado aconteceu" >&2; exit 1; '
         "else echo gerado > feature.py; fi",
     ]
     provider = CliAgentExecutionProvider(comando, str(repo))

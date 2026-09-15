@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.observability.metrics import MetricsService
 
 
@@ -34,9 +34,11 @@ def test_execution_metrics_counts_retries_and_duration() -> None:
     svc.run_card(orch.id, card.id)
 
     em = MetricsService(svc).execution_metrics(orch.id)
-    assert em["agent_executions"] == 1
+    # Retry único (ADR-0071): a falha e a nova tentativa decidida pelo roteamento são duas
+    # execuções reais do agente, com um retry entre elas.
+    assert em["agent_executions"] == 2
     assert em["retries"] == 1
-    assert em["failures"] == 0
+    assert em["failures"] == 1  # a falha transitória agora é uma execução falha registrada
     assert em["avg_ms"] >= 0.0
 
 

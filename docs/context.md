@@ -38,16 +38,14 @@ Cada fase preenche/consolida suas seções; ao aprovar o gate, as seções corre
 
 Todo output relevante de agente/skill vira um `ContextPatch` (§18): `patch_type` (`add`/`update`/`propose`/`remove`), `target_path`, `content`, `evidence`, `risks`, `requires_adr`, `requires_approval`.
 
-O `ContextBus` é o **único componente que aplica patches** (single-writer). Antes de aplicar, `ContextBus._validate` roda **8 funções de etapa**, em ordem — **6 com efeito** e 2 ganchos ainda vazios (retornam sempre "ok"):
+O `ContextBus` é o **único componente que aplica patches** (single-writer). Antes de aplicar, `ContextBus._validate` roda **6 etapas**, em ordem (os ganchos vazios de conflito entre outputs e impacto em gate saíram na MEL-53, ADR-0075):
 
 1. schema (conteúdo obrigatório para add/update/propose)
 2. permissão (`PermissionPolicy`, deny-by-default)
-3. detecção de conflito entre outputs — **gancho sem efeito** (`_step_conflict_detection`)
-4. lock de snapshot (seção congelada exige ADR de override + aprovação humana, ADR-0061)
-5. consistência de ADR (`requires_adr` exige `linked_adrs` aceitas)
-6. contradição com ADR (`locked_paths` exigem referenciar a ADR)
-7. compatibilidade de contrato (`contracts.api_version` imutável, sem remoção in-place)
-8. impacto em quality gate — **gancho sem efeito** (`_step_quality_gate_impact`)
+3. lock de snapshot (seção congelada exige ADR de override + aprovação humana, ADR-0061)
+4. consistência de ADR (`requires_adr` exige `linked_adrs` aceitas)
+5. contradição com ADR (`locked_paths` exigem referenciar a ADR)
+6. compatibilidade de contrato (`contracts.api_version` imutável, sem remoção in-place)
 
 **Se aprovado:** aplica o patch, incrementa a versão e registra evento; patch `propose` ou `requires_approval` fica **pendente** e gera `HumanApproval tipo=patch`.
 **Se reprovado:** registra um `Conflict`; quando o patch veio da execução de um card, o card vai para `Blocked` ("conflito detectado"). A "resolução" cria um card `ADRTask` atribuído ao `ConflictResolutionAgent` com uma sugestão fixa por tipo de conflito — não há agente de resolução automática.

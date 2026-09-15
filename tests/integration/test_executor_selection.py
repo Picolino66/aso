@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile, build_catalog_from_env
 from aso.shared.types import Phase
 

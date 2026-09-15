@@ -12,7 +12,7 @@ Tudo aqui é **puro e determinístico** (mesmo princípio de
 mesmo contexto, o resultado é sempre o mesmo. Nenhum LLM decide roteamento —
 decisão de governança é regra declarada pelo operador, não palpite. Quem tem I/O
 (persistir regras, aplicar o resultado à orquestração) é
-`control/routing_rule_service.py` e `OrchestrationService`.
+`application/routing_rule_service.py` e `OrchestrationService`.
 """
 
 from __future__ import annotations

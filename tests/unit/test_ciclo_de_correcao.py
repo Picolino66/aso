@@ -8,7 +8,7 @@ workspace git real só para obter o diff — irrelevante para esta regra.
 
 from __future__ import annotations
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.review import ReviewAction, ReviewVerdict
 from aso.shared.types import ColumnKey
 

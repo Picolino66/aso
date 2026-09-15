@@ -21,6 +21,7 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.6",
     "mypy>=1.10",
+    "import-linter>=2.1",
 ]
 postgres = [
     "psycopg[binary]>=3.1",
@@ -62,3 +63,24 @@ strict = true
 [[tool.mypy.overrides]]
 module = "opentelemetry.*"
 ignore_missing_imports = true
+
+# Regra de dependência verificada (MEL-36, ADR-0001): cada camada só importa as de baixo.
+# Módulos separados por `|` na mesma camada são independentes entre si. Rodar: `lint-imports`.
+[tool.importlinter]
+root_package = "aso"
+
+[[tool.importlinter.contracts]]
+name = "Camadas do runtime (api/cli → bootstrap → db → application → persistence → control → …)"
+type = "layers"
+layers = [
+    "aso.api | aso.cli",
+    "aso.bootstrap",
+    "aso.db",
+    "aso.application",
+    "aso.persistence",
+    "aso.control",
+    "aso.execution",
+    "aso.agents | aso.observability",
+    "aso.governance | aso.kanban",
+    "aso.shared",
+]

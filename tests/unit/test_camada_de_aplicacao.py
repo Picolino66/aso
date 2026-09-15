@@ -14,7 +14,7 @@ APLICACAO = Path(__file__).resolve().parents[2] / "src/aso/application"
 def test_modulo_de_aplicacao_nao_importa_a_facade(modulo: str) -> None:
     arvore = ast.parse((APLICACAO / modulo).read_text(encoding="utf-8"))
     importados = {n.module for n in ast.walk(arvore) if isinstance(n, ast.ImportFrom)}
-    assert "aso.control.orchestration_service" not in importados
+    assert "aso.application.orchestration_service" not in importados
 
 
 @pytest.mark.parametrize("modulo", sorted(p.name for p in APLICACAO.glob("*.py")))
@@ -24,7 +24,7 @@ def test_modulo_de_aplicacao_tem_no_maximo_800_linhas(modulo: str) -> None:
 
 def test_facade_delega_entrega_ao_delivery_service() -> None:
     from aso.application.delivery import DeliveryService
-    from aso.control.orchestration_service import OrchestrationService
+    from aso.application.orchestration_service import OrchestrationService
 
     svc = OrchestrationService()
     assert isinstance(svc._delivery, DeliveryService)  # noqa: SLF001
@@ -44,8 +44,8 @@ def test_app_so_compoe_gateway_e_routers() -> None:
         if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
         for d in n.decorator_list
     ]
-    # Só o gateway (`middleware`) e o ciclo de vida da fila (`asynccontextmanager`) ficam aqui.
-    permitidos = ("app.middleware", "asynccontextmanager")
+    # Só o gateway (middleware, tratador de conflito de versão) e o ciclo de vida da fila.
+    permitidos = ("app.middleware", "app.exception_handler", "asynccontextmanager")
     rotas = [ast.unparse(d) for d in decoradores if not ast.unparse(d).startswith(permitidos)]
     assert rotas == []
 
@@ -124,8 +124,18 @@ def test_todo_mutador_persiste_sob_o_lock_do_bundle_store() -> None:
     assert sem_lock == []
 
 
+# Catálogos globais (MEL-36 os trouxe de `control`): o lock deles protege o catálogo do
+# runtime (projetos, regras, agentes), não um agregado de orquestração.
+_LOCKS_DE_CATALOGO_GLOBAL = {
+    "project_service.py",
+    "routing_rule_service.py",
+    "agent_catalog_service.py",
+}
+
+
 def test_lock_so_nasce_no_bundle_store() -> None:
-    """Serviços adquirem o lock via `BundleStore.lock_for`, nunca criam o próprio RLock."""
+    """Serviços de orquestração adquirem o lock via `BundleStore.lock_for`, nunca criam o
+    próprio RLock."""
     for arquivo in APLICACAO.glob("*.py"):
-        if arquivo.name != "bundles.py":
+        if arquivo.name != "bundles.py" and arquivo.name not in _LOCKS_DE_CATALOGO_GLOBAL:
             assert "RLock()" not in arquivo.read_text(encoding="utf-8"), arquivo.name

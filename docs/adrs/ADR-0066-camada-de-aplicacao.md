@@ -9,7 +9,7 @@
 
 ## Contexto
 
-`control/orchestration_service.py` passou de 7.800 linhas e ~260 métodos cobrindo 12
+`application/orchestration_service.py` passou de 7.800 linhas e ~260 métodos cobrindo 12
 subdomínios; `api/app.py` tem ~2.800 linhas e 200 rotas com regra de negócio em handler. A
 disciplina de lock variava entre métodos. Reescrever de uma vez é inviável e arriscado.
 
@@ -78,7 +78,7 @@ disciplina de lock variava entre métodos. Reescrever de uma vez é inviável e 
 
 ## Consequências
 
-- `control/orchestration_service.py`: 7.834 → 466 linhas, sem lógica; `api/app.py`: 2.756 → 170.
+- `application/orchestration_service.py`: 7.834 → 466 linhas, sem lógica; `api/app.py`: 2.756 → 170.
   API pública (Python e HTTP) inalterada — o contrato OpenAPI gerado ficou idêntico.
 - A façade continua sendo a porta de entrada de API, CLI e testes; chamadores novos podem usar os
   serviços diretamente, mas não é obrigatório (a tabela de `Delegado` não tem custo de manutenção
@@ -86,3 +86,7 @@ disciplina de lock variava entre métodos. Reescrever de uma vez é inviável e 
 - Funções privadas que testes importavam da façade passaram a ser importadas do serviço
   (`_faixa` → `application/insights.py`); limites resolvidos ficam em `svc._limites`.
 - A verificação automática da regra de dependência (MEL-36) deve incluir `application`.
+- **Adendo (MEL-36):** a façade saiu de `control/` para `application/orchestration_service.py`, e
+  `project_service`, `routing_rule_service` e `agent_catalog_service` foram para `application/` —
+  em `control` ela criava os ciclos de pacote `control`↔`application` e `control`↔`persistence`.
+  A regra de camadas passou a ser verificada por `import-linter` (`pyproject.toml`).

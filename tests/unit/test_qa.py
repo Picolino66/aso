@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.failure import DIAG_FALHA_DE_QA, FailureRecord, decidir, diagnosticar
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.qa import exige_qa_manual
 from aso.control.triage import DemandBrief
 from aso.kanban.models import KanbanCard

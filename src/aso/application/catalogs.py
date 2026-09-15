@@ -10,10 +10,10 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from aso.control.agent_catalog_service import AgentCatalogService
+from aso.application.agent_catalog_service import AgentCatalogService
+from aso.application.project_service import ProjectService
+from aso.application.routing_rule_service import RoutingRuleService
 from aso.control.models import Project, ProjectEvent
-from aso.control.project_service import ProjectService
-from aso.control.routing_rule_service import RoutingRuleService
 from aso.control.routing_rules import (
     RoutingAction,
     RoutingCondition,

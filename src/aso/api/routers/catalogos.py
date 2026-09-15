@@ -21,7 +21,7 @@ from aso.api.schemas import (
     RoutingRuleReorderBody,
     UpdateProjectBody,
 )
-from aso.control.project_service import (
+from aso.application.project_service import (
     ProjectConflictError,
     ProjectNotFoundError,
     ProjectValidationError,

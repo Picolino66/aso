@@ -8,9 +8,9 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Última atualização: 2026-09-15
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
-* Task atual: MEL-33 (análise)
-* Última task concluída: MEL-31
-* Próxima task candidata: MEL-33
+* Task atual: MEL-53 (implementing)
+* Última task concluída: MEL-50
+* Próxima task candidata: MEL-53 · MEL-54 · MEL-44 · MEL-50 · MEL-52 · MEL-55 · MEL-06
 * Estado: analyzing
 
 ## Tasks concluídas
@@ -238,9 +238,220 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
   * [ ] 31.6 ADR-0067, docs, governança, bateria + Docker
 
 
+* MEL-33 — persistência incremental, versão otimista e cache com descarte (ADR-0068).
+  * Validação: ruff/format OK · mypy strict OK (140) · alembic up/down/check OK · pytest 1643
+    passed, 7 skipped (variantes Postgres sem env) / 94.76% · Postgres do compose: 18 testes de
+    persistência (create_all) e 26 (persistência + assíncrona) no schema migrado; Docker smoke
+    OK; downgrade/upgrade no container e mutação da orquestração migrada OK.
+  * Governança: card MEL-33 Done, context, CHANGELOG, ADR-0068, docs (operations,
+    architecture, GOVERNANCE, index), CLAUDE.md/AGENTS.md.
+  * Histórico do andamento:
+    * ID: MEL-33 — persistência incremental, versão otimista e cache com descarte (ADR-0068)
+    * Desenho: `save` calcula unidades por tabela a partir do estado (entidades com PK → merge;
+  grupos de junção por dono → delete do grupo + insert; sequências `events`/`context_history`
+  → só a cauda nova, removendo sufixo se o prefixo mudou) e compara com impressões (hash)
+  guardadas pelo repositório por orquestração+versão (montadas no `load`/`save`; se faltarem,
+  recalcula do banco). Inserts por nível de FK, deletes em ordem reversa.
+  `orchestrations.versao`: `UPDATE ... WHERE versao = esperada` (0 linhas → 
+  `ConcurrentModificationError`, 409 na API e no job); `save` devolve a nova versão;
+  `OrchestrationState.versao` e `OrchestrationBundle.versao`. BundleStore: conflito descarta o
+  bundle do cache; cache LRU (`ASO_BUNDLE_CACHE_MAX`, padrão 128, não descarta bundle com lock
+  ocupado); sonda de versão no `get` (`ASO_BUNDLE_VERIFICACAO_S`, padrão 1 s, só com lock
+  livre). `bootstrap` com `create_schema=False`.
+    * Checklist: [x] 33.1 `db/gravacao.py` (unidades/impressões), `save` incremental + `versao_atual`,
+  `ConcurrentModificationError` (ports), memória com versão, BundleStore guarda `versao` e
+  descarta bundle em conflito, API 409 (`exception_handler`) e job 409; migration
+  `813ddb006951` (`orchestrations.versao` com backfill 1; `posicao` em 13 tabelas; leitura
+  ordena por `posicao`) · [x] 33.2 `CacheDeBundles` LRU thread-safe (não descarta o recém-
+  inserido nem bundle com lock ocupado) + sonda de versão no `get` · [x] 33.3 bootstrap com
+  `create_schema=False` · [ ] 33.4 ADR-0068, docs, bateria, Docker smoke, governança.
+  Testes: `tests/integration/test_persistencia_incremental.py` (11 SQLite + 7 Postgres via
+  `ASO_TEST_POSTGRES_URL`; 18 passed no Postgres do compose). Ajuste: test_camada_de_aplicacao
+  permite `app.exception_handler`.
+
+
+* MEL-40 — discovery e revisão com leitura do repositório (ADR-0069).
+  * Validação: ruff/format OK · mypy strict OK (141) · alembic OK · pytest 1654 passed, 7 skipped
+    / 94.77%. Docker não exigido (sem persistência/boot).
+  * Pendência registrada: flag `--permission-mode plan` do Claude Code não exercitada contra o
+    binário real (testes com CLI fake); a verificação pós-pergunta cobre a falha.
+  * Governança: card MEL-40 Done, context, CHANGELOG, ADR-0069, docs.
+  * Histórico do andamento:
+    * ID: MEL-40 — discovery e revisão com leitura do repositório (ADR-0069)
+    * Desenho: `execution/repositorio_leitura.py` (worktree destacado temporário do ref, flags de
+  somente leitura por CLI — Codex `--sandbox read-only`, Claude `--permission-mode plan` (a
+  confirmar contra o binário real) —, verificação `git status`/HEAD após a pergunta →
+  `EscritaNoRepositorio` descarta a resposta); `perguntar_ao_agente(repositorio=)` + evento
+  `PerguntaDescartadaPorEscrita` via `ContextoDeRun.ao_evento`; discovery com `evidencias`
+  (arquivo precisa existir), `acesso_repo`, saneamento remove componentes inexistentes; revisão
+  recebe item de spec, critérios, ADRs e saída da última CI, lendo a branch da PR. LLM: sem
+  acesso (`acesso_repo=false`).
+    * Feito (código+testes): `execution/repositorio_leitura.py`; `agent_ask` (`repositorio=`,
+  `tem_acesso_ao_repositorio`, `ContextoDeRun.ao_evento`, `envelope.acesso_repo` no AgentRun);
+  discovery (`_DISCOVERY_COM_REPOSITORIO`, `EvidenciaDoDiscovery`, `acesso_repo`,
+  `componentes_descartados`, saneamento com repositório); preparation passa a pasta; review
+  (`system_de_revisao`, `_pedido` com spec/ADRs/CI, `repositorio`); delivery passa fontes do
+  ContextBuilder, `_ultima_saida_de_ci` e a branch da PR. Testes:
+  `tests/unit/test_repositorio_leitura.py` (8), `tests/integration/test_perguntas_com_repositorio.py` (3).
+    * Falta: bateria completa, ADR-0069, docs (GOVERNANCE regra 5, operations/agents), governança.
+
+
+* MEL-41 — uso e custo para todos os executores (ADR-0070).
+  * Validação: ruff/format OK · mypy strict OK (142) · alembic OK · pytest 1668 passed,
+    7 skipped / 94.76%. Docker não exigido (sem persistência/boot).
+  * Pendência registrada: schema do Codex confirmado só nas strings do binário 0.144.6 (sem
+    execução real, para não gastar a conta do operador).
+  * Governança: card MEL-41 Done, context, CHANGELOG, ADR-0070, docs.
+  * Histórico do andamento:
+    * ID: MEL-41 — uso e custo para todos os executores (ADR-0070, atualiza ADR-0026)
+    * Desenho: origens de uso `agente` (CLI informou custo) · `tabela` (custo calculado por
+  `ASO_PRECOS_MODELOS`) · `tokens` (tokens sem preço → custo indisponível) · `indisponivel`;
+  `execution/precos.py`; clientes LLM ganham `completar() -> RespostaLlm(texto, uso)` (`complete`
+  segue devolvendo texto — compatibilidade); `LlmExecutionProvider` grava `artifacts["uso"]`;
+  Codex `turn.completed.usage` (campos confirmados nas strings do binário 0.144.6, sem chamada
+  real); CLI provider recebe o `modelo` do perfil; `perguntar_ao_agente` grava uso no AgentRun;
+  orçamento soma card + custo das perguntas (`AgentRunRepository.custo_de_perguntas`, fonte
+  única em `agent_runs`); aprendizado ganha `proporcao_sem_custo` por executor.
+    * Feito (código+testes): `shared/agent_usage.py` (origens), `execution/precos.py`,
+  `llm_client.py` (`RespostaLlm`, `completar`, `uso_openai`, `uso_anthropic`, Fake com `uso`),
+  `llm_provider.py` (`artifacts.uso`), `agent_stream._uso_codex`, CLI provider/catálogo com
+  `modelo`, `_uso_do_output` precifica, `agent_ask` grava uso no AgentRun,
+  `custo_de_perguntas` (memória e SQL), `_gasto_usd` soma perguntas, aprendizado
+  `proporcao_sem_custo` + console. Testes: `tests/unit/test_uso_e_precos.py` (9),
+  `tests/integration/test_custo_todos_executores.py` (5).
+    * Falta: bateria, ADR-0070, docs (operations orçamento/preços), governança.
+
+
+* MEL-36 — regra de dependência verificada (import-linter).
+  * Validação: ruff/format OK · mypy strict OK · lint-imports 1 kept (mutação quebra) · alembic
+    OK · pytest 1679 passed, 7 skipped / 94.75% · Docker /health 200 + smoke OK.
+  * Atenção para próximos agentes: a façade agora é `aso.application.orchestration_service`
+    (não existe mais `aso.control.orchestration_service`); tasks/feedback antigos citam o caminho
+    velho.
+  * Histórico do andamento:
+    * ID: MEL-36 — regra de dependência verificada (import-linter)
+    * Grafo medido (AST): ciclos `application`↔`control` (façade em control), `control`↔`observability`
+  (`metrics.py` importa a façade) e `control`↔`persistence` (serviços de catálogo em control
+  usam portas de persistence, que usam modelos de control).
+    * Desenho: façade vai para `aso/application/orchestration_service.py` (sem shim — o shim manteria o
+  ciclo; imports atualizados em src/tests/scripts/docs); `project_service`, `routing_rule_service` e
+  `agent_catalog_service` vão para `application/`; `MetricsService` recebe porta
+  `FonteDeMetricas` (Protocol em observability). Camadas: api|cli → bootstrap → db → application →
+  persistence → control → execution → agents → governance|kanban|observability → shared.
+  `import-linter` no extra dev + contrato em pyproject + passo no CI antes dos testes; teste AST sem
+  dependência garante ausência de ciclos na bateria normal.
+
+
+* MEL-35 — retry único via roteamento de falha (ADR-0071).
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic up/down/check OK · pytest
+    1681 passed, 7 skipped / 94.73% · Docker /health 200 + smoke OK.
+  * Histórico do andamento:
+    * ID: MEL-35 — retry único via roteamento de falha (atualiza ADR-0019 → ADR-0071)
+    * Desenho: `AgentSupervisor(max_attempts=1)` por padrão e relança o erro ORIGINAL (sem prefixo
+  "falhou após N tentativas"); nomeação calculada uma vez por card e guardada em
+  `KanbanCard.branch_stem`/`commit_subject` (colunas novas em `kanban_cards`, migration);
+  testes que dependiam das 2 tentativas internas ajustados mantendo a intenção.
+    * Feito: supervisor 1 tentativa (AgentExecutionError com mensagem original encadeada); evento
+  `AgentRetry` emitido pelo laço do `run_card` a cada decisão de nova tentativa (métrica mantida);
+  `AgentTaskService._nomes_do_card` + `KanbanCard.branch_stem/commit_subject` + migration
+  `84f292331b7a`. Testes ajustados (intenção preservada): test_agent_log_api (4→2 sessões),
+  test_execution_metrics (2 execuções, 1 falha registrada), test_failure_routing_api (4→2
+  arquivos), test_supervisor_concurrency (retry pelo roteamento), test_tentativas_historico
+  (contador do script). Novos: `test_uma_chamada_ao_provider_por_decisao_do_roteamento`,
+  `test_agente_de_nomeacao_e_chamado_no_maximo_uma_vez_por_card`.
+    * Falta: bateria, ADR-0071, docs, Docker (coluna nova), governança.
+
+
+* MEL-42 — structured outputs com JSON Schema (ADR-0072).
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic OK · pytest 1705 passed,
+    7 skipped / 94.88%. Docker não exigido.
+  * Pendência registrada: parâmetros nativos de saída estruturada não exercitados contra APIs reais.
+  * Histórico do andamento:
+    * ID: MEL-42 — structured outputs com JSON Schema (ADR-0072)
+    * Desenho: modelo `Resposta*` por função de agente (nomeação, triagem, discovery, spec, revisão,
+  revisão documental, planejamento) ao lado do prompt; vocabulário fechado como `enum` no schema
+  (campo `str` + `json_schema_extra`, a regra continua no `_sanear` — sem mudar fallback);
+  `control/respostas_estruturadas.py` (instrução de formato gerada do schema, validação com
+  caminho do campo, mensagem de correção); `perguntar_ao_agente(modelo_resposta=)` valida e faz
+  no máximo UMA correção; envelope leva `output_schema`; prompts sem JSON escrito à mão; adapters:
+  OpenAI `response_format json_schema` (DeepSeek `json_object`), Anthropic tool use forçado.
+    * Feito: `control/respostas_estruturadas.py`; `agent_ask` (validação + 1 correção, schema no
+  envelope e no system legado); modelos `RespostaNomeacao`, `RespostaTriagem`,
+  `RespostaDiscovery`, `RespostaEspecificacao`, `RespostaRevisao`, `RespostaRevisaoDocumental` (+
+  `ProjectPlan` no planejamento); prompts sem JSON manual; `llm_client` com saída estruturada
+  nativa (`ASO_LLM_SAIDA_ESTRUTURADA=0` desliga). Testes: `tests/unit/test_respostas_estruturadas.py`
+  (24) + snapshots `tests/snapshots/schemas/*.json`; ajuste em test_review_service (mensagem com o
+  campo faltante).
+    * Falta: bateria, ADR-0072, docs, governança.
+
+
+* MEL-43 — effort mapeado por executor (ADR-0073).
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic up/down/check OK · pytest
+    1724 passed, 7 skipped / 94.93% · Docker /health 200 + smoke OK.
+  * Histórico do andamento:
+    * ID: MEL-43 — effort mapeado por tipo de executor (ADR-0073, atualiza ADR-0022)
+    * Evidência offline: `claude --help` (2.1.215) tem `--effort <low|medium|high|xhigh|max>` e
+  `--permission-mode` aceita `plan` (confirma MEL-40); Codex segue `-c model_reasoning_effort`.
+    * Desenho: `execution/effort.py` (`suporte_de_effort(perfil)` e aplicação: Codex flag; Claude CLI
+  `--effort`; OpenAI modelos de raciocínio `reasoning_effort`; Anthropic modelos com thinking
+  `thinking.budget_tokens` — não junto com ferramenta forçada; DeepSeek/mock/CLI desconhecido: sem
+  suporte); `public()` com `suporta_effort`/`effort_como`; `decidir` pula `aumentar_effort` para
+  perfil sem suporte; `agent_runs.effort_aplicado` (migration); console avisa quando não há efeito.
+  Envelope mantém `effort: str` (Codex/Claude aceitam níveis além de low|medium|high).
+    * Feito: `execution/effort.py`; catálogo (`suporte_de_effort`, `public().suporta_effort/effort_como`,
+  `cli_command` com `aplicar_effort_no_comando`, clientes LLM recebem effort); OpenAI
+  `reasoning_effort`, Anthropic `thinking` (+ parse do bloco `text`); `failure.decidir` pula
+  aumentar_effort sem suporte; providers `aplica_effort`; `AgentRun.effort_aplicado` + migration
+  `88bb8b412a7f`; console (nova, index, detalhe). Testes `tests/unit/test_effort_por_executor.py`
+  (18) + `test_failure_routing` (catálogo com CLIs que aplicam esforço + teste de pulo).
+    * Falta: bateria, ADR-0073, docs, Docker (coluna nova), governança.
+
+
+* MEL-51 — lock git por repositório.
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic OK · pytest 1728 passed,
+    7 skipped / 94.93%; mutação (lock global) derruba 2 testes. Sem ADR (task não exige).
+  * Histórico do andamento:
+    * ID: MEL-51 — lock git por repositório
+    * Desenho: `lock_do_repositorio(caminho)` (registro `dict[str, Lock]` por caminho resolvido, sob um
+  lock de registro) substitui `_GIT_META_LOCK`; escritas (`worktree add/remove/prune`, `add`,
+  `commit`, `merge`, `collect_diff`) seguem sob o lock do repositório; leituras puras
+  (`branch_diff`, `changed_files`, `commit_count`, `line_stats`, `list_worktrees`) sem lock;
+  `repositorio_leitura` usa o lock do repositório. Teste de sobreposição com dois repositórios.
+
+
+* MEL-50 — paralelismo por onda (ADR-0074).
+  * Validação: ruff/format OK · mypy OK · lint-imports OK · alembic OK · pytest 1734 passed,
+    7 skipped / 94.82%. Docker não exigido.
+  * Histórico do andamento:
+    * ID: MEL-50 — paralelismo por onda (ADR-0074)
+    * Desenho: `application/ondas.py::CoordenadorDeOndas` — onda = cards Ready cuja dependência está
+  `Done`; executa por `run_card` (claim, retry, guards) em ThreadPool com limite por orquestração
+  (`ASO_MAX_PARALELO_POR_ORQUESTRACAO`, padrão 2; estratégia `parallel_agents` usa o limite, as
+  demais 1) e semáforo global (`ASO_MAX_EXECUCOES_SIMULTANEAS`, padrão 4); card com dependência
+  pendente não entra (fica `aguardando_dependencia`); `run_phase` e `run_plan` usam o mesmo
+  coordenador (run_plan deixa de ter laço próprio com `_execute_wave`).
+    * Feito: `application/ondas.py`; workflow `run_phase`/`run_plan` via coordenador (+ evento
+  `CardsAguardandoDependencia`, resultado com `paralelismo`/`aguardando_dependencia`). Testes novos
+  `tests/integration/test_paralelismo_por_onda.py` (4); ajustados à regra "dependência só depois de
+  Done": test_mvp2, test_supervisor_concurrency, test_bugs_pontuais_mel20.
+    * Falta: bateria, ADR-0074, docs, governança.
+
 ## Task em andamento
 
-* nenhuma (MEL-31 concluída; próxima: MEL-33)
+* ID: MEL-53 — remover código morto e abstrações vazias (ADR-0075)
+* Decisões por item (evidência medida em 2026-09-15): AgentExecutor, `_agent_order`, passos vazios
+  do ContextBus → remover; `ExecutionStrategy` → só `single_agent`/`sequential_agents`/
+  `parallel_agents` (MEL-50: são as que mudam execução; `evaluator_optimizer` e `supervisor_worker`
+  viram `sequential_agents` com o motivo preservado; migration de dados); `PlannedAgent.parallel_group`/
+  `allowed_tools` e `AgentSpec.allowed_tools`/`requires_approval_for` → remover (migration);
+  campos só persistidos de `AgentDefinition` → marcados informativos na UI/modelo; papéis sem card
+  → `reservado` (ConflictResolutionAgent RECEBE card ADRTask: fica ativo, a evidência da task está
+  desatualizada); `ConflictType` nunca levantados → remover; card do ReviewAgent → deixar de criar;
+  congelamento (MEL-17) → mantido; `recover_invalid_execution`/`_LEGACY_CODEX_NAMES` → mantidos com
+  data de remoção.
+* Checklist: [ ] 53.1 executor/_agent_order/passos vazios · [ ] 53.2 estratégias · [ ] 53.3 campos de
+  plano/agente · [ ] 53.4 ConflictType, papéis reservados, AgentDefinition informativo · [ ] 53.5
+  card do ReviewAgent · [ ] 53.6 datas de remoção, ADR, docs, governança
 
 ## Bloqueios
 
@@ -261,14 +472,12 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 
 ## Próximas tasks elegíveis
 
-1. MEL-33 (P1, fase 3)
-2. MEL-40 · MEL-41 (P1, fase 4)
-3. MEL-06 · MEL-35 · MEL-36 · MEL-42 · MEL-43 · MEL-51 · MEL-53 · MEL-54 · MEL-55 (P2)
-4. MEL-04 (aguarda decisão do operador) → MEL-07
+1. MEL-06 · MEL-53 · MEL-54 · MEL-55 (P2)
+2. MEL-04 (aguarda decisão do operador) → MEL-07
 
 ## Classificação do backlog (verificada em 2026-09-15 contra código @164c6ab)
 
-* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-34
+* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34, MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50
 * IN_PROGRESS: —
 * READY: MEL-03, MEL-04, MEL-06, MEL-40, MEL-44, MEL-42, MEL-43, MEL-54,
   MEL-30, MEL-35, MEL-36, MEL-51, MEL-55

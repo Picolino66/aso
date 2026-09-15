@@ -5,8 +5,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 from aso.governance.models import ContextPatch
 from aso.shared.types import PatchType, Phase
 
@@ -22,13 +22,19 @@ def test_run_plan_multiagent_respects_dependencies() -> None:
     # estratégia paralela => workers + ReviewAgent (que depende dos workers)
     plan = svc.get_plan(orch.id)
     assert plan.strategy.value == "parallel_agents"
-    order = OrchestrationService._agent_order(plan)
-    assert order[-1] == "ReviewAgent"  # review por último (depende dos demais)
 
+    # ADR-0074: a onda só leva cards cuja dependência está Done — o ReviewAgent espera.
     result = svc.run_plan(orch.id)
-    assert result["count"] == len(plan.agents)
-    # todos os cards executados
-    assert all(c.status.value == "Testing" for c in svc.get_cards(orch.id))
+    review = next(c for c in svc.get_cards(orch.id) if c.assignee == "ReviewAgent")
+    assert result["count"] == len(plan.agents) - 1
+    assert result["aguardando_dependencia"] == [review.id]
+    # com os workers entregues (Done), a próxima execução leva o ReviewAgent
+    for card in svc.get_cards(orch.id):
+        if card.id != review.id:
+            svc.move_card(orch.id, card.id, "Done")
+    segunda = svc.run_plan(orch.id)
+    assert segunda["executed"] == [review.id]
+    assert svc.get_cards(orch.id)[-1].status.value in ("Testing", "Done")
 
 
 def test_requires_approval_flow_pending_then_applied() -> None:

@@ -427,12 +427,19 @@ Se uma tentativa anterior deixou apenas o scaffold de segurança, o retry reconh
 workspace ainda não tem código e completa o template determinístico, sem pedir ao agente que
 invente fatos nem tratar o diff vazio como perda da orquestração.
 
-## Custo real e orçamento (ADR-0026)
+## Custo real e orçamento (ADR-0026, ADR-0070)
 
-- O envelope final do CLI (`type: "result"` no Claude Code) traz
-  `usage`/`total_cost_usd`; o runtime captura e acumula em `card.uso`, `card.closure`
-  (§23) e no relatório de aprendizado (`GET .../learning`). Um executor que não
-  informa uso aparece como `execucoes_sem_custo`, nunca como custo zero.
+- Fontes de uso: Claude Code informa tokens e `total_cost_usd` (envelope `result`); LLM via
+  API (OpenAI/DeepSeek/Anthropic) e Codex (`turn.completed`) informam **só tokens**. O runtime
+  acumula em `card.uso`, `card.closure` (§23), no `AgentRun` e no relatório de aprendizado
+  (`GET .../learning`, com `execucoes_sem_custo` e `proporcao_sem_custo` por executor).
+- `ASO_PRECOS_MODELOS` (JSON, USD por **milhão** de tokens por modelo:
+  `{"gpt-5.1": {"entrada": 1.25, "saida": 10, "cache_leitura": 0.125}}`) calcula o custo de
+  quem só informa tokens (`uso_origem = tabela`). Sem preço para o modelo, os tokens aparecem e
+  o custo fica indisponível (`uso_origem = tokens`, conta em `execucoes_sem_custo`) — nunca zero
+  inventado. O modelo vem da resposta ou, no CLI, do perfil do executor.
+- O gasto da orquestração soma execuções de card **e** perguntas a agentes (triagem,
+  discovery, especificação, revisão, nomeação), lidas de `agent_runs`.
 - `ASO_ORCAMENTO_PADRAO_USD` define o teto de gasto (US$) de orquestrações **novas**.
   Sem a variável, `orcamento_usd` fica `None` — sem teto, comportamento idêntico ao
   runtime antes desta ADR. `PUT /v1/orchestrations/{id}/budget` (`{teto_usd}`, admin)
@@ -475,6 +482,61 @@ invente fatos nem tratar o diff vazio como perda da orquestração.
 - Reinício: jobs `running` da instância anterior viram `failed` ("interrompido por reinício do
   runtime"); `queued` continuam e rodam após o boot.
 - `scripts/smoke.sh` funciona nos dois modos (espera o job quando recebe 202).
+
+## Execução em lote por ondas (ADR-0074)
+
+- `run-phase`, `run-plan` e o autopilot executam os cards `Ready` em ondas: só entra quem tem as
+  dependências em `Done`; os demais aparecem em `aguardando_dependencia` (e no evento
+  `CardsAguardandoDependencia`) e rodam numa próxima execução.
+- Estratégia `parallel_agents`: até `ASO_MAX_PARALELO_POR_ORQUESTRACAO` (padrão 2) cards ao mesmo
+  tempo; demais estratégias, um por vez. `ASO_MAX_EXECUCOES_SIMULTANEAS` (padrão 4) limita o total
+  do processo.
+
+## Esforço por executor (ADR-0073)
+
+- O esforço só muda algo onde há mapeamento: Codex (`-c model_reasoning_effort`), Claude Code
+  (`--effort`), OpenAI em modelos de raciocínio (`reasoning_effort`) e Anthropic em modelos com
+  pensamento estendido (`thinking.budget_tokens`). `GET /v1/executors` mostra `suporta_effort` e
+  `effort_como`; o console marca a escolha como "sem efeito" nos demais.
+- O roteamento de falha não tenta `aumentar_effort` num executor sem suporte (vai para trocar
+  executor), e `agent_runs.effort_aplicado` registra se o esforço pedido foi aplicado.
+
+## Respostas estruturadas das funções de agente (ADR-0072)
+
+- Triagem, discovery, especificação, revisões, nomeação e planejamento pedem a resposta num JSON
+  Schema gerado do modelo (`tests/snapshots/schemas/` guarda o contrato). LLM via API usa saída
+  estruturada nativa; `ASO_LLM_SAIDA_ESTRUTURADA=0` desliga se o servidor compatível recusar.
+- Resposta fora do schema: uma nova pergunta com o campo que falhou; falhando de novo, o serviço
+  usa o fallback (heurística, nome determinístico, `necessita_humano`) com o motivo registrado.
+
+## Discovery e revisão com leitura do repositório (ADR-0069)
+
+- Com executor **CLI** e pasta git, discovery (HEAD da pasta) e revisão de código (branch da PR)
+  rodam o agente num worktree destacado temporário, em modo leitura: Codex recebe
+  `--sandbox read-only`; Claude Code, `--permission-mode plan`.
+- Se o agente alterar qualquer arquivo ou fizer commit, a resposta é descartada: o discovery cai
+  na heurística, a revisão vira `necessita_humano`, o `AgentRun` fica `falha` e a timeline mostra
+  `PerguntaDescartadaPorEscrita`.
+- O relatório de discovery traz `evidencias` (arquivo + trecho) e `componentes_descartados`
+  (caminhos citados que não existem). A revisão recebe spec de origem, critérios, ADRs e a última
+  CI da PR. `envelope.acesso_repo` no `AgentRun` diz se houve leitura (LLM via API: `false`).
+
+## Persistência incremental e concorrência (ADR-0068)
+
+- Cada gravação escreve só o que mudou (entidades alteradas, grupos de junção de um dono, cauda
+  de `events`/`context_history`). O custo não cresce com o histórico.
+- `orchestrations.versao` protege contra sobrescrita: se outro processo (CLI, outra API) gravou
+  a orquestração depois da leitura, a gravação é recusada com **409** ("alterada por outra
+  gravação") e a próxima requisição já lê a versão nova.
+- **Processo único por banco para execução** até a MEL-56: claims de card e a fila de jobs são
+  do processo. Rodar a CLI ao lado da API é seguro para dados (conflito em vez de perda), mas
+  não rode dois `uvicorn` executando agentes sobre o mesmo banco.
+- `ASO_BUNDLE_CACHE_MAX` (padrão 128): agregados mantidos em memória (LRU).
+  `ASO_BUNDLE_VERIFICACAO_S` (padrão 1): intervalo mínimo da checagem de versão no banco antes
+  de servir um agregado do cache; negativo desliga.
+- O boot não cria tabelas: aplique `alembic upgrade head` antes (entrypoint do Docker e
+  `scripts/manager.sh` já fazem). Testes de persistência no Postgres:
+  `ASO_TEST_POSTGRES_URL=postgresql+psycopg://… pytest tests/integration/test_persistencia_incremental.py`.
 
 ## Docs-first e self-heal governados (ADR-0062)
 

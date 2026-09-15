@@ -8,6 +8,7 @@ board_columns, planned_agents). Escrita transacional (delete-and-reinsert dos fi
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, cast
 
 from sqlalchemy import Engine, create_engine, delete, event, func, inspect, select, update
@@ -18,6 +19,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from aso.agents.models import AgentDefinition
 from aso.control.models import ExecutionPlan, Orchestration, PlannedAgent, Project, ProjectEvent
 from aso.control.routing_rules import RoutingRule
+from aso.db.gravacao import (
+    ENTIDADE,
+    TABELAS,
+    MetaDaUnidade,
+    impressao,
+    prefixo_comum,
+    sequencias_do_estado,
+    unidades_do_estado,
+)
 from aso.db.models import (
     AdrLinkRow,
     AdrOptionRow,
@@ -71,54 +81,19 @@ from aso.governance.models import (
     Snapshot,
 )
 from aso.kanban.models import Board, BoardColumn, CardEvent, KanbanCard
-from aso.observability.agent_runs import AgentRun
+from aso.observability.agent_runs import KIND_ASK, AgentRun
+from aso.persistence.ports import ConcurrentModificationError
 from aso.persistence.state import OrchestrationState
 from aso.shared.types import ColumnKey, GateStatus
 
-# Coleções de valor por entidade (nome do campo = rel na tabela de junção).
-_CARD_RELS = (
-    "agents",
-    "dependencies",
-    "blocked_by",
-    "acceptance_criteria",
-    "correction_actions",
-    "linked_requirements",
-    "linked_adrs",
-    "linked_contracts",
-    "linked_files",
-    "linked_prs",
-)
-_ADR_RELS = ("tradeoffs", "consequences", "linked_cards", "linked_requirements", "locked_paths")
 
-# Ordem de deleção segura (folhas antes dos pais).
-_CHILD_TABLES = (
-    EventRow,
-    ContextHistoryRow,
-    ContextPatchRow,
-    PullRequestRow,
-    CandidateRunRow,
-    SloEvaluationRow,
-    IncidentRow,
-    BugReportRow,
-    ReviewCommentRow,
-    ValueItemRow,
-    GateCriterionRow,
-    AdrOptionRow,
-    CardLinkRow,
-    CardEventRow,
-    CardRow,
-    PlannedAgentRow,
-    ExecutionPlanRow,
-    AdrLinkRow,
-    AdrRow,
-    SnapshotRow,
-    ConflictRow,
-    QualityGateResultRow,
-    HumanApprovalRow,
-    BoardColumnRow,
-    ContextRow,
-    BoardRow,
-)
+@dataclass
+class _Impressoes:
+    """O que foi gravado numa versão: base da comparação da próxima gravação (ADR-0068)."""
+
+    versao: int
+    unidades: dict[tuple[str, tuple[Any, ...]], MetaDaUnidade]
+    sequencias: dict[str, list[str]]
 
 
 def _cols(row: object, exclude: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -165,187 +140,159 @@ class SqlAlchemyOrchestrationRepository:
             # Conveniência dev/testes; em produção use Alembic (migrations/).
             Base.metadata.create_all(self.engine)
         self._session_factory = sessionmaker(bind=self.engine, class_=Session)
+        self._impressoes: dict[str, _Impressoes] = {}
 
     # --------------------------------------------------------------------- save
-    def save(self, state: OrchestrationState) -> None:
+    def save(self, state: OrchestrationState) -> int:
+        """Gravação incremental com versão otimista (ADR-0068).
+
+        Só o que mudou desde a versão lida é escrito: entidades alteradas viram `UPDATE`,
+        grupos de junção alterados são reescritos só naquele dono, sequências (`events`,
+        `context_history`) recebem apenas a cauda nova. A orquestração é atualizada com
+        `WHERE versao = esperada`; se outro processo gravou antes, nada é escrito.
+        """
         oid = state.orchestration.id
+        esperada = state.versao
+        anteriores = self._impressoes_da_versao(oid, esperada)
+        unidades = unidades_do_estado(state)
+        sequencias = sequencias_do_estado(state)
+        orch = state.orchestration.model_dump(mode="json")
         with self._session_factory() as session:
-            for table in _CHILD_TABLES:
-                session.execute(delete(table).where(table.orchestration_id == oid))
-
-            # Flush por nível de dependência de FK (o Postgres enforce FKs e o
-            # unit-of-work não ordena sem relationship()).
-            # Nível 0 — orquestração (pai de tudo).
-            session.merge(OrchestrationRow(**state.orchestration.model_dump(mode="json")))
+            if esperada == 0:
+                if session.get(OrchestrationRow, oid) is not None:
+                    raise self._conflito(oid, esperada)
+                session.add(OrchestrationRow(**orch, versao=1))
+            else:
+                valores = {k: v for k, v in orch.items() if k != "id"}
+                resultado = cast(
+                    CursorResult[Any],
+                    session.execute(
+                        update(OrchestrationRow)
+                        .where(OrchestrationRow.id == oid, OrchestrationRow.versao == esperada)
+                        .values(**valores, versao=esperada + 1)
+                    ),
+                )
+                if resultado.rowcount != 1:
+                    session.rollback()
+                    raise self._conflito(oid, esperada)
             session.flush()
 
-            # Nível 1 — board e plano (pais de cards e de tabelas de junção).
-            session.add(BoardRow(**_scalar(state.board.model_dump(mode="json"), BoardRow)))
-            session.add(
-                ExecutionPlanRow(**_scalar(state.plan.model_dump(mode="json"), ExecutionPlanRow))
+            atuais = {un.id: un for un in unidades}
+            impressoes = {un.id: un.impressao for un in unidades}
+            removidas = sorted(
+                (chave for chave in anteriores.unidades if chave not in atuais),
+                key=lambda chave: -anteriores.unidades[chave].nivel,
             )
+            # Remoções primeiro, das folhas para os pais (FK-safe no Postgres).
+            for tabela, chave in removidas:
+                meta = anteriores.unidades[(tabela, chave)]
+                self._apagar(session, tabela, meta.filtro)
             session.flush()
-
-            # Nível 2 — entidades que dependem de orquestração/board/plano.
-            session.add(
-                ContextRow(
-                    orchestration_id=oid,
-                    version=state.context_version,
-                    context_hash="",
-                    payload=state.context_payload,
-                )
-            )
-            for col in state.board.columns:
-                session.add(
-                    BoardColumnRow(
-                        board_id=state.board.id,
-                        orchestration_id=oid,
-                        key=col.key.value,
-                        position=col.order,
-                        wip_limit=col.wip_limit,
-                    )
-                )
-            for pos, planned in enumerate(state.plan.agents):
-                session.add(
-                    PlannedAgentRow(
-                        plan_id=state.plan.id,
-                        orchestration_id=oid,
-                        position=pos,
-                        agent=planned.agent,
-                        role=planned.role,
-                        reason=planned.reason,
-                        parallel_group=planned.parallel_group,
-                        allowed_tools=list(planned.allowed_tools),
-                        depends_on=list(planned.depends_on),
-                    )
-                )
-            for entry in state.context_history:
-                session.add(ContextHistoryRow(orchestration_id=oid, **entry))
-            for card in state.cards:
-                session.add(CardRow(**_scalar(card.model_dump(mode="json"), CardRow)))
-            for evt in state.card_events:
-                session.add(CardEventRow(orchestration_id=oid, **evt.model_dump(mode="json")))
-            for adr in state.adrs:
-                session.add(AdrRow(**_scalar(adr.model_dump(mode="json"), AdrRow)))
-            for snap in state.snapshots:
-                session.add(SnapshotRow(**_scalar(snap.model_dump(mode="json"), SnapshotRow)))
-            for conflict in state.conflicts:
-                session.add(ConflictRow(**_scalar(conflict.model_dump(mode="json"), ConflictRow)))
-            for gate in state.gate_results:
-                session.add(
-                    QualityGateResultRow(
-                        **_scalar(gate.model_dump(mode="json"), QualityGateResultRow)
-                    )
-                )
-            for approval in state.approvals:
-                session.add(HumanApprovalRow(**approval.model_dump(mode="json")))
-            for patch in state.patches:
-                session.add(
-                    ContextPatchRow(**_scalar(patch.model_dump(mode="json"), ContextPatchRow))
-                )
-            for pr in state.pull_requests:
-                session.add(PullRequestRow(**pr.model_dump(mode="json")))
-            for run in state.candidate_runs:
-                session.add(CandidateRunRow(**run.model_dump(mode="json")))
-            for ev in state.slo_evaluations:
-                session.add(SloEvaluationRow(**ev.model_dump(mode="json")))
-            for incident in state.incidents:
-                session.add(IncidentRow(**incident.model_dump(mode="json")))
-            for bug in state.bug_reports:
-                session.add(BugReportRow(**bug.model_dump(mode="json")))
-            for comment in state.review_comments:
-                session.add(ReviewCommentRow(**comment.model_dump(mode="json")))
-            for seq, event in enumerate(state.events):
-                session.add(
-                    EventRow(
-                        orchestration_id=oid,
-                        seq=seq,
-                        type=event["type"],
-                        payload=event.get("payload", {}),
-                        created_at=event["created_at"],
-                    )
-                )
-            session.flush()
-
-            # Nível 3 — tabelas de junção que dependem de cards/adrs.
-            for card in state.cards:
-                for rel in _CARD_RELS:
-                    for pos, value in enumerate(getattr(card, rel)):
-                        session.add(
-                            CardLinkRow(
-                                card_id=card.id,
-                                orchestration_id=oid,
-                                rel=rel,
-                                value=value,
-                                position=pos,
-                            )
-                        )
-            for adr in state.adrs:
-                for rel in _ADR_RELS:
-                    for pos, value in enumerate(getattr(adr, rel)):
-                        session.add(
-                            AdrLinkRow(
-                                adr_id=adr.id,
-                                orchestration_id=oid,
-                                rel=rel,
-                                value=value,
-                                position=pos,
-                            )
-                        )
-                for pos, opt in enumerate(adr.options_considered):
-                    session.add(
-                        AdrOptionRow(
-                            adr_id=adr.id,
-                            orchestration_id=oid,
-                            position=pos,
-                            name=str(opt.get("name", "")),
-                            pros=list(opt.get("pros", [])),
-                            cons=list(opt.get("cons", [])),
-                        )
-                    )
-            for gate in state.gate_results:
-                for pos, crit in enumerate(gate.criteria):
-                    session.add(
-                        GateCriterionRow(
-                            gate_id=gate.id,
-                            orchestration_id=oid,
-                            position=pos,
-                            name=crit.name,
-                            status=crit.status.value,
-                            failure_reason=crit.failure_reason,
-                            evidence=list(crit.evidence),
-                            duration_ms=crit.duration_ms,
-                        )
-                    )
-
-            def _values(owner_type: str, owner_id: str, rel: str, values: list[str]) -> None:
-                for pos, value in enumerate(values):
-                    session.add(
-                        ValueItemRow(
-                            orchestration_id=oid,
-                            owner_type=owner_type,
-                            owner_id=owner_id,
-                            rel=rel,
-                            value=value,
-                            position=pos,
-                        )
-                    )
-
-            _values("plan", state.plan.id, "success_criteria", list(state.plan.success_criteria))
-            _values("context", oid, "frozen_sections", list(state.context_frozen))
-            for snap in state.snapshots:
-                _values("snapshot", snap.id, "frozen_sections", list(snap.frozen_sections))
-                _values("snapshot", snap.id, "adrs", list(snap.adrs))
-                _values("snapshot", snap.id, "cards", list(snap.cards))
-            for conflict in state.conflicts:
-                _values(
-                    "conflict", conflict.id, "source_patch_ids", list(conflict.source_patch_ids)
-                )
-            for gate in state.gate_results:
-                _values("gate", gate.id, "blocking_issues", list(gate.blocking_issues))
-                _values("gate", gate.id, "warnings", list(gate.warnings))
-                _values("gate", gate.id, "required_actions", list(gate.required_actions))
+            for nivel in (1, 2, 3):
+                for un in unidades:
+                    if un.nivel != nivel:
+                        continue
+                    antes = anteriores.unidades.get(un.id)
+                    if antes is not None and antes.impressao == impressoes[un.id]:
+                        continue
+                    row_cls = TABELAS[un.tabela]
+                    if un.tipo == ENTIDADE and antes is not None:
+                        session.merge(row_cls(**un.linhas[0]))
+                        continue
+                    if antes is not None:  # grupo alterado: reescreve só este dono
+                        self._apagar(session, un.tabela, un.filtro)
+                    for linha in un.linhas:
+                        session.add(row_cls(**linha))
+                session.flush()
+            impressoes_seq = self._gravar_sequencias(session, oid, sequencias, anteriores)
             session.commit()
+
+        self._impressoes[oid] = _Impressoes(
+            versao=esperada + 1,
+            unidades={
+                un.id: MetaDaUnidade(un.tipo, un.nivel, un.filtro, un.impressao) for un in unidades
+            },
+            sequencias=impressoes_seq,
+        )
+        return esperada + 1
+
+    def versao_atual(self, orchestration_id: str) -> int | None:
+        with self._session_factory() as session:
+            return session.scalar(
+                select(OrchestrationRow.versao).where(OrchestrationRow.id == orchestration_id)
+            )
+
+    @staticmethod
+    def _conflito(oid: str, esperada: int) -> ConcurrentModificationError:
+        return ConcurrentModificationError(
+            f"A orquestração {oid} foi alterada por outra gravação depois da versão "
+            f"{esperada} — recarregue e tente de novo."
+        )
+
+    @staticmethod
+    def _apagar(session: Session, tabela: str, filtro: tuple[tuple[str, Any], ...]) -> None:
+        row_cls: Any = TABELAS[tabela]
+        condicoes = [getattr(row_cls, col) == valor for col, valor in filtro]
+        session.execute(delete(row_cls).where(*condicoes))
+
+    def _impressoes_da_versao(self, oid: str, versao: int) -> _Impressoes:
+        """Impressões do que está gravado na versão `versao` (cache do `load`/`save`).
+
+        Sem cache compatível (outra instância gravou/leu), recalcula a partir do banco; se o
+        banco já não está nessa versão, a gravação nem começa."""
+        if versao == 0:
+            return _Impressoes(versao=0, unidades={}, sequencias={})
+        cache = self._impressoes.get(oid)
+        if cache is not None and cache.versao == versao:
+            return cache
+        gravado = self.load(oid)
+        if gravado is None or gravado.versao != versao:
+            raise self._conflito(oid, versao)
+        return self._impressoes[oid]
+
+    def _registrar_impressoes(self, state: OrchestrationState) -> None:
+        sequencias = sequencias_do_estado(state)
+        self._impressoes[state.orchestration.id] = _Impressoes(
+            versao=state.versao,
+            unidades={
+                un.id: MetaDaUnidade(un.tipo, un.nivel, un.filtro, un.impressao)
+                for un in unidades_do_estado(state)
+            },
+            sequencias={
+                nome: [impressao(x) for x in linhas] for nome, linhas in sequencias.items()
+            },
+        )
+
+    @staticmethod
+    def _gravar_sequencias(
+        session: Session,
+        oid: str,
+        sequencias: dict[str, list[dict[str, Any]]],
+        anteriores: _Impressoes,
+    ) -> dict[str, list[str]]:
+        resultado: dict[str, list[str]] = {}
+        for nome, linhas in sequencias.items():
+            atuais = [impressao(linha) for linha in linhas]
+            antes = anteriores.sequencias.get(nome, [])
+            comum = prefixo_comum(antes, atuais)
+            row_cls: Any = TABELAS[nome]
+            if comum < len(antes):
+                # Prefixo divergente (ex.: histórico restaurado): remove só o sufixo gravado.
+                ids = list(
+                    session.scalars(
+                        select(row_cls.id)
+                        .where(row_cls.orchestration_id == oid)
+                        .order_by(row_cls.id)
+                        .offset(comum)
+                    )
+                )
+                if ids:
+                    session.execute(delete(row_cls).where(row_cls.id.in_(ids)))
+            for linha in linhas[comum:]:
+                session.add(row_cls(**linha))
+            resultado[nome] = atuais
+        session.flush()
+        return resultado
 
     # --------------------------------------------------------------------- load
     def load(self, orchestration_id: str) -> OrchestrationState | None:
@@ -385,7 +332,9 @@ class SqlAlchemyOrchestrationRepository:
                 )
             )
             card_rows = list(
-                session.scalars(select(CardRow).where(CardRow.orchestration_id == oid))
+                session.scalars(
+                    select(CardRow).where(CardRow.orchestration_id == oid).order_by(CardRow.posicao)
+                )
             )
             card_links = self._group_links(
                 session.scalars(select(CardLinkRow).where(CardLinkRow.orchestration_id == oid)),
@@ -395,7 +344,7 @@ class SqlAlchemyOrchestrationRepository:
                 session.scalars(
                     select(CardEventRow)
                     .where(CardEventRow.orchestration_id == oid)
-                    .order_by(CardEventRow.created_at)
+                    .order_by(CardEventRow.posicao, CardEventRow.created_at)
                 )
             )
             adr_rows = list(
@@ -411,71 +360,77 @@ class SqlAlchemyOrchestrationRepository:
                 session.scalars(
                     select(SnapshotRow)
                     .where(SnapshotRow.orchestration_id == oid)
-                    .order_by(SnapshotRow.snapshot_version)
+                    .order_by(SnapshotRow.posicao, SnapshotRow.snapshot_version)
                 )
             )
             conflict_rows = list(
-                session.scalars(select(ConflictRow).where(ConflictRow.orchestration_id == oid))
+                session.scalars(
+                    select(ConflictRow)
+                    .where(ConflictRow.orchestration_id == oid)
+                    .order_by(ConflictRow.posicao)
+                )
             )
             gate_rows = list(
                 session.scalars(
                     select(QualityGateResultRow)
                     .where(QualityGateResultRow.orchestration_id == oid)
-                    .order_by(QualityGateResultRow.created_at)
+                    .order_by(QualityGateResultRow.posicao, QualityGateResultRow.created_at)
                 )
             )
             approval_rows = list(
                 session.scalars(
-                    select(HumanApprovalRow).where(HumanApprovalRow.orchestration_id == oid)
+                    select(HumanApprovalRow)
+                    .where(HumanApprovalRow.orchestration_id == oid)
+                    .order_by(HumanApprovalRow.posicao)
                 )
             )
             patch_rows = list(
                 session.scalars(
                     select(ContextPatchRow)
                     .where(ContextPatchRow.orchestration_id == oid)
-                    .order_by(ContextPatchRow.created_at)
+                    .order_by(ContextPatchRow.posicao, ContextPatchRow.created_at)
                 )
             )
             pr_rows = list(
                 session.scalars(
                     select(PullRequestRow)
                     .where(PullRequestRow.orchestration_id == oid)
-                    .order_by(PullRequestRow.created_at)
+                    .order_by(PullRequestRow.posicao, PullRequestRow.created_at)
                 )
             )
             run_rows = list(
                 session.scalars(
                     select(CandidateRunRow)
                     .where(CandidateRunRow.orchestration_id == oid)
-                    .order_by(CandidateRunRow.created_at)
+                    .order_by(CandidateRunRow.posicao, CandidateRunRow.created_at)
                 )
             )
             slo_rows = list(
                 session.scalars(
                     select(SloEvaluationRow)
                     .where(SloEvaluationRow.orchestration_id == oid)
-                    .order_by(SloEvaluationRow.created_at)
+                    .order_by(SloEvaluationRow.posicao, SloEvaluationRow.created_at)
                 )
             )
             incident_rows = list(
                 session.scalars(
                     select(IncidentRow)
                     .where(IncidentRow.orchestration_id == oid)
-                    .order_by(IncidentRow.created_at)
+                    .order_by(IncidentRow.posicao, IncidentRow.created_at)
                 )
             )
             bug_report_rows = list(
                 session.scalars(
                     select(BugReportRow)
                     .where(BugReportRow.orchestration_id == oid)
-                    .order_by(BugReportRow.created_at)
+                    .order_by(BugReportRow.posicao, BugReportRow.created_at)
                 )
             )
             review_comment_rows = list(
                 session.scalars(
                     select(ReviewCommentRow)
                     .where(ReviewCommentRow.orchestration_id == oid)
-                    .order_by(ReviewCommentRow.created_at)
+                    .order_by(ReviewCommentRow.posicao, ReviewCommentRow.created_at)
                 )
             )
             event_rows = list(
@@ -554,8 +509,9 @@ class SqlAlchemyOrchestrationRepository:
                 success_criteria=_vi("plan", plan_row.id, "success_criteria"),
             )
 
-            return OrchestrationState(
+            estado = OrchestrationState(
                 orchestration=Orchestration(**_cols(orch_row)),
+                versao=orch_row.versao,
                 plan=plan,
                 board=board,
                 context_payload=context_row.payload if context_row else {},
@@ -608,6 +564,8 @@ class SqlAlchemyOrchestrationRepository:
                     for r in event_rows
                 ],
             )
+        self._registrar_impressoes(estado)
+        return estado
 
     @staticmethod
     def _group_links(rows: Any, key: Any) -> dict[str, dict[str, list[str]]]:
@@ -1119,6 +1077,16 @@ class SqlAlchemyAgentRunRepository:
                 stmt = stmt.where(AgentRunRow.card_id == card_id)
             rows = session.scalars(stmt.order_by(AgentRunRow.inicio)).all()
             return [AgentRun(**_cols(r)) for r in rows]
+
+    def custo_de_perguntas(self, orchestration_id: str) -> float:
+        with self._session_factory() as session:
+            total = session.scalar(
+                select(func.coalesce(func.sum(AgentRunRow.custo_usd), 0.0)).where(
+                    AgentRunRow.orchestration_id == orchestration_id,
+                    AgentRunRow.kind == KIND_ASK,
+                )
+            )
+            return round(float(total or 0.0), 6)
 
     def expurgar_textos(self, antes_de: str) -> int:
         with self._session_factory() as session:

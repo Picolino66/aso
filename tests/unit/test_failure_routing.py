@@ -95,10 +95,11 @@ _TABELA_ESPERADA: dict[str, list[str]] = {
 
 
 def _catalogo_dois_clis() -> ExecutorCatalog:
+    # CLIs que aplicam esforço (ADR-0073): a tabela inteira da política fica exercitável.
     return ExecutorCatalog(
         [
-            ExecutorProfile(name="a", kind="cli", command="a", effort="low"),
-            ExecutorProfile(name="b", kind="cli", command="b", effort="low"),
+            ExecutorProfile(name="a", kind="cli", command="claude -p", effort="low"),
+            ExecutorProfile(name="b", kind="cli", command="codex exec", effort="low"),
         ]
     )
 
@@ -230,3 +231,23 @@ def test_proximo_executor_respeita_kind() -> None:
         ]
     )
     assert proximo_executor("a", catalogo) is None
+
+
+def test_executor_sem_suporte_a_effort_pula_aumentar_effort_e_troca_executor() -> None:
+    """ADR-0073: subir o esforço num CLI que o ignora não é proposto."""
+    catalogo = ExecutorCatalog(
+        [
+            ExecutorProfile(name="aider", kind="cli", command="aider --yes", effort="low"),
+            ExecutorProfile(name="claude", kind="cli", command="claude -p", effort="low"),
+        ]
+    )
+    decisao = decidir(
+        DIAG_TIMEOUT,
+        1,
+        executor_atual="aider",
+        effort_atual="low",
+        catalogo=catalogo,
+        max_escalonamentos=10,
+    )
+    assert decisao.acao != ACAO_AUMENTAR_EFFORT
+    assert decisao.acao == ACAO_TROCAR_EXECUTOR and decisao.executor == "claude"

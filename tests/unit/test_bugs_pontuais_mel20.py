@@ -12,7 +12,7 @@ from aso.agents.models import AgentOutput, AgentSpec
 from aso.agents.registry import _DEFAULT_AGENTS, FASE_PADRAO_POR_PAPEL
 from aso.api.app import create_app
 from aso.application.intake import _phase_for_agent
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.execution.llm_client import LlmError
 from aso.shared.types import ColumnKey, Phase
@@ -80,8 +80,12 @@ def test_run_plan_respeita_dependencias_entre_cards() -> None:
     )
     svc._bundle(oid).board_service.add_card(dependente)  # noqa: SLF001
     resultado = svc.run_plan(oid, concurrent=False)
+    # ADR-0074: o dependente só entra depois que a dependência chega a Done.
+    assert provider.cards == [base.id]
+    assert resultado["waves"] == 1 and resultado["aguardando_dependencia"] == ["card_dependente"]
+    svc.move_card(oid, base.id, "Done")
+    svc.run_plan(oid, concurrent=False)
     assert provider.cards == [base.id, "card_dependente"]
-    assert resultado["waves"] == 2
 
 
 def test_run_plan_nao_roda_card_com_dependencia_externa_pendente() -> None:

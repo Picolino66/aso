@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.routing_rules import RoutingAction, RoutingCondition
 from aso.db.repository import SqlAlchemyRoutingRuleRepository
 

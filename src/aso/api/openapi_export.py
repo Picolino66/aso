@@ -19,7 +19,7 @@ def gerar_openapi() -> dict[str, Any]:
     """Schema OpenAPI de uma app criada com serviço em memória (sem depender de ambiente)."""
     from aso.api.app import create_app
     from aso.api.auth import AuthService
-    from aso.control.orchestration_service import OrchestrationService
+    from aso.application.orchestration_service import OrchestrationService
 
     app = create_app(OrchestrationService(), auth=AuthService({}, dev_mode=True))
     return app.openapi()

@@ -137,9 +137,13 @@
       const status = document.getElementById('executorStatus');
       if (!executor) { status.textContent = 'O executor padrão do catálogo será usado.'; return; }
       const version = executor.runtime_version ? ' · ' + executor.runtime_version : '';
-      status.textContent = executor.available
+      // ADR-0073: esforço que o executor ignora é avisado, não fingido.
+      const semEfeito = executor.suporta_effort === false
+        ? ' · o esforço não tem efeito neste executor (' + (executor.effort_como || 'sem mapeamento') + ')'
+        : '';
+      status.textContent = (executor.available
         ? 'Disponível' + version
-        : 'Indisponível: ' + (executor.availability_reason || 'sincronize o catálogo Codex');
+        : 'Indisponível: ' + (executor.availability_reason || 'sincronize o catálogo Codex')) + semEfeito;
       status.classList.toggle('success', Boolean(executor.available));
     }
     function continuousValidation(value) {

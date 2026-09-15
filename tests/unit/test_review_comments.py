@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.review import ReviewAction, ReviewCommentDraft, ReviewVerdict
 
 # CI declarada exige justificativa humana (ADR-0056, MEL-12).

@@ -73,6 +73,10 @@ class KanbanCard(BaseModel):
     # inteiro aqui sobrepõe o global só para este card (ex.: herdado de
     # `RoutingRule.acao.limite_tentativas`, ADR-0028/ADR-0031).
     max_tentativas: int | None = None
+    # Nomes do trabalho do card (ADR-0014), calculados UMA vez e reaproveitados em toda
+    # tentativa e corrida (ADR-0071): o agente de nomeação não é chamado de novo a cada retry.
+    branch_stem: str | None = None
+    commit_subject: str | None = None
     # Ring das últimas 10 tentativas (§36.4, ADR-0031) — sucesso OU falha, cada
     # item um `TentativaRegistro.model_dump()` (control/attempts.py). Diferente de
     # `failures` (só falha): é o "modelo/effort/resultado" por tentativa que o

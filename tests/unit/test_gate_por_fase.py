@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 from aso.governance.gate_definitions import tabela_markdown
 from aso.governance.quality_gate_engine import Criterion, QualityGateEngine
 from aso.shared.types import ColumnKey, GateStatus, Phase

@@ -76,7 +76,9 @@ class AgentRun(BaseModel):
     papel: str = ""
     executor: str = ""
     modelo: str = ""
-    effort: str = ""
+    effort: str = ""  # solicitado
+    # O executor aplicou o esforço? `None` sem esforço pedido; `False` = executor o ignora.
+    effort_aplicado: bool | None = None
     prompt_version: str = ""
     prompt: str = ""
     envelope: dict[str, Any] = Field(default_factory=dict)
@@ -135,6 +137,10 @@ class AgentRunRepository(Protocol):
 
     def expurgar_textos(self, antes_de: str) -> int: ...
 
+    def custo_de_perguntas(self, orchestration_id: str) -> float:
+        """Custo somado das perguntas (`kind=ask`) — o das execuções já está nos cards."""
+        ...
+
 
 class InMemoryAgentRunRepository:
     """Adapter em memória (testes e modo sem banco)."""
@@ -157,6 +163,16 @@ class InMemoryAgentRunRepository:
                 and (card_id is None or r.card_id == card_id)
             ),
             key=lambda r: r.inicio,
+        )
+
+    def custo_de_perguntas(self, orchestration_id: str) -> float:
+        return round(
+            sum(
+                r.custo_usd
+                for r in self._runs.values()
+                if r.orchestration_id == orchestration_id and r.kind == KIND_ASK
+            ),
+            6,
         )
 
     def expurgar_textos(self, antes_de: str) -> int:

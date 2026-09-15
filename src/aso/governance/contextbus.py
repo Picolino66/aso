@@ -1,16 +1,15 @@
 """ContextBus (§19, ADR-0003).
 
-Único componente autorizado a aplicar patches ao OrchestratorContext. `_validate` roda
-8 funções de etapa, em ordem — 6 com efeito e 2 ganchos ainda vazios:
+Único componente autorizado a aplicar patches ao OrchestratorContext. `_validate` roda 6
+etapas, em ordem (os dois ganchos vazios de conflito entre outputs e impacto em gate foram
+removidos na MEL-53, ADR-0075 — não havia requisito que os implementasse):
 
 1. schema
 2. permissão (deny-by-default)
-3. detecção de conflito entre outputs — gancho sem efeito
-4. lock de snapshot (override exige ADR + aprovação humana, ADR-0061)
-5. consistência de ADR
-6. contradição com ADR (`locked_paths`)
-7. compatibilidade de contrato
-8. impacto em quality gate — gancho sem efeito
+3. lock de snapshot (override exige ADR + aprovação humana, ADR-0061)
+4. consistência de ADR
+5. contradição com ADR (`locked_paths`)
+6. compatibilidade de contrato
 
 Aprovado -> aplica patch, incrementa versão, registra evento (ou fica pendente se
 `propose`/`requires_approval`). Reprovado -> registra conflito e retorna rejeitado.
@@ -103,16 +102,14 @@ class ContextBus:
         self.patches: list[ContextPatch] = []  # trilha de auditoria de todos os patches
 
     def _validate(self, patch: ContextPatch) -> StepResult | None:
-        """Roda as 8 etapas (2 ganchos vazios); devolve o primeiro resultado que falha, ou None."""
+        """Roda as 6 etapas; devolve o primeiro resultado que falha, ou None."""
         steps = (
             self._step_schema,
             self._step_permission,
-            self._step_conflict_detection,
             self._step_snapshot_lock,
             self._step_adr_consistency,
             self._step_adr_contradiction,
             self._step_contract_compatibility,
-            self._step_quality_gate_impact,
         )
         for step in steps:
             result = step(patch)
@@ -175,7 +172,7 @@ class ContextBus:
 
         return self._apply(patch)
 
-    # --------------------------------------------------------------- etapas 1–8
+    # --------------------------------------------------------------- etapas 1–6
     def _step_schema(self, patch: ContextPatch) -> StepResult:
         # O patch já é validado pelo Pydantic; aqui garantimos coerência semântica.
         needs_content = patch.patch_type in (PatchType.ADD, PatchType.UPDATE, PatchType.PROPOSE)
@@ -196,10 +193,6 @@ class ContextBus:
                     f"Agente '{patch.agent}' sem permissão para escrever em '{patch.target_path}'."
                 ),
             )
-        return StepResult.clear()
-
-    def _step_conflict_detection(self, patch: ContextPatch) -> StepResult:
-        # Hook para AGENT_OUTPUT_CONFLICT entre patches concorrentes (evoluído no MVP-2).
         return StepResult.clear()
 
     def _step_snapshot_lock(self, patch: ContextPatch) -> StepResult:
@@ -240,10 +233,6 @@ class ContextBus:
     def _step_contract_compatibility(self, patch: ContextPatch) -> StepResult:
         check = self.conflict_detector.check_contract_compatibility(patch)
         return StepResult(ok=check.ok, conflict_type=check.conflict_type, reason=check.reason)
-
-    def _step_quality_gate_impact(self, patch: ContextPatch) -> StepResult:
-        # Hook para QUALITY_GATE_CONFLICT (evoluído no MVP-2).
-        return StepResult.clear()
 
     # ----------------------------------------------------------------- rejeição
     def _reject(self, patch: ContextPatch, result: StepResult) -> BusResult:

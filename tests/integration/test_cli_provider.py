@@ -9,7 +9,7 @@ import pytest
 
 from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentSpec
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 

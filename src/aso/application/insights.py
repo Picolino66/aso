@@ -13,13 +13,13 @@ from typing import Any
 from aso.agents.registry import AgentRegistry
 from aso.application.bundles import BundleStore, OrchestrationBundle
 from aso.application.execution import ExecutionService
+from aso.application.routing_rule_service import RoutingRuleService
 from aso.application.settings import ExecutionSettingsService
 from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.deploy import STATUS_REVERTIDO, DeployRun
 from aso.control.discovery import DiscoveryReport
 from aso.control.documentos import versao_atual
 from aso.control.next_step import NextStepInput, NextStepReport, compute_next_step
-from aso.control.routing_rule_service import RoutingRuleService
 from aso.control.routing_rules import avaliar_regras, contexto_de_demand_brief
 from aso.control.selecao import sugerir_effort
 from aso.control.spec import SpecDocument

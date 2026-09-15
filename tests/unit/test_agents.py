@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aso.agents.executor import AgentExecutor, LocalMockExecutionProvider
+from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.registry import AgentRegistry
 from aso.shared.types import Phase
 
@@ -21,8 +21,7 @@ def test_mock_executor_returns_structured_output_with_patch() -> None:
     reg.seed_defaults()
     agent = reg.get("ArchitectureDesignAgent")
     assert agent is not None
-    executor = AgentExecutor(provider=LocalMockExecutionProvider())
-    output = executor.run(
+    output = LocalMockExecutionProvider().execute(
         agent,
         {
             "orchestration_id": "orch_x",

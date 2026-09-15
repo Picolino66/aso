@@ -16,7 +16,7 @@ aplicada no código e qual teste a protege: [docs/GOVERNANCE.md](docs/GOVERNANCE
 
 1. **O ContextBus é o único escritor do contexto canônico.** Nunca mute o estado
    de governança fora dele. Toda mudança é um `ContextPatch` que passa pelo
-   pipeline de validação de 8 etapas (6 com efeito) em
+   pipeline de validação de 6 etapas em
    [src/aso/governance/contextbus.py](src/aso/governance/contextbus.py).
 2. **Deny-by-default nas permissões.** Um agente só escreve nas chaves que sua
    `PermissionPolicy` autoriza.
@@ -77,7 +77,8 @@ anteriores (nunca contrarie uma ADR aceita sem supersedê-la).
 - Python 3.12, **Pydantic v2** para modelos, tipagem completa (`mypy --strict`).
 - Comentários e docstrings em **pt-BR**, explicando o *porquê* de governança.
 - Siga o estilo do arquivo vizinho; a regra de dependência aponta para dentro
-  (Clean Architecture) — veja `module_map` no orchestrator-context.
+  (Clean Architecture) e é verificada por `lint-imports` (camadas em `pyproject.toml`) —
+  veja `module_map` no orchestrator-context.
 - Rode `ruff check` **antes** de `ruff format` (o check falha rápido em erros
   reais; o format só reformata). Linhas ≤ 100 colunas.
 - Testes ficam em `tests/unit/` e `tests/integration/`; toda feature nova entra
@@ -86,8 +87,8 @@ anteriores (nunca contrarie uma ADR aceita sem supersedê-la).
 ## Estrutura (onde mexer)
 
 ```
-src/aso/application/   # serviços por caso de uso (execução, entrega, fluxo, aprovações…) — ADR-0066
-src/aso/control/       # OrchestrationService (façade), decision engine, planner, triagem, revisão
+src/aso/application/   # OrchestrationService (façade) + serviços por caso de uso — ADR-0066
+src/aso/control/       # modelos de domínio, decision engine, planner, triagem, spec, revisão
 src/aso/governance/    # ContextBus, ContextPatch, ConflictDetector, ADR, QualityGate, Snapshot
 src/aso/execution/     # WorktreeManager, CliAgentExecutionProvider, CandidateRunner, PR/merge
 src/aso/kanban/        # Board, cards, automação por eventos
@@ -100,15 +101,17 @@ migrations/            # Alembic
 ```
 
 O ponto de entrada usado por API e CLI é a façade
-[src/aso/control/orchestration_service.py](src/aso/control/orchestration_service.py);
+[src/aso/application/orchestration_service.py](src/aso/application/orchestration_service.py);
 a lógica fica nos serviços de [src/aso/application/](src/aso/application/), montados em
 [composicao.py](src/aso/application/composicao.py).
 
 ## Armadilhas conhecidas
 
-- **FKs no Postgres**: o `save` insere em níveis (orchestration → board/plan →
-  filhos → tabelas de junção) e deleta em ordem FK-safe. Não reordene sem testar
-  no Postgres.
+- **FKs no Postgres**: o `save` é incremental (ADR-0068, `db/gravacao.py`): insere por
+  nível (orchestration → board/plan → filhos → junções) e remove das folhas para os pais.
+  Não reordene sem rodar `tests/integration/test_persistencia_incremental.py` com
+  `ASO_TEST_POSTGRES_URL`. Coleção nova no agregado precisa de unidade em `gravacao.py`
+  (e `posicao` se a ordem importar).
 - **PK composta de `adrs`** é `(orchestration_id, id)` — ids de ADR são
   sequenciais por orquestração; não trate `adr_id` como global.
 - **Migrations autogeradas** com JSONB podem gerar `Text()` sem import — confira

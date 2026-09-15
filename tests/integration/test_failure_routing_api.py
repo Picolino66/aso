@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.execution.cli_provider import CliAgentExecutionProvider
 from aso.governance.models import QualityGateResult
@@ -48,10 +48,9 @@ def test_timeout_sobe_effort_na_segunda_tentativa(tmp_path: Path) -> None:
     svc.run_card(orch.id, card_id)
 
     arquivos = sorted(tarefas_dir.glob("tentativa-*.json"), key=lambda p: p.stat().st_mtime)
-    # AgentSupervisor tenta 2x por rodada externa; o roteamento (ADR-0019) manda subir
-    # o effort na 2ª rodada externa (timeout → aumentar_effort) — 2 rodadas × 2
-    # tentativas internas = 4 arquivos, o effort muda entre a 1ª e a última rodada.
-    assert len(arquivos) == 4
+    # Retry único (ADR-0071): uma chamada ao agente por decisão do roteamento — a 1ª
+    # estoura o tempo e o roteamento (ADR-0019) sobe o effort para a 2ª = 2 arquivos.
+    assert len(arquivos) == 2
     tarefas = [json.loads(a.read_text()) for a in arquivos]
     # 1ª rodada: sem effort configurado, a task nem carrega o campo. 2ª rodada: a
     # política subiu para o primeiro degrau da escada ('low').

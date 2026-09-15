@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.selecao import EFFORT_TOPO, resolver_topo, sugerir_effort
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile

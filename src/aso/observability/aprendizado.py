@@ -71,6 +71,8 @@ class DesempenhoPorExecutor:
     custo_total_usd: float = 0.0
     custo_por_entrega: float = 0.0  # custo_total_usd / cards que chegaram a Done
     execucoes_sem_custo: int = 0  # quantas não informaram uso (não somadas como zero)
+    # Fração dos cards deste executor sem custo conhecido (ADR-0070); `None` sem execução.
+    proporcao_sem_custo: float | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,11 @@ def consolidar(
                 custo_total_usd=custo_total,
                 custo_por_entrega=round(custo_total / entregas, 6) if entregas else 0.0,
                 execucoes_sem_custo=sum(1 for c in seus_cards if c.uso_indisponivel),
+                proporcao_sem_custo=(
+                    round(sum(1 for c in seus_cards if c.uso_indisponivel) / len(seus_cards), 4)
+                    if seus_cards
+                    else None
+                ),
             )
         )
         total_falhas += falhas

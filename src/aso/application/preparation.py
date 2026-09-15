@@ -43,6 +43,7 @@ from aso.control.spec import STATUS_REPROVADO as SPEC_STATUS_REPROVADO
 from aso.control.spec import SpecDocument, SpecService, SpecWorkItem
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceService
 from aso.kanban.models import KanbanCard
 from aso.shared.ids import now_iso
@@ -187,6 +188,8 @@ class PreparationService:
                     demand_brief=brief,
                     workspace_report=workspace_report,
                     comentarios_anteriores=comentarios,
+                    # O agente CLI lê um checkout de leitura da pasta (ADR-0069).
+                    repositorio=AcessoAoRepositorio(caminho=str(root)),
                 ),
             )
             report.status = (
@@ -206,6 +209,7 @@ class PreparationService:
                     "status": report.status,
                     "origem": report.origem,
                     "versao": report.versao,
+                    "acesso_repo": report.acesso_repo,
                 },
             )
             self._persist(b)

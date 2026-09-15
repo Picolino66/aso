@@ -180,7 +180,8 @@ def test_resposta_sem_campos_utilizaveis_e_necessita_humano() -> None:
     verdito = _revisar(ReviewService(_cli("{}")), AgentAssignment(executor="revisor"))
     assert verdito.veredito == VEREDITO_NECESSITA_HUMANO
     assert verdito.origem == "indisponivel"
-    assert "utilizável" in verdito.fallback_reason
+    # ADR-0072: a resposta fora do schema diz o campo que faltou (após uma correção).
+    assert "veredito" in verdito.fallback_reason and "schema" in verdito.fallback_reason
 
 
 def test_timeout_padrao_e_bem_maior_que_o_da_triagem() -> None:

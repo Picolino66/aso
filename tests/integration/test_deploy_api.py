@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.api.auth import AuthService, Principal
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.shared.types import Phase, RiskLevel
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.kanban.hierarchy import montar_arvore
 from aso.kanban.models import KanbanCard
 from aso.shared.types import CardType, Phase

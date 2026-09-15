@@ -11,7 +11,7 @@
 |---|---|---|
 | Control | `control` | `OrchestrationService` (serviço de aplicação que concentra fases, aprovações, gates e execução), `MultiAgentDecisionEngine`, `ExecutionPlanner`, `PlanningService`, triagem/discovery/spec/revisão, `next_step` |
 | Kanban | `kanban` | `BoardService`, `KanbanCard`, transições manuais validadas, hierarquia, eventos de card |
-| Agent | `agents` | `AgentRegistry`, `AgentSupervisor` (retry/nudge), `PromptBuilder`, `ContextBuilder`, contrato `TaskEnvelope` |
+| Agent | `agents` | `AgentRegistry`, `AgentSupervisor` (uma tentativa; retry pelo roteamento de falha, ADR-0071), `PromptBuilder`, `ContextBuilder`, contrato `TaskEnvelope` |
 | Execution | `execution` | `ExecutionProvider` (mock, LLM, CLI, roteamento), `WorktreeManager`, `CandidateRunner`, catálogo de executores, workspace/docs-first |
 | Governance | `governance` | `OrchestratorContextStore`, `ContextBus`, `ConflictDetector`, `QualityGateEngine` + definições por fase, `ADRRegistry`, `SnapshotEngine` |
 | Observability | `observability` | logging estruturado (structlog), `EventBroker` (SSE), métricas/SLO, rate limit, tracing opcional, log de agentes, aprendizado |
@@ -29,7 +29,7 @@
 > `approvals.py` (aprovações, kill-switch, restauração), `qa.py`, `release.py`, `governanca.py`
 > (patches, conflitos, auditoria, SLO), `insights.py` (aprendizado e próximo passo) e
 > `catalogs.py` (projetos, executores, regras, agentes). `composicao.py` é a raiz de composição;
-> `control/orchestration_service.py` virou façade declarativa (`delegacao.py::Delegado`, tipada
+> `application/orchestration_service.py` virou façade declarativa (`delegacao.py::Delegado`, tipada
 > pela assinatura do serviço). Na API, `app.py` só compõe o gateway (auth, rate limit, tracing,
 > log) e os routers de `api/routers/` (um por recurso, com `api/deps.py` e `api/schemas.py`).
 
@@ -42,10 +42,12 @@
 
 ## 2. Mapa de camadas e módulos
 
-Regra de dependência aponta para dentro (Clean Architecture). **Ainda não é verificada por
-lint** e há um ciclo real `control` ↔ `observability` (`observability/metrics.py` importa
-`OrchestrationService`, e `control` importa `observability`) — a verificação automática é a
-MEL-36.
+Regra de dependência aponta para dentro (Clean Architecture) e é **verificada**: contrato de
+camadas do `import-linter` em `pyproject.toml` (`lint-imports`, passo do CI) e
+`tests/unit/test_regra_de_dependencia.py` (sem ciclos entre pacotes; `module_map` do
+orchestrator-context igual ao grafo real). A façade `OrchestrationService` fica em
+`application/`; `observability` lê métricas por uma porta (`FonteDeMetricas`), sem importar a
+aplicação (MEL-36).
 
 ```
 driving adapters:   api (FastAPI)   |   cli (Typer)
@@ -57,14 +59,19 @@ domain:             control · kanban · agents · execution · governance · ob
 driven adapters:    db (SQLAlchemy/Postgres) · llm_providers (httpx) · cli_agents (subprocess/pty) · git (worktrees)
 ```
 
-Dependências entre módulos (ver [F4 §2](phases/F4-planning.md)):
+Camadas verificadas (de cima para baixo; cada uma só importa as de baixo, `|` = independentes):
 
 ```
-shared  ◄─ governance ◄─ kanban ◄─ observability
-                  ▲          ▲
-                agents ◄── execution
-                  ▲
-                control ◄── api · cli
+api | cli
+bootstrap
+db
+application            (façade OrchestrationService + serviços por caso de uso)
+persistence            (portas, estado serializável, adapters em memória)
+control                (modelos de domínio, motor de decisão, triagem, spec, revisão, discovery)
+execution
+agents | observability
+governance | kanban
+shared
 ```
 
 ## 3. Stack (locked — ADR-0004)
@@ -78,6 +85,7 @@ capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
 ## 4. Persistência, segurança e infra (resumo)
 
 - **Dados:** `OrchestratorContext` e snapshots em **JSONB** (escrita atômica, histórico append-only, consistência **forte** por orquestração); entidades operacionais em tabelas relacionais. Detalhe em [F3 — Contracts](phases/F3-contracts.md) e [`domain-model.md`](domain-model.md).
+- **Gravação:** incremental por unidade (entidade → `UPDATE`, grupo de junção → reescrita só do dono, `events`/`context_history` → só a cauda) com **versão otimista** em `orchestrations.versao` (conflito → 409); cache LRU de agregados com sonda de versão; schema só por Alembic (ADR-0068).
 - **Catálogo multi-repo:** `Project` usa porta própria com adapters in-memory e SQLAlchemy;
   tabelas `projects`/`project_events` e FKs restritivas separam metadados de catálogo do
   agregado da orquestração. Arquivamento preserva rastreabilidade (ADR-0010).

@@ -1,0 +1,21 @@
+{
+  "description": "Formato da resposta do agente nomeador (ADR-0072) — o schema vai no prompt.",
+  "properties": {
+    "branch": {
+      "description": "slug curto em kebab-case, sem prefixo nem acento",
+      "title": "Branch",
+      "type": "string"
+    },
+    "commit": {
+      "description": "assunto Conventional Commits em pt-BR, até 72 caracteres",
+      "title": "Commit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "branch",
+    "commit"
+  ],
+  "title": "RespostaNomeacao",
+  "type": "object"
+}

@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "BacklogItem": {
+      "properties": {
+        "acceptance_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Acceptance Criteria",
+          "type": "array"
+        },
+        "depends_on": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "domain": {
+          "default": "backend",
+          "title": "Domain",
+          "type": "string"
+        },
+        "phase": {
+          "default": "F5",
+          "title": "Phase",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "default": "Task",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "BacklogItem",
+      "type": "object"
+    },
+    "PlannedAdr": {
+      "properties": {
+        "decision": {
+          "title": "Decision",
+          "type": "string"
+        },
+        "locked_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locked Paths",
+          "type": "array"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "decision"
+      ],
+      "title": "PlannedAdr",
+      "type": "object"
+    },
+    "ProductSummary": {
+      "properties": {
+        "domain": {
+          "default": "",
+          "title": "Domain",
+          "type": "string"
+        },
+        "mvp_hypothesis": {
+          "default": "",
+          "title": "Mvp Hypothesis",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "title": "ProductSummary",
+      "type": "object"
+    }
+  },
+  "description": "Plano de produto estruturado produzido pelo LLM (validado).",
+  "properties": {
+    "adrs": {
+      "items": {
+        "$ref": "#/$defs/PlannedAdr"
+      },
+      "title": "Adrs",
+      "type": "array"
+    },
+    "backlog": {
+      "items": {
+        "$ref": "#/$defs/BacklogItem"
+      },
+      "title": "Backlog",
+      "type": "array"
+    },
+    "product": {
+      "$ref": "#/$defs/ProductSummary"
+    }
+  },
+  "title": "ProjectPlan",
+  "type": "object"
+}

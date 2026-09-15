@@ -23,6 +23,7 @@ from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
 from aso.control.discovery import STATUS_APROVADO as DISCOVERY_APROVADO
 from aso.control.discovery import DiscoveryReport
 from aso.control.models import AgentAssignment
+from aso.control.respostas_estruturadas import vocabulario
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
 from aso.shared.ids import now_iso
@@ -42,15 +43,6 @@ STATUS_APROVADOS = frozenset({STATUS_APROVADO, STATUS_APROVADO_COM_OBSERVACOES})
 
 _SPEC_SYSTEM = (
     "Você especifica a solução de uma demanda já investigada (§5 do fluxo.md).\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"o_que_sera_construido": "...", "fora_de_escopo": ["..."], "como_funciona": "...",\n'
-    ' "criterios_de_aceite": ["..."], "regras_de_negocio": ["..."], "componentes": ["..."],\n'
-    ' "alteracoes_codigo": ["..."], "alteracoes_banco": ["..."], "alteracoes_infra": ["..."],\n'
-    ' "estrategia_de_testes": "...", "estrategia_de_implantacao": "...",\n'
-    ' "plano_de_rollback": "...", "checklist_seguranca": ["..."],\n'
-    ' "itens_de_trabalho": [{"titulo": "...", "descricao": "...", "fase": "F5",\n'
-    '   "dominio": "backend", "tipo": "Task", "criterios_de_aceite": ["..."],\n'
-    '   "depende_de": ["..."], "itens_filhos": [{"titulo": "...", "tipo": "Task", ...}]}]}\n'
     "Tudo em português do Brasil. `fora_de_escopo` é o campo que mais economiza "
     "retrabalho — não deixe vazio sem justificar por quê. Diagramas de componentes/"
     "fluxo, modelo de dados, contrato de API e plano de migração (quando existirem) "
@@ -58,7 +50,7 @@ _SPEC_SYSTEM = (
     "não invente campos novos. `estrategia_de_testes` e `plano_de_rollback` são "
     "obrigatórios: uma especificação sem eles é reprovada antes mesmo de um revisor "
     "olhar. Em `itens_de_trabalho`, `depende_de` referencia o TÍTULO de um irmão desta "
-    "mesma lista, nunca um id. `tipo` aceita Epic|Feature|Task — use Epic/Feature só "
+    "mesma lista, nunca um id. Use `tipo` Epic/Feature só "
     "quando o item tiver `itens_filhos` (um único nível: história com subtarefas, não "
     "subtarefas com subtarefas)."
 )
@@ -109,6 +101,40 @@ class SpecDocument(BaseModel):
     origem: str = "heuristica"  # nome do executor, ou "heuristica"
     fallback_reason: str = ""
     at: str = Field(default_factory=now_iso)
+
+
+class SubitemRespondido(BaseModel):
+    titulo: str
+    descricao: str = ""
+    fase: str = vocabulario(frozenset(f"F{i}" for i in range(1, 8)))
+    dominio: str = ""
+    tipo: str = vocabulario(frozenset({"Task"}))
+    criterios_de_aceite: list[str] = Field(default_factory=list)
+    depende_de: list[str] = Field(default_factory=list)
+
+
+class ItemDeTrabalhoRespondido(SubitemRespondido):
+    tipo: str = vocabulario(frozenset({"Epic", "Feature", "Task"}))
+    itens_filhos: list[SubitemRespondido] = Field(default_factory=list)
+
+
+class RespostaEspecificacao(BaseModel):
+    """Formato da resposta do agente de especificação (ADR-0072) — um nível de filhos."""
+
+    o_que_sera_construido: str = ""
+    fora_de_escopo: list[str] = Field(default_factory=list)
+    como_funciona: str = ""
+    criterios_de_aceite: list[str] = Field(default_factory=list)
+    regras_de_negocio: list[str] = Field(default_factory=list)
+    componentes: list[str] = Field(default_factory=list)
+    alteracoes_codigo: list[str] = Field(default_factory=list)
+    alteracoes_banco: list[str] = Field(default_factory=list)
+    alteracoes_infra: list[str] = Field(default_factory=list)
+    estrategia_de_testes: str = ""
+    estrategia_de_implantacao: str = ""
+    plano_de_rollback: str = ""
+    checklist_seguranca: list[str] = Field(default_factory=list)
+    itens_de_trabalho: list[ItemDeTrabalhoRespondido] = Field(default_factory=list)
 
 
 class SpecService:
@@ -167,6 +193,7 @@ class SpecService:
             self._catalog,
             assignment,
             system=_SPEC_SYSTEM,
+            modelo_resposta=RespostaEspecificacao,
             pedido=pedido,
             kind="especificacao",
             timeout=self._timeout,

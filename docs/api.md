@@ -442,9 +442,9 @@ trabalham** ([ADR-0015](adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md)):
 `text`, `detail`, `card_id`, `agent` e `executor`. `after` é o cursor: passe o `next` da
 resposta anterior para receber só o que ainda não viu — o que permite acompanhar a execução
 e também reexibir o log ao recarregar a página. O ring guarda as últimas 2 000 linhas por
-orquestração **em memória**, então não sobrevive a um restart da API. Cada tentativa do
-`AgentSupervisor` é uma sessão própria (ele tenta 2x), e `running` fica `true` enquanto
-qualquer uma delas estiver aberta.
+orquestração **em memória**, então não sobrevive a um restart da API. Cada tentativa decidida
+pelo roteamento de falha é uma sessão própria (retry único, ADR-0071), e `running` fica `true`
+enquanto qualquer uma delas estiver aberta.
 
 `GET /v1/phases` devolve `[{id, label, nome, resumo, entrega}]` para F1..F7 — a explicação
 didática de cada etapa, para a UI montar a esteira sem duplicar texto.
@@ -530,7 +530,7 @@ GET    /v1/orchestrations/{id}/conflicts
 
 ## Regras de contrato relevantes
 
-- `POST /v1/context-patches` nunca escreve direto: enfileira no ContextBus, que roda as 8 etapas de validação (6 com efeito, §19) e responde `applied | rejected | pending`.
+- `POST /v1/context-patches` nunca escreve direto: enfileira no ContextBus, que roda as 6 etapas de validação (§19) e responde `applied | rejected | pending`.
 - `POST /v1/cards/{id}/run` recusa (`409`) e move o card para `Blocked` se alguma
   dependência (`card.dependencies`, populado do `depends_on` do plano multiagente —
   [ADR-0018](adrs/ADR-0018-kanban-fiel-colunas-e-dependencias.md)) ainda não estiver

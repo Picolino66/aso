@@ -34,6 +34,8 @@ class OrchestrationState(BaseModel):
 
     orchestration: Orchestration
     plan: ExecutionPlan
+    # Versão otimista lida do repositório (0 = ainda não gravada), ADR-0068.
+    versao: int = 0
 
     context_payload: dict[str, Any] = Field(default_factory=dict)
     context_version: int = 0

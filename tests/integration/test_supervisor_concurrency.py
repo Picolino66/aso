@@ -6,8 +6,8 @@ from typing import Any
 
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 
 
 class FlakyProvider:
@@ -34,15 +34,20 @@ class AlwaysFailProvider:
         raise RuntimeError("falha permanente")
 
 
-def test_supervisor_retries_and_succeeds() -> None:
-    svc = OrchestrationService(provider=FlakyProvider(fail_times=1))
+def test_falha_transitoria_e_retentada_pelo_roteamento_e_sucede() -> None:
+    """Retry único (ADR-0071): o supervisor não re-tenta; o roteamento de falha decide."""
+    provider = FlakyProvider(fail_times=1)
+    svc = OrchestrationService(provider=provider)
     orch = svc.create_orchestration("backend X")
     card = svc.get_cards(orch.id)[0]
     results = svc.run_card(orch.id, card.id)
     assert results and results[0].status.value == "applied"
     assert svc.get_cards(orch.id)[0].status.value == "Testing"
-    types = {e.type for e in svc.timeline(orch.id)}
-    assert "AgentRetry" in types and "AgentRetrySucceeded" in types
+    assert provider.calls == 2
+    eventos = svc.timeline(orch.id)
+    types = {e.type for e in eventos}
+    assert "AgentRetry" in types and "FailureRouted" in types
+    assert "AgentRetrySucceeded" not in types  # nenhuma tentativa interna do supervisor
 
 
 def test_terminal_failure_moves_card_to_failed() -> None:
@@ -64,7 +69,56 @@ def test_concurrent_run_plan_waves() -> None:
         ),
     )
     result = svc.run_plan(orch.id, concurrent=True)
-    assert result["concurrent"] is True
-    assert result["waves"] >= 2  # workers em uma onda, ReviewAgent em outra
-    assert result["count"] == len(svc.get_plan(orch.id).agents)
-    assert all(c.status.value == "Testing" for c in svc.get_cards(orch.id))
+    assert result["concurrent"] is True and result["paralelismo"] == 2
+    # ADR-0074: workers numa onda; o ReviewAgent aguarda a entrega (Done) deles.
+    assert result["waves"] == 1
+    assert result["count"] == len(svc.get_plan(orch.id).agents) - 1
+    assert len(result["aguardando_dependencia"]) == 1
+    executados = [c for c in svc.get_cards(orch.id) if c.id in result["executed"]]
+    assert all(c.status.value == "Testing" for c in executados)
+
+
+def test_uma_chamada_ao_provider_por_decisao_do_roteamento() -> None:
+    """MEL-35: sem retry interno, execuções = 1 + decisões de nova tentativa do roteamento."""
+
+    class _Contador(AlwaysFailProvider):
+        chamadas = 0
+
+        def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
+            type(self).chamadas += 1
+            return super().execute(agent, task)
+
+    svc = OrchestrationService(provider=_Contador(), max_escalonamentos=3)
+    orch = svc.create_orchestration("backend X")
+    card = svc.get_cards(orch.id)[0]
+    svc.run_card(orch.id, card.id)
+    retentativas = [
+        e
+        for e in svc.timeline(orch.id)
+        if e.type == "FailureRouted"
+        and e.payload["acao"] in ("mesmo_agente", "aumentar_effort", "trocar_executor")
+    ]
+    assert _Contador.chamadas == 1 + len(retentativas)
+    ultimo_erro = [f["mensagem"] for f in svc.get_cards(orch.id)[0].failures][-1]
+    assert "falhou após" not in ultimo_erro and "falha permanente" in ultimo_erro
+
+
+def test_agente_de_nomeacao_e_chamado_no_maximo_uma_vez_por_card() -> None:
+    from aso.control.naming import BranchNaming, NamingService
+
+    class _NomeadorContador(NamingService):
+        chamadas = 0
+
+        def suggest(self, *args: Any, **kwargs: Any) -> BranchNaming:
+            type(self).chamadas += 1
+            return BranchNaming(branch_stem="feat/frete", commit_subject="feat: frete")
+
+    svc = OrchestrationService(provider=FlakyProvider(fail_times=1), naming=_NomeadorContador())
+    orch = svc.create_orchestration("backend X")
+    card = svc.get_cards(orch.id)[0]
+    svc.run_card(orch.id, card.id)  # falha + nova tentativa no mesmo run_card
+    svc.move_card(orch.id, card.id, "Ready")
+    svc.run_card(orch.id, card.id)  # outra execução do mesmo card
+    assert _NomeadorContador.chamadas == 1
+    atual = svc.get_cards(orch.id)[0]
+    assert (atual.branch_stem, atual.commit_subject) == ("feat/frete", "feat: frete")

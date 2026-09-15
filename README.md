@@ -27,9 +27,8 @@ deny-by-default).
 ## Princípios de governança
 
 - **ContextBus é o único escritor** do contexto canônico. Patches passam por um
-  pipeline de validação de 8 etapas (6 com efeito) (schema, permissão, conflito, lock de
-  snapshot, consistência/contradição de ADR, compatibilidade de contrato,
-  impacto em quality gate).
+  pipeline de validação de 6 etapas (schema, permissão, lock de snapshot,
+  consistência/contradição de ADR, compatibilidade de contrato).
 - **Não avança de fase** com quality gate reprovado.
 - **Ações de alto risco exigem aprovação humana** (merge, rollback, aprovações).
 - **Agentes que alteram código rodam em worktree git isolado**, nunca na branch

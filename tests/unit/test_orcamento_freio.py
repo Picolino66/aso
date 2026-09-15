@@ -8,8 +8,8 @@ porque simular via `run_card` exigiria um provider CLI real só para produzir o 
 from __future__ import annotations
 
 from aso.agents.executor import AgentExecutionError
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.failure import ACAO_ESCALAR_HUMANO, ACAO_MESMO_AGENTE
-from aso.control.orchestration_service import OrchestrationService
 from aso.shared.types import ColumnKey
 
 

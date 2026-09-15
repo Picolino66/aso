@@ -7,7 +7,7 @@ ciclo de vida delas. Remoção pública significa arquivamento.
 
 ## Localização no código
 
-`src/aso/control/project_service.py`, `src/aso/persistence/ports.py`,
+`src/aso/application/project_service.py`, `src/aso/persistence/ports.py`,
 `src/aso/persistence/memory.py`, `src/aso/db/models.py`, `src/aso/db/repository.py` e
 `migrations/versions/f84c2a1d9e30_projects_catalog.py`.
 

@@ -1,0 +1,224 @@
+{
+  "$defs": {
+    "ItemDeTrabalhoRespondido": {
+      "properties": {
+        "criterios_de_aceite": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Criterios De Aceite",
+          "type": "array"
+        },
+        "depende_de": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depende De",
+          "type": "array"
+        },
+        "descricao": {
+          "default": "",
+          "title": "Descricao",
+          "type": "string"
+        },
+        "dominio": {
+          "default": "",
+          "title": "Dominio",
+          "type": "string"
+        },
+        "fase": {
+          "default": "",
+          "enum": [
+            "F1",
+            "F2",
+            "F3",
+            "F4",
+            "F5",
+            "F6",
+            "F7"
+          ],
+          "title": "Fase",
+          "type": "string"
+        },
+        "itens_filhos": {
+          "items": {
+            "$ref": "#/$defs/SubitemRespondido"
+          },
+          "title": "Itens Filhos",
+          "type": "array"
+        },
+        "tipo": {
+          "default": "",
+          "enum": [
+            "Epic",
+            "Feature",
+            "Task"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        },
+        "titulo": {
+          "title": "Titulo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "titulo"
+      ],
+      "title": "ItemDeTrabalhoRespondido",
+      "type": "object"
+    },
+    "SubitemRespondido": {
+      "properties": {
+        "criterios_de_aceite": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Criterios De Aceite",
+          "type": "array"
+        },
+        "depende_de": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Depende De",
+          "type": "array"
+        },
+        "descricao": {
+          "default": "",
+          "title": "Descricao",
+          "type": "string"
+        },
+        "dominio": {
+          "default": "",
+          "title": "Dominio",
+          "type": "string"
+        },
+        "fase": {
+          "default": "",
+          "enum": [
+            "F1",
+            "F2",
+            "F3",
+            "F4",
+            "F5",
+            "F6",
+            "F7"
+          ],
+          "title": "Fase",
+          "type": "string"
+        },
+        "tipo": {
+          "default": "",
+          "enum": [
+            "Task"
+          ],
+          "title": "Tipo",
+          "type": "string"
+        },
+        "titulo": {
+          "title": "Titulo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "titulo"
+      ],
+      "title": "SubitemRespondido",
+      "type": "object"
+    }
+  },
+  "description": "Formato da resposta do agente de especificação (ADR-0072) — um nível de filhos.",
+  "properties": {
+    "alteracoes_banco": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Alteracoes Banco",
+      "type": "array"
+    },
+    "alteracoes_codigo": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Alteracoes Codigo",
+      "type": "array"
+    },
+    "alteracoes_infra": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Alteracoes Infra",
+      "type": "array"
+    },
+    "checklist_seguranca": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Checklist Seguranca",
+      "type": "array"
+    },
+    "como_funciona": {
+      "default": "",
+      "title": "Como Funciona",
+      "type": "string"
+    },
+    "componentes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Componentes",
+      "type": "array"
+    },
+    "criterios_de_aceite": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Criterios De Aceite",
+      "type": "array"
+    },
+    "estrategia_de_implantacao": {
+      "default": "",
+      "title": "Estrategia De Implantacao",
+      "type": "string"
+    },
+    "estrategia_de_testes": {
+      "default": "",
+      "title": "Estrategia De Testes",
+      "type": "string"
+    },
+    "fora_de_escopo": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Fora De Escopo",
+      "type": "array"
+    },
+    "itens_de_trabalho": {
+      "items": {
+        "$ref": "#/$defs/ItemDeTrabalhoRespondido"
+      },
+      "title": "Itens De Trabalho",
+      "type": "array"
+    },
+    "o_que_sera_construido": {
+      "default": "",
+      "title": "O Que Sera Construido",
+      "type": "string"
+    },
+    "plano_de_rollback": {
+      "default": "",
+      "title": "Plano De Rollback",
+      "type": "string"
+    },
+    "regras_de_negocio": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Regras De Negocio",
+      "type": "array"
+    }
+  },
+  "title": "RespostaEspecificacao",
+  "type": "object"
+}

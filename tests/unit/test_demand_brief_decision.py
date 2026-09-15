@@ -10,8 +10,8 @@ produzindo exatamente o comportamento de antes (regressão coberta).
 
 from __future__ import annotations
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import Orchestration
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.shared.types import ExecutionStrategy, RiskLevel
 

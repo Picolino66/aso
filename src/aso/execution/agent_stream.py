@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aso.shared.agent_output import KIND_BRUTO, KIND_FERRAMENTA, KIND_RESULTADO, KIND_TEXTO
-from aso.shared.agent_usage import ORIGEM_AGENTE, UsoDoAgente
+from aso.shared.agent_usage import ORIGEM_AGENTE, ORIGEM_TOKENS, UsoDoAgente
 
 # Limite por linha na tela. Um `tool_result` com arquivo inteiro, ou um diff colado no
 # meio do NDJSON, encheria o painel; a linha é uma pista, não o conteúdo.
@@ -248,8 +248,10 @@ def extrair_uso(linha: str) -> UsoDoAgente | None:
     cache_read_input_tokens, cache_creation_input_tokens}` e `total_cost_usd`. Como
     todo parser de envelope de CLI neste módulo, **confirme contra a saída real** antes
     de confiar cegamente (a ADR-0015 já descobriu schema diferente do suposto uma vez).
-    Codex (`exec --json`) não documenta uso/custo no envelope observado até hoje —
-    cai em `None`, como qualquer schema não reconhecido.
+    Codex (`exec --json`, ADR-0070): o evento `turn.completed` traz
+    `usage.{input_tokens, cached_input_tokens, output_tokens, reasoning_output_tokens}` —
+    nomes confirmados nas strings do binário 0.144.6 instalado, não numa execução real. Só
+    tokens (sem custo): `origem = tokens`, e o custo sai da tabela de preços, se houver.
     """
     crua = linha.strip()
     if not (crua.startswith("{") and crua.endswith("}")):
@@ -258,7 +260,11 @@ def extrair_uso(linha: str) -> UsoDoAgente | None:
         evento = json.loads(crua)
     except json.JSONDecodeError:
         return None
-    if not isinstance(evento, dict) or evento.get("type") != "result":
+    if not isinstance(evento, dict):
+        return None
+    if evento.get("type") == "turn.completed":
+        return _uso_codex(evento)
+    if evento.get("type") != "result":
         return None
     usage = evento.get("usage")
     if not isinstance(usage, dict):
@@ -299,3 +305,22 @@ def extrair_texto(saida: str, *, limite: int = 400) -> str:
                 falas.append(f"[{item.text} {item.detail}]".strip())
     junto = " ".join(falas).strip()
     return junto[-limite:] if len(junto) > limite else junto
+
+
+def _uso_codex(evento: dict[str, object]) -> UsoDoAgente | None:
+    usage = evento.get("usage")
+    if not isinstance(usage, dict):
+        return None
+
+    def _int(chave: str) -> int:
+        valor = usage.get(chave)
+        return valor if isinstance(valor, int) else 0
+
+    cache = _int("cached_input_tokens")
+    return UsoDoAgente(
+        # `input_tokens` inclui o cache (convenção OpenAI): separado para o preço de cache.
+        tokens_entrada=max(0, _int("input_tokens") - cache),
+        tokens_saida=_int("output_tokens"),
+        tokens_cache_leitura=cache,
+        origem=ORIGEM_TOKENS,
+    )

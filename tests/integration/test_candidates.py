@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 # CI declarada exige justificativa humana (ADR-0056, MEL-12).

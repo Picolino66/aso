@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.api.auth import AuthService, Principal
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.cli_provider import CliAgentExecutionProvider
 
 # CI declarada exige justificativa humana (ADR-0056, MEL-12).

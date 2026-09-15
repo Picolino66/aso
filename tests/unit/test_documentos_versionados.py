@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.discovery import STATUS_APROVADO as DISCOVERY_APROVADO
 from aso.control.discovery import STATUS_REPROVADO as DISCOVERY_REPROVADO
 from aso.control.discovery import DiscoveryReport
 from aso.control.documentos import LIMITE_RING, acrescentar_versao, proxima_versao, versao_atual
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.shared.types import RiskLevel
 

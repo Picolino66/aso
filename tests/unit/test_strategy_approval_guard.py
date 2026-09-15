@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 
 _CRITICA = DecisionInput(user_request="deploy", domains=["devops"], impacts=["deploy"])
 

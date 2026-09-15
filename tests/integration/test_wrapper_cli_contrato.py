@@ -97,7 +97,7 @@ def test_revisao_via_wrapper_usa_o_agente(tmp_path: Path, modo: str) -> None:
 
 
 def test_execucao_via_wrapper_recebe_prompt_de_implementacao(tmp_path: Path) -> None:
-    from aso.control.orchestration_service import OrchestrationService
+    from aso.application.orchestration_service import OrchestrationService
 
     svc = OrchestrationService()
     oid = svc.create_orchestration("Criar calculadora").id

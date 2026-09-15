@@ -9,8 +9,8 @@ from sqlalchemy import delete, inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import ProjectEvent
-from aso.control.orchestration_service import OrchestrationService
 from aso.db.models import ProjectEventRow, ProjectRow
 from aso.db.repository import SqlAlchemyOrchestrationRepository, SqlAlchemyProjectRepository
 

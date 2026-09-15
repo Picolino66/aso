@@ -17,11 +17,17 @@ import time
 
 from pydantic import BaseModel, Field
 
-from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
+from aso.control.agent_ask import (
+    ERROS_DE_AGENTE,
+    perguntar_ao_agente,
+    tem_acesso_ao_repositorio,
+)
 from aso.control.decision_engine import _SENSITIVE_IMPACTS
 from aso.control.models import AgentAssignment
+from aso.control.respostas_estruturadas import vocabulario
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.repositorio_leitura import AcessoAoRepositorio, caminho_existe
 from aso.execution.workspace import WorkspaceReport
 from aso.shared.ids import now_iso
 from aso.shared.types import RiskLevel
@@ -38,14 +44,44 @@ _CONFIANCAS_VALIDAS = frozenset({"alta", "media", "baixa"})
 _DISCOVERY_SYSTEM = (
     "Você é o agente de discovery de um runtime de engenharia autônoma — analisa o "
     "contexto de uma demanda antes de qualquer implementação (§3 do fluxo).\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"situacao_atual": "...", "problema": "...", "componentes_afetados": ["..."],\n'
-    ' "restricoes": ["..."], "riscos": ["..."], "alternativas": ["..."],\n'
-    ' "recomendacao_tecnica": "...", "pontos_decisao": ["..."], "confianca": "..."}\n'
-    "Tudo em português do Brasil. `confianca` aceita só: alta|media|baixa — baixa "
+    "Tudo em português do Brasil. `confianca` é baixa "
     "quando a recomendação depende de informação que você não tem certeza. Se não "
     "houver alternativas reais, deixe a lista vazia — não invente."
 )
+
+# Com leitura do repositório (ADR-0069): o agente investiga o código de verdade e prova o que diz.
+_DISCOVERY_COM_REPOSITORIO = (
+    "\nO diretório atual é um checkout SOMENTE LEITURA do repositório da demanda: leia e "
+    "busque o código para fundamentar o relatório, mas NÃO altere, crie nem apague nada — "
+    "qualquer alteração descarta a sua resposta.\n"
+    "Preencha também `evidencias` (arquivo relativo + trecho) com o que você leu que "
+    "sustenta a análise. Em `componentes_afetados`, use caminhos "
+    "relativos que existam no repositório (arquivos ou diretórios)."
+)
+
+
+class EvidenciaDoDiscovery(BaseModel):
+    """Trecho do repositório que sustenta o relatório (só com leitura do repositório)."""
+
+    arquivo: str
+    trecho: str = ""
+
+
+class RespostaDiscovery(BaseModel):
+    """Formato da resposta do agente de discovery (ADR-0072)."""
+
+    situacao_atual: str = ""
+    problema: str = ""
+    componentes_afetados: list[str] = Field(default_factory=list)
+    restricoes: list[str] = Field(default_factory=list)
+    riscos: list[str] = Field(default_factory=list)
+    alternativas: list[str] = Field(default_factory=list)
+    recomendacao_tecnica: str = ""
+    pontos_decisao: list[str] = Field(default_factory=list)
+    confianca: str = vocabulario(_CONFIANCAS_VALIDAS)
+    evidencias: list[EvidenciaDoDiscovery] = Field(
+        default_factory=list, description="só quando você leu o repositório"
+    )
 
 
 class DiscoveryReport(BaseModel):
@@ -60,6 +96,11 @@ class DiscoveryReport(BaseModel):
     recomendacao_tecnica: str = ""
     pontos_decisao: list[str] = Field(default_factory=list)
     confianca: str = "alta"  # alta | media | baixa
+    # ADR-0069: o agente leu o repositório? Evidências só existem nesse caso, e o saneamento
+    # remove componentes/evidências que apontam para caminhos inexistentes (registrados aqui).
+    acesso_repo: bool = False
+    evidencias: list[EvidenciaDoDiscovery] = Field(default_factory=list)
+    componentes_descartados: list[str] = Field(default_factory=list)
     status: str = STATUS_RASCUNHO
     revisao_comentarios: str = ""
     origem: str = "heuristica"  # nome do executor, ou "heuristica"
@@ -161,16 +202,21 @@ class DiscoveryService:
         demand_brief: DemandBrief,
         workspace_report: WorkspaceReport,
         comentarios_anteriores: str = "",
+        repositorio: AcessoAoRepositorio | None = None,
     ) -> DiscoveryReport:
-        """Relatório de discovery. Sem agente configurado (ou com falha), heurística."""
+        """Relatório de discovery. Sem agente configurado (ou com falha), heurística.
+
+        Com `repositorio` e executor CLI, o agente lê um checkout de leitura (ADR-0069)."""
         base = _heuristica(user_request, demand_brief, workspace_report)
         if assignment is None or self._catalog is None:
             return base
+        leitura = tem_acesso_ao_repositorio(self._catalog, assignment, repositorio)
         inicio = now_iso()
         relogio = time.monotonic()
         log = [
             f"{inicio} Discovery iniciado — executor: {assignment.executor}, "
-            f"effort: {assignment.effort or 'padrão'}."
+            f"effort: {assignment.effort or 'padrão'}; "
+            f"leitura do repositório: {'sim' if leitura else 'não'}."
         ]
         try:
             bruto = self._perguntar(
@@ -179,6 +225,7 @@ class DiscoveryService:
                 demand_brief=demand_brief,
                 workspace_report=workspace_report,
                 comentarios_anteriores=comentarios_anteriores,
+                repositorio=repositorio if leitura else None,
             )
         except ERROS_DE_AGENTE as exc:
             fim = now_iso()
@@ -192,7 +239,11 @@ class DiscoveryService:
                     "log": log,
                 }
             )
-        relatorio = _sanear(bruto)
+        relatorio = _sanear(
+            bruto,
+            repositorio=repositorio.caminho if leitura and repositorio else None,
+            modulos_detectados=workspace_report.detected_modules,
+        )
         fim = now_iso()
         duracao_ms = (time.monotonic() - relogio) * 1000
         if relatorio is None:
@@ -207,6 +258,11 @@ class DiscoveryService:
                     "duration_ms": duracao_ms,
                     "log": log,
                 }
+            )
+        if relatorio.componentes_descartados:
+            log.append(
+                f"{fim} Componentes inexistentes descartados: "
+                f"{', '.join(relatorio.componentes_descartados)}."
             )
         log.append(f"{fim} Concluído — confiança: {relatorio.confianca}.")
         return relatorio.model_copy(
@@ -227,18 +283,22 @@ class DiscoveryService:
         demand_brief: DemandBrief,
         workspace_report: WorkspaceReport,
         comentarios_anteriores: str,
+        repositorio: AcessoAoRepositorio | None = None,
     ) -> dict[str, object]:
         assert self._catalog is not None  # noqa: S101 - garantido pelo chamador
         pedido = _montar_pedido(
             user_request, demand_brief, workspace_report, comentarios_anteriores
         )
+        system = _DISCOVERY_SYSTEM + (_DISCOVERY_COM_REPOSITORIO if repositorio else "")
         return perguntar_ao_agente(
             self._catalog,
             assignment,
-            system=_DISCOVERY_SYSTEM,
+            system=system,
             pedido=pedido,
             kind="discovery",
             timeout=self._timeout,
+            repositorio=repositorio,
+            modelo_resposta=RespostaDiscovery,
         )
 
 
@@ -296,10 +356,34 @@ def _lista_texto(valor: object, *, limite: int = 12) -> list[str]:
     return [str(v).strip() for v in valor if str(v).strip()][:limite]
 
 
-def _sanear(bruto: dict[str, object]) -> DiscoveryReport | None:
+def _evidencias(valor: object, repositorio: str) -> list[EvidenciaDoDiscovery]:
+    if not isinstance(valor, list):
+        return []
+    itens: list[EvidenciaDoDiscovery] = []
+    for bruto in valor[:20]:
+        if not isinstance(bruto, dict):
+            continue
+        arquivo = str(bruto.get("arquivo") or "").strip()
+        if arquivo and caminho_existe(repositorio, arquivo):
+            itens.append(
+                EvidenciaDoDiscovery(arquivo=arquivo, trecho=str(bruto.get("trecho") or "")[:500])
+            )
+    return itens
+
+
+def _sanear(
+    bruto: dict[str, object],
+    *,
+    repositorio: str | None = None,
+    modulos_detectados: list[str] | None = None,
+) -> DiscoveryReport | None:
     """Aceita a resposta do agente só depois de validar `confianca` contra o
     vocabulário fechado. Devolve `None` quando não sobra nenhum campo de conteúdo
     utilizável — aí quem chama cai no fallback heurístico com o motivo registrado.
+
+    Com `repositorio` (o agente leu o código, ADR-0069), componente afetado precisa existir
+    como caminho no repositório ou ser um módulo detectado no scan; o resto é descartado e
+    registrado. Evidência que aponta para arquivo inexistente também não entra.
     """
     confianca = str(bruto.get("confianca") or "").strip().lower()
     if confianca not in _CONFIANCAS_VALIDAS:
@@ -308,6 +392,14 @@ def _sanear(bruto: dict[str, object]) -> DiscoveryReport | None:
     problema = str(bruto.get("problema") or "").strip()
     recomendacao = str(bruto.get("recomendacao_tecnica") or "").strip()
     componentes = _lista_texto(bruto.get("componentes_afetados"))
+    descartados: list[str] = []
+    evidencias: list[EvidenciaDoDiscovery] = []
+    if repositorio is not None:
+        modulos = set(modulos_detectados or [])
+        validos = [c for c in componentes if c in modulos or caminho_existe(repositorio, c)]
+        descartados = [c for c in componentes if c not in validos]
+        componentes = validos
+        evidencias = _evidencias(bruto.get("evidencias"), repositorio)
     riscos = _lista_texto(bruto.get("riscos"))
     if not (situacao_atual or problema or recomendacao or componentes or riscos):
         return None
@@ -321,4 +413,7 @@ def _sanear(bruto: dict[str, object]) -> DiscoveryReport | None:
         recomendacao_tecnica=recomendacao,
         pontos_decisao=_lista_texto(bruto.get("pontos_decisao")),
         confianca=confianca,
+        acesso_repo=repositorio is not None,
+        evidencias=evidencias,
+        componentes_descartados=descartados,
     )

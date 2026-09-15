@@ -27,6 +27,10 @@ jobs:
       - name: Type-check (mypy strict)
         run: mypy src
 
+      # Regra de dependência entre camadas (MEL-36): contrato em pyproject.toml.
+      - name: Regra de dependência (import-linter)
+        run: lint-imports
+
       # Regras invioláveis (MEL-34, docs/GOVERNANCE.md): passo próprio para que uma
       # violação apareça nomeada no CI, antes da suíte completa.
       - name: Invariantes de governança (obrigatório)

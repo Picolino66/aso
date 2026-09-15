@@ -14,9 +14,9 @@ from typing import Any, NoReturn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from aso.application.orchestration_service import OrchestrationService
+from aso.application.project_service import ProjectNotFoundError, ProjectValidationError
 from aso.control.documento import DocumentoError
-from aso.control.orchestration_service import OrchestrationService
-from aso.control.project_service import ProjectNotFoundError, ProjectValidationError
 from aso.execution.jobs import FilaDeJobs
 from aso.execution.llm_client import LlmClient
 from aso.observability.broker import EventBroker

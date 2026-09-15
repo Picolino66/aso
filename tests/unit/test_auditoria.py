@@ -6,7 +6,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.shared.types import ColumnKey
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyAgentDefinitionRepository
 from aso.kanban.models import KanbanCard
 from aso.shared.types import CardType, ColumnKey, Phase

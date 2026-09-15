@@ -6,9 +6,9 @@ from typing import Any
 
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.discovery import STATUS_APROVADO
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 from aso.shared.types import Phase
 
 

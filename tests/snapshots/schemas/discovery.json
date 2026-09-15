@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "EvidenciaDoDiscovery": {
+      "description": "Trecho do repositório que sustenta o relatório (só com leitura do repositório).",
+      "properties": {
+        "arquivo": {
+          "title": "Arquivo",
+          "type": "string"
+        },
+        "trecho": {
+          "default": "",
+          "title": "Trecho",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arquivo"
+      ],
+      "title": "EvidenciaDoDiscovery",
+      "type": "object"
+    }
+  },
+  "description": "Formato da resposta do agente de discovery (ADR-0072).",
+  "properties": {
+    "alternativas": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Alternativas",
+      "type": "array"
+    },
+    "componentes_afetados": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Componentes Afetados",
+      "type": "array"
+    },
+    "confianca": {
+      "default": "",
+      "enum": [
+        "alta",
+        "baixa",
+        "media"
+      ],
+      "title": "Confianca",
+      "type": "string"
+    },
+    "evidencias": {
+      "description": "só quando você leu o repositório",
+      "items": {
+        "$ref": "#/$defs/EvidenciaDoDiscovery"
+      },
+      "title": "Evidencias",
+      "type": "array"
+    },
+    "pontos_decisao": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pontos Decisao",
+      "type": "array"
+    },
+    "problema": {
+      "default": "",
+      "title": "Problema",
+      "type": "string"
+    },
+    "recomendacao_tecnica": {
+      "default": "",
+      "title": "Recomendacao Tecnica",
+      "type": "string"
+    },
+    "restricoes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Restricoes",
+      "type": "array"
+    },
+    "riscos": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Riscos",
+      "type": "array"
+    },
+    "situacao_atual": {
+      "default": "",
+      "title": "Situacao Atual",
+      "type": "string"
+    }
+  },
+  "title": "RespostaDiscovery",
+  "type": "object"
+}

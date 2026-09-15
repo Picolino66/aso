@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from aso.agents.executor import ExecutionProvider, LocalMockExecutionProvider
 from aso.execution.cli_provider import CliAgentExecutionProvider
+from aso.execution.effort import SuporteDeEffort, aplicar_effort_no_comando, suporte_de_effort
 from aso.execution.llm_client import AnthropicClient, LlmClient, OpenAICompatibleClient
 from aso.execution.llm_provider import LlmExecutionProvider
 from aso.shared.agent_output import OutputBus
@@ -54,6 +55,16 @@ class ExecutorProfile(BaseModel):
     availability_reason: str = ""
     runtime_version: str = ""
 
+    def suporte_de_effort(self) -> SuporteDeEffort:
+        """Se o esforço escolhido tem efeito neste executor, e como (ADR-0073)."""
+        return suporte_de_effort(
+            kind=self.kind,
+            provider=self.provider,
+            model=self.model,
+            command=self.command,
+            managed_by=self.managed_by,
+        )
+
     def _key_env_name(self) -> str:
         return self.api_key_env or f"ASO_{self.name.upper()}_API_KEY"
 
@@ -75,6 +86,9 @@ class ExecutorProfile(BaseModel):
             "is_default": self.is_default,
             "managed_by": self.managed_by,
             "supported_efforts": self.supported_efforts or list(_EFFORTS),
+            # ADR-0073: o console avisa quando o esforço não muda nada neste executor.
+            "suporta_effort": self.suporte_de_effort().suporta,
+            "effort_como": self.suporte_de_effort().como,
             "available": self.available,
             "availability_reason": self.availability_reason,
             "runtime_version": self.runtime_version,
@@ -182,10 +196,12 @@ class ExecutorCatalog:
                 )
             command = self.cli_command(name, effort_override=effort_override)
             return CliAgentExecutionProvider(
-                command, repo, executor_id=profile.name, log_bus=log_bus
+                command, repo, executor_id=profile.name, log_bus=log_bus, modelo=profile.model
             )
         if profile.kind == "llm":
-            return LlmExecutionProvider(self.llm_client(name), executor_id=f"llm:{name}")
+            return LlmExecutionProvider(
+                self.llm_client(name, effort_override=effort_override), executor_id=f"llm:{name}"
+            )
         raise ValueError(f"Tipo de executor inválido: {profile.kind}")
 
     def cli_command(self, name: str, *, effort_override: str | None = None) -> list[str]:
@@ -198,11 +214,12 @@ class ExecutorCatalog:
         if profile.kind != "cli" or not profile.command:
             raise ValueError(f"Executor '{name}' não é um agente CLI com comando definido.")
         command = shlex.split(profile.command)
-        if profile.managed_by == "codex":
-            if profile.model:
-                command.extend(["-m", profile.model])
-            command.extend(["-c", f"model_reasoning_effort={effort_override or profile.effort}"])
-        return command
+        if profile.managed_by == "codex" and profile.model:
+            command.extend(["-m", profile.model])
+        # Esforço aplicado pela opção do próprio CLI (Codex, Claude Code); outros ficam iguais.
+        return aplicar_effort_no_comando(
+            command, effort_override or profile.effort, managed_by=profile.managed_by
+        )
 
     def llm_client(self, name: str, *, effort_override: str | None = None) -> LlmClient:
         """Cliente LLM do perfil (lê a chave do ambiente). Levanta se faltar."""
@@ -214,7 +231,13 @@ class ExecutorCatalog:
             raise ValueError(f"Executor LLM '{name}' exige API key + model.")
         if profile.provider == "anthropic":
             base = profile.base_url or "https://api.anthropic.com"
-            return AnthropicClient(api_key=key, model=profile.model, base_url=base, client_id=name)
+            return AnthropicClient(
+                api_key=key,
+                model=profile.model,
+                base_url=base,
+                client_id=name,
+                effort=effort_override or profile.effort,
+            )
         default_base = (
             "https://api.deepseek.com"
             if profile.provider == "deepseek"
@@ -225,6 +248,8 @@ class ExecutorCatalog:
             model=profile.model,
             base_url=profile.base_url or default_base,
             client_id=name,
+            effort=effort_override or profile.effort,
+            provider=profile.provider,
         )
 
 

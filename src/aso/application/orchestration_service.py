@@ -9,6 +9,7 @@ assinatura do serviço de origem — a API pública não mudou na extração (ME
 from __future__ import annotations
 
 from aso.agents.executor import ExecutionProvider
+from aso.application.agent_catalog_service import AgentCatalogService
 from aso.application.agent_task import AgentTaskService
 from aso.application.approvals import ApprovalService
 from aso.application.bundles import BundleStore
@@ -25,18 +26,17 @@ from aso.application.governanca import GovernanceOpsService
 from aso.application.insights import InsightService
 from aso.application.intake import IntakeService
 from aso.application.preparation import PreparationService
+from aso.application.project_service import ProjectService
 from aso.application.qa import QaService
 from aso.application.queries import QueryService
 from aso.application.recovery import RecoveryService
 from aso.application.release import ReleaseService
+from aso.application.routing_rule_service import RoutingRuleService
 from aso.application.settings import ExecutionSettingsService
 from aso.application.workflow import WorkflowService
-from aso.control.agent_catalog_service import AgentCatalogService
 from aso.control.discovery import DiscoveryService
 from aso.control.naming import NamingService
-from aso.control.project_service import ProjectService
 from aso.control.review import ReviewService
-from aso.control.routing_rule_service import RoutingRuleService
 from aso.control.spec import SpecService
 from aso.control.triage import TriageService
 from aso.execution.catalog import ExecutorCatalog
@@ -356,7 +356,6 @@ class OrchestrationService:
     _pending_dependencies = staticmethod(ExecutionService._pending_dependencies)
     _criar_tarefa_vinculada = staticmethod(ExecutionService._criar_tarefa_vinculada)
     _recusar_se_estrategia_pendente = staticmethod(ExecutionService._recusar_se_estrategia_pendente)
-    _agent_order = staticmethod(WorkflowService._agent_order)
     _next_phase = staticmethod(WorkflowService._next_phase)
     _max_tentativas_da_regra = staticmethod(IntakeService._max_tentativas_da_regra)
     _assignment = staticmethod(ExecutionSettingsService._assignment)

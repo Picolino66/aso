@@ -1,16 +1,41 @@
 """MetricsService + avaliação de SLOs (F7 — observability-engine).
 
-Calcula métricas operacionais a partir do OrchestrationService (consultas indexadas
+Calcula métricas operacionais a partir de uma fonte de leitura (consultas indexadas
 e timeline) e avalia SLOs baseados em sintomas (§F7): conflitos abertos, cards
 bloqueados e cobertura de snapshot.
+
+A fonte é a porta `FonteDeMetricas` (MEL-36): observabilidade não importa a camada de
+aplicação — a façade `OrchestrationService` satisfaz o protocolo e é injetada pela API.
 """
 
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, Protocol
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.governance.models import ADR, Conflict, SloEvaluation, Snapshot
+from aso.shared.events import DomainEvent
+
+
+class FonteDeMetricas(Protocol):
+    """O que o `MetricsService` lê — satisfeito pela façade `OrchestrationService`."""
+
+    def count_cards_by_status(self, orchestration_id: str) -> dict[str, int]: ...
+
+    def conflicts(self, orchestration_id: str) -> list[Conflict]: ...
+
+    def get(self, orchestration_id: str) -> Any: ...
+
+    def list_adrs(self, orchestration_id: str) -> list[ADR]: ...
+
+    def list_snapshots(self, orchestration_id: str) -> list[Snapshot]: ...
+
+    def timeline(self, orchestration_id: str) -> list[DomainEvent]: ...
+
+    def list_slo_evaluations(self, orchestration_id: str) -> list[SloEvaluation]: ...
+
+    def aggregate_metrics(self) -> dict[str, Any]: ...
+
 
 # SLOs padrão (baseados em sintomas). Cada um é avaliado por orquestração.
 _BLOCKED_STATUSES = ("Blocked", "Failed")
@@ -36,7 +61,7 @@ def _severity(consumed_pct: float) -> str:
 class MetricsService:
     """Métricas RED-like e SLOs derivados do estado das orquestrações."""
 
-    def __init__(self, service: OrchestrationService) -> None:
+    def __init__(self, service: FonteDeMetricas) -> None:
         self.svc = service
 
     def orchestration_metrics(self, orchestration_id: str) -> dict[str, Any]:

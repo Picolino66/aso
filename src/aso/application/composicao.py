@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aso.agents.executor import ExecutionProvider
+from aso.application.agent_catalog_service import AgentCatalogService
 from aso.application.agent_task import AgentTaskService
 from aso.application.approvals import ApprovalService
 from aso.application.bundles import BundleStore
@@ -31,18 +32,17 @@ from aso.application.governanca import GovernanceOpsService
 from aso.application.insights import InsightService
 from aso.application.intake import IntakeService
 from aso.application.preparation import PreparationService
+from aso.application.project_service import ProjectService
 from aso.application.qa import QaService
 from aso.application.queries import QueryService
 from aso.application.recovery import RecoveryService
 from aso.application.release import ReleaseService
+from aso.application.routing_rule_service import RoutingRuleService
 from aso.application.settings import ExecutionSettingsService
 from aso.application.workflow import WorkflowService
-from aso.control.agent_catalog_service import AgentCatalogService
 from aso.control.discovery import DiscoveryService
 from aso.control.naming import NamingService
-from aso.control.project_service import ProjectService
 from aso.control.review import ReviewService
-from aso.control.routing_rule_service import RoutingRuleService
 from aso.control.spec import SpecService
 from aso.control.triage import TriageService
 from aso.execution.catalog import ExecutorCatalog

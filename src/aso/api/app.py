@@ -35,8 +35,8 @@ from aso.api.routers import (
     workspace,
 )
 from aso.api.routers.ui import _STATIC_DIR
+from aso.application.orchestration_service import OrchestrationService
 from aso.bootstrap import build_job_repository, build_service
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.jobs import JobRepository
 from aso.execution.llm_client import LlmClient, build_llm_client_from_env
 from aso.observability.broker import EventBroker
@@ -44,6 +44,7 @@ from aso.observability.logging import get_logger
 from aso.observability.metrics import MetricsService
 from aso.observability.ratelimit import RateLimiter
 from aso.observability.tracing import get_tracer
+from aso.persistence.ports import ConcurrentModificationError
 from aso.shared.ids import gen_id
 
 # Ordem de registro = ordem de casamento de rotas do Starlette; preservada do app.py
@@ -184,6 +185,11 @@ def create_app(
                 actor=actor,
             )
         return _resp(response)
+
+    @app.exception_handler(ConcurrentModificationError)
+    async def conflito_de_versao(_request: Request, exc: ConcurrentModificationError) -> Any:
+        # Outro processo gravou a orquestração antes (ADR-0068): nada foi sobrescrito.
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     deps = ApiDeps(
         svc=svc, metrics=metrics, broker=broker, planning_client=planning_client, fila=fila

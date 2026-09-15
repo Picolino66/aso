@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.deploy import (
     ACEITE_AGUARDANDO_HUMANO,
     ACEITE_APROVADO,
@@ -18,7 +19,6 @@ from aso.control.deploy import (
     STATUS_SUCESSO,
 )
 from aso.control.models import Environment, ValidationCheck
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.shared.types import Phase, RiskLevel
 

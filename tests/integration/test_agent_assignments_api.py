@@ -8,8 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import NAMING_KEY
-from aso.control.orchestration_service import OrchestrationService
 from aso.execution.branch_naming import slugify
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.workspace import WorkspaceService

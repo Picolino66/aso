@@ -8,7 +8,7 @@ from threading import Barrier
 
 import pytest
 
-from aso.control.project_service import (
+from aso.application.project_service import (
     ProjectConflictError,
     ProjectService,
     ProjectValidationError,

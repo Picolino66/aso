@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
 from aso.api.auth import AuthService, Principal
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import DecisionInput
-from aso.control.orchestration_service import OrchestrationService
 from aso.governance.models import QualityGateResult
 from aso.shared.types import GateStatus, Phase
 

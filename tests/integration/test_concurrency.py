@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.governance.context_store import OrchestratorContextStore
 from aso.governance.models import ContextPatch
 from aso.shared.types import PatchType, Phase

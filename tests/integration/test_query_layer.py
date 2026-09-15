@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 from aso.api.app import create_app
+from aso.application.orchestration_service import OrchestrationService
 from aso.cli.main import app as cli_app
-from aso.control.orchestration_service import OrchestrationService
 
 
 def _svc_with_run() -> tuple[OrchestrationService, str, str]:

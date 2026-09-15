@@ -13,8 +13,11 @@ from typing import Any
 
 # Origem do dado: distingue "o CLI não informou" de "informou e o custo é zero" — um
 # `UsoDoAgente()` default (todos os campos zerados) nunca deve ser lido como "grátis".
-ORIGEM_AGENTE = "agente"
+ORIGEM_AGENTE = "agente"  # o executor informou tokens e custo
+ORIGEM_TABELA = "tabela"  # tokens informados; custo calculado pela tabela de preços (ADR-0070)
+ORIGEM_TOKENS = "tokens"  # tokens informados, sem preço configurado: custo indisponível
 ORIGEM_INDISPONIVEL = "indisponivel"
+ORIGENS_COM_CUSTO = frozenset({ORIGEM_AGENTE, ORIGEM_TABELA})
 
 
 @dataclass(frozen=True)
@@ -36,7 +39,7 @@ def acumular_uso(atual: dict[str, Any], novo: UsoDoAgente) -> dict[str, Any]:
     informaram (§26A.11): uma execução sem uso informado nunca soma zero ao custo
     como se tivesse sido gratuita, mas o total de execuções continua correto."""
     sem_custo = int(atual.get("execucoes_sem_custo", 0))
-    if novo.origem != ORIGEM_AGENTE:
+    if novo.origem not in ORIGENS_COM_CUSTO:
         sem_custo += 1
     return {
         "tokens_entrada": int(atual.get("tokens_entrada", 0)) + novo.tokens_entrada,

@@ -6,7 +6,7 @@ import logging
 from typing import Any
 
 from aso.agents.models import AgentOutput, AgentSpec
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.observability.logging import _QuietAccessFilter
 from aso.shared.types import Phase
 

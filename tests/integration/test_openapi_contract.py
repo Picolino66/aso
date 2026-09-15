@@ -7,7 +7,7 @@ from fastapi.routing import APIRoute
 from aso.api.app import create_app
 from aso.api.auth import AuthService
 from aso.api.openapi_export import CAMINHO_CONTRATO, gerar_openapi, serializar
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 
 _REGENERAR = "Contrato desatualizado: rode `python scripts/export-openapi.py` e versione o arquivo."
 

@@ -5057,6 +5057,238 @@
         "ADR-0067; docs/operations.md, api.md, architecture.md, HOW_IT_WORKS.md, GOVERNANCE.md, index.md; OpenAPI regenerado",
         "ruff/format OK; mypy strict OK (139); alembic upgrade+downgrade+check OK; pytest 1632 passed / 94.77%; Docker/Postgres /health 200 + smoke.sh (modo ass\u00edncrono, jobs analyze_folder e run_card done no Postgres) + restart: job running \u2192 failed, queued \u2192 done"
       ]
+    },
+    {
+      "id": "MEL-33",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Persist\u00eancia incremental, vers\u00e3o otimista e cache de agregados com descarte",
+      "description": "save deixa de apagar e reinserir o agregado: grava s\u00f3 unidades alteradas (entidades, grupos de jun\u00e7\u00e3o, cauda de sequ\u00eancias); orchestrations.versao recusa grava\u00e7\u00e3o concorrente (409); cache LRU com sonda de vers\u00e3o; boot sem create_all.",
+      "acceptance_criteria": [
+        "Gravar ap\u00f3s N eventos insere s\u00f3 os novos: nova aprova\u00e7\u00e3o = 1 INSERT human_approvals + 1 INSERT events, 0 DELETE (test_nova_gravacao_insere_so_o_que_mudou_e_nao_apaga_nada, SQLite e Postgres)",
+        "Duas inst\u00e2ncias do servi\u00e7o no mesmo banco: a segunda grava\u00e7\u00e3o concorrente recebe ConcurrentModificationError/409 sem perder dados (test_duas_instancias_no_mesmo_banco\u2026, test_api_responde_409\u2026)",
+        "Cache respeita o limite configurado (test_cache_de_bundles_respeita_o_limite) e n\u00e3o descarta bundle em uso",
+        "Boot em produ\u00e7\u00e3o n\u00e3o chama create_all (test_boot_de_producao_nao_chama_create_all, com alembic upgrade)",
+        "Ordem de FK validada no Postgres: 18 testes de persist\u00eancia/execu\u00e7\u00e3o no Postgres do compose (schema via create_all e via Alembic), smoke.sh verde, downgrade/upgrade da migration e muta\u00e7\u00e3o de orquestra\u00e7\u00e3o migrada"
+      ],
+      "dependencies": [
+        "MEL-32"
+      ],
+      "evidence": [
+        "src/aso/db/gravacao.py (unidades, impress\u00f5es, sequ\u00eancias); SqlAlchemyOrchestrationRepository.save incremental + versao_atual + impress\u00f5es por vers\u00e3o; load ordena por posicao",
+        "src/aso/persistence/ports.py ConcurrentModificationError; memory.py com vers\u00e3o; OrchestrationState.versao; BundleStore.versao, descarte no conflito, CacheDeBundles (LRU thread-safe) e sonda de vers\u00e3o",
+        "migration 813ddb006951 (orchestrations.versao com backfill 1; posicao em 13 tabelas); bootstrap create_schema=False; API exception_handler 409; job classificar_erro 409",
+        "tests/integration/test_persistencia_incremental.py (11 em SQLite + 7 parametrizados no Postgres via ASO_TEST_POSTGRES_URL)",
+        "ADR-0068 (supersede o modelo de grava\u00e7\u00e3o da ADR-0006); docs/operations.md, architecture.md, GOVERNANCE.md, index.md; CLAUDE.md/AGENTS.md (armadilha de FK)",
+        "ruff/format OK; mypy strict OK (140); alembic upgrade+downgrade+check OK; pytest 1643 passed, 7 skipped (Postgres) / 94.76%; Docker/Postgres /health 200 + smoke OK; 26 testes (persist\u00eancia+ass\u00edncrona) no Postgres migrado"
+      ]
+    },
+    {
+      "id": "MEL-40",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Discovery e revis\u00e3o com leitura do reposit\u00f3rio",
+      "description": "Perguntas de discovery e revis\u00e3o a executores CLI passam a ler um worktree destacado de leitura do ref relevante, com flag de leitura do CLI e descarte da resposta se houver escrita; discovery com evid\u00eancias e saneamento de componentes; revisor com spec, crit\u00e9rios, ADRs e CI.",
+      "acceptance_criteria": [
+        "Discovery com CLI fake que l\u00ea arquivo do reposit\u00f3rio inclui a evid\u00eancia no relat\u00f3rio (test_discovery_le_o_repositorio_e_traz_evidencia_real)",
+        "Agente que escreve durante a pergunta tem o resultado descartado e o evento PerguntaDescartadaPorEscrita registrado (test_agente_que_escreve_durante_a_pergunta_tem_a_resposta_descartada)",
+        "O revisor recebe spec, crit\u00e9rios, ADRs e sa\u00edda da CI (test_pedido_de_revisao_leva_spec_criterios_adrs_e_ci; integra\u00e7\u00e3o confere crit\u00e9rios e CI no prompt registrado)",
+        "Componentes afetados inexistentes s\u00e3o removidos pelo saneamento (componentes_descartados)",
+        "Nenhuma altera\u00e7\u00e3o na branch base nem na branch da PR ap\u00f3s as perguntas (rev-parse antes/depois, git status limpo, worktree list com 1 entrada)"
+      ],
+      "dependencies": [
+        "MEL-14"
+      ],
+      "evidence": [
+        "src/aso/execution/repositorio_leitura.py (AcessoAoRepositorio, worktree_de_leitura, alteracoes, comando_somente_leitura, caminho_existe, EscritaNoRepositorio)",
+        "src/aso/control/agent_ask.py (repositorio=, tem_acesso_ao_repositorio, ContextoDeRun.ao_evento, envelope.acesso_repo); discovery.py (evidencias, acesso_repo, componentes_descartados); review.py (system_de_revisao, _pedido com spec/ADRs/CI)",
+        "application/preparation.py e delivery.py passam a pasta/branch, fontes do ContextBuilder e _ultima_saida_de_ci",
+        "tests/unit/test_repositorio_leitura.py (8), tests/integration/test_perguntas_com_repositorio.py (3)",
+        "ADR-0069; docs/operations.md, GOVERNANCE.md (regras 5 e 6), HOW_IT_WORKS.md, index.md",
+        "ruff/format OK; mypy strict OK (141); alembic OK; pytest 1654 passed, 7 skipped / 94.77%; sem mudan\u00e7a de persist\u00eancia/boot (Docker n\u00e3o exigido)"
+      ]
+    },
+    {
+      "id": "MEL-41",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Uso e custo para todos os executores",
+      "description": "LLM via API, Codex e perguntas a agentes passam a registrar tokens; tabela de pre\u00e7os calcula custo quando s\u00f3 h\u00e1 tokens (sem pre\u00e7o: indispon\u00edvel, nunca zero); perguntas entram no or\u00e7amento; relat\u00f3rio mostra propor\u00e7\u00e3o sem custo por executor.",
+      "acceptance_criteria": [
+        "Execu\u00e7\u00e3o via LLM (fake com usage) acumula tokens e custo no card (test_execucao_via_llm_acumula_tokens_e_custo_no_card)",
+        "Perguntas (discovery via CLI com total_cost_usd) contam para o or\u00e7amento e freiam execu\u00e7\u00e3o (test_perguntas_a_agentes_contam_no_orcamento)",
+        "Com or\u00e7amento pequeno e LLM com pre\u00e7o configurado, o freio recusa nova execu\u00e7\u00e3o (test_orcamento_pequeno_com_llm_precificado_freia_nova_execucao)",
+        "Sem pre\u00e7o configurado, tokens aparecem e custo fica indispon\u00edvel (test_sem_preco_tokens_aparecem_e_custo_fica_indisponivel, proporcao_sem_custo = 1.0)"
+      ],
+      "dependencies": [
+        "MEL-30"
+      ],
+      "evidence": [
+        "src/aso/shared/agent_usage.py (origens agente/tabela/tokens/indisponivel); src/aso/execution/precos.py (ASO_PRECOS_MODELOS, precificar)",
+        "src/aso/execution/llm_client.py (RespostaLlm, completar, uso_openai, uso_anthropic); llm_provider.py (artifacts.uso); agent_stream._uso_codex (turn.completed, campos confirmados no bin\u00e1rio codex-cli 0.144.6)",
+        "cli_provider/catalog com modelo do perfil; application/agent_task._uso_do_output precifica; control/agent_ask grava uso no AgentRun; AgentRunRepository.custo_de_perguntas (mem\u00f3ria e SQL); ExecutionService._gasto_usd soma perguntas; aprendizado proporcao_sem_custo + console",
+        "tests/unit/test_uso_e_precos.py (9), tests/integration/test_custo_todos_executores.py (5)",
+        "ADR-0070 (atualiza ADR-0026); docs/operations.md; docs/index.md",
+        "ruff/format OK; mypy strict OK (142); alembic OK; pytest 1668 passed, 7 skipped / 94.76%; sem mudan\u00e7a de persist\u00eancia/boot"
+      ]
+    },
+    {
+      "id": "MEL-36",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Regra de depend\u00eancia verificada (import-linter)",
+      "description": "Contrato de camadas do import-linter no pyproject e no CI; ciclos de pacote control\u2194application, control\u2194observability e control\u2194persistence removidos; module_map documentado igual ao grafo real.",
+      "acceptance_criteria": [
+        "lint-imports passa (Contracts: 1 kept, 0 broken) e roda no CI antes dos testes; muta\u00e7\u00e3o com import proibido quebra o contrato",
+        "Nenhum ciclo entre pacotes (test_nenhum_ciclo_entre_pacotes)",
+        "Documenta\u00e7\u00e3o e contratos descrevem o mesmo grafo (test_imports_respeitam_as_camadas_do_import_linter, test_module_map_documentado_e_o_grafo_real; docs/architecture.md com as mesmas camadas)"
+      ],
+      "dependencies": [
+        "MEL-32"
+      ],
+      "evidence": [
+        "pyproject.toml [tool.importlinter] (camadas api|cli \u2192 bootstrap \u2192 db \u2192 application \u2192 persistence \u2192 control \u2192 execution \u2192 agents|observability \u2192 governance|kanban \u2192 shared); import-linter>=2.1 no extra dev; .github/workflows/ci.yml passo lint-imports",
+        "src/aso/application/orchestration_service.py (fa\u00e7ade), application/project_service.py, routing_rule_service.py, agent_catalog_service.py (movidos de control; 162 arquivos com import atualizado, sem shim)",
+        "src/aso/observability/metrics.py FonteDeMetricas (Protocol)",
+        "tests/unit/test_regra_de_dependencia.py (3); test_camada_de_aplicacao.py: locks de cat\u00e1logo global documentados",
+        "docs/architecture.md, CLAUDE.md/AGENTS.md, ADR-0066 (adendo), orchestrator-context module_map",
+        "ruff/format OK; mypy strict OK (142); lint-imports OK; alembic OK; pytest 1679 passed, 7 skipped / 94.75%; Docker /health 200 + smoke OK"
+      ]
+    },
+    {
+      "id": "MEL-35",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Retry \u00fanico via roteamento de falha",
+      "description": "AgentSupervisor deixa de re-tentar (uma tentativa, erro original); o roteamento de falha \u00e9 a \u00fanica camada de nova tentativa; nomes do card calculados uma vez e persistidos.",
+      "acceptance_criteria": [
+        "Falha de execu\u00e7\u00e3o gera exatamente uma chamada ao provider por decis\u00e3o do roteamento (test_uma_chamada_ao_provider_por_decisao_do_roteamento; test_agent_log_api: 2 sess\u00f5es)",
+        "O agente de nomea\u00e7\u00e3o \u00e9 chamado no m\u00e1ximo uma vez por card (test_agente_de_nomeacao_e_chamado_no_maximo_uma_vez_por_card)",
+        "Testes de roteamento de falha continuam cobrindo mesmo agente, effort e troca de executor (test_failure_routing_api, test_tentativas_historico verdes)"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "src/aso/agents/supervisor.py (max_attempts=1, AgentExecutionError com mensagem original encadeada)",
+        "src/aso/application/execution.py (AgentRetry por decis\u00e3o do roteamento); application/agent_task.py _nomes_do_card",
+        "KanbanCard.branch_stem/commit_subject + CardRow + migration 84f292331b7a",
+        "tests/integration/test_supervisor_concurrency.py (2 novos + retry pelo roteamento); ajustes de inten\u00e7\u00e3o em test_agent_log_api, test_execution_metrics, test_failure_routing_api, test_tentativas_historico",
+        "ADR-0071 (atualiza ADR-0019); docs/api.md, architecture.md, index.md",
+        "ruff/format OK; mypy strict OK; lint-imports OK; alembic up/down/check OK; pytest 1681 passed, 7 skipped / 94.73%; Docker /health 200 + smoke OK (branch_stem gravado no Postgres)"
+      ]
+    },
+    {
+      "id": "MEL-42",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Structured outputs com JSON Schema",
+      "description": "Fun\u00e7\u00f5es de agente passam a pedir e validar respostas contra JSON Schema gerado de modelos Pydantic, com sa\u00edda estruturada nativa nos provedores e uma \u00fanica corre\u00e7\u00e3o.",
+      "acceptance_criteria": [
+        "Nenhum prompt de sistema cont\u00e9m o formato JSON escrito \u00e0 m\u00e3o (test_nenhum_prompt_de_sistema_traz_formato_json_escrito_a_mao, 9 prompts)",
+        "Resposta inv\u00e1lida gera erro com o campo faltante e no m\u00e1ximo uma tentativa de corre\u00e7\u00e3o (test_resposta_invalida_aponta_o_campo_e_tem_uma_unica_correcao)",
+        "Fallbacks determin\u00edsticos continuam funcionando quando o agente falha (test_fallback_deterministico_continua_quando_o_agente_erra_o_formato; su\u00edte de triagem/discovery/review verde)",
+        "Testes de snapshot garantem que o schema enviado corresponde ao modelo (test_schema_enviado_corresponde_ao_snapshot_do_modelo, test_envelope_da_pergunta_leva_o_schema_do_modelo)"
+      ],
+      "dependencies": [
+        "MEL-14"
+      ],
+      "evidence": [
+        "src/aso/control/respostas_estruturadas.py (instrucao_de_formato, validar, RespostaInvalida, pedido_de_correcao, vocabulario)",
+        "modelos Resposta* em naming.py, triage.py, discovery.py, spec.py, review.py; planning.py com ProjectPlan + corre\u00e7\u00e3o",
+        "src/aso/control/agent_ask.py (modelo_resposta, output_schema no envelope); src/aso/execution/llm_client.py (response_format json_schema/json_object, tool use Anthropic, ASO_LLM_SAIDA_ESTRUTURADA)",
+        "tests/unit/test_respostas_estruturadas.py (24), tests/snapshots/schemas/*.json (7)",
+        "ADR-0072; docs/operations.md; docs/index.md",
+        "ruff/format OK; mypy strict OK (143); lint-imports OK; alembic OK; pytest 1705 passed, 7 skipped / 94.88%"
+      ]
+    },
+    {
+      "id": "MEL-43",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Effort como campo do contrato, mapeado por provider",
+      "description": "Esfor\u00e7o passa a ter efeito real (ou declara\u00e7\u00e3o de n\u00e3o suporte) por tipo de executor: Codex, Claude Code, OpenAI e Anthropic; roteamento de falha e console respeitam o suporte; agent_runs registra o esfor\u00e7o aplicado.",
+      "acceptance_criteria": [
+        "Para cada tipo de executor, teste verifica a aplica\u00e7\u00e3o ou a declara\u00e7\u00e3o de n\u00e3o suporte (test_matriz_de_suporte_por_tipo_de_executor, test_comando_do_claude_recebe_effort..., test_openai_envia_reasoning_effort..., test_anthropic_pensamento_por_nivel...)",
+        "Roteamento de falha n\u00e3o prop\u00f5e aumentar effort em executor sem suporte (test_executor_sem_suporte_a_effort_pula_aumentar_effort_e_troca_executor)",
+        "Console indica quando o effort n\u00e3o tem efeito (nova.html, index.html, detalhe.html com suporta_effort do /v1/executors)"
+      ],
+      "dependencies": [
+        "MEL-14"
+      ],
+      "evidence": [
+        "src/aso/execution/effort.py (suporte_de_effort, aplicar_effort_no_comando, parametros_openai, parametros_anthropic); flag do Claude confirmada no claude --help 2.1.215",
+        "catalog.py (ExecutorProfile.suporte_de_effort, public suporta_effort/effort_como, cli_command, clientes com effort); llm_client.py (reasoning_effort, thinking, bloco text); control/failure.py (pula aumentar_effort)",
+        "AgentRun.effort_aplicado + AgentRunRow + migration 88bb8b412a7f; providers aplica_effort; agent_ask _effort_da_pergunta",
+        "tests/unit/test_effort_por_executor.py (18); tests/unit/test_failure_routing.py (novo teste + cat\u00e1logo com CLIs que aplicam esfor\u00e7o)",
+        "ADR-0073 (atualiza ADR-0022); docs/operations.md; docs/index.md",
+        "ruff/format OK; mypy strict OK (144); lint-imports OK; alembic up/down/check OK; pytest 1724 passed, 7 skipped / 94.93%; Docker /health 200 + smoke OK"
+      ]
+    },
+    {
+      "id": "MEL-51",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Lock git por reposit\u00f3rio",
+      "description": "O lock \u00fanico do m\u00f3dulo que serializava todas as opera\u00e7\u00f5es git de todos os reposit\u00f3rios vira um lock por reposit\u00f3rio; leituras deixam de pegar lock.",
+      "acceptance_criteria": [
+        "Opera\u00e7\u00f5es em dois reposit\u00f3rios distintos ocorrem em paralelo (test_repositorios_distintos_escrevem_em_paralelo mede sobreposi\u00e7\u00e3o; muta\u00e7\u00e3o com lock global falha)",
+        "test_race_stress.py, test_candidates.py e test_worktree_diff.py verdes"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "src/aso/execution/worktree.py (lock_do_repositorio, WorktreeManager._lock; leituras sem lock); src/aso/execution/repositorio_leitura.py usa o lock do reposit\u00f3rio",
+        "tests/unit/test_lock_git_por_repositorio.py (4)",
+        "ruff/format OK; mypy strict OK; lint-imports OK; alembic OK; pytest 1728 passed, 7 skipped / 94.93%"
+      ]
+    },
+    {
+      "id": "MEL-50",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Paralelismo por onda na execu\u00e7\u00e3o",
+      "description": "Coordenador \u00fanico de ondas para run_phase e run_plan: cards com depend\u00eancias Done executam via run_card em paralelo at\u00e9 o limite da estrat\u00e9gia, com limite global; dependentes pendentes aguardam.",
+      "acceptance_criteria": [
+        "Cards independentes da mesma fase executam em paralelo at\u00e9 o limite (test_cards_independentes_rodam_em_paralelo_ate_o_limite: pico de 2 execu\u00e7\u00f5es simult\u00e2neas)",
+        "Card com depend\u00eancia s\u00f3 entra na fila ap\u00f3s a depend\u00eancia chegar a Done (test_run_phase_usa_as_ondas_e_nao_executa_dependente_pendente; test_bugs_pontuais_mel20 e test_mvp2 ajustados)",
+        "Estrat\u00e9gia sequencial executa um card por vez (test_estrategia_sequencial_executa_um_card_por_vez)",
+        "Nenhum card \u00e9 executado duas vezes (test_nenhum_card_executa_duas_vezes_com_coordenadores_concorrentes)"
+      ],
+      "dependencies": [
+        "MEL-31"
+      ],
+      "evidence": [
+        "src/aso/application/ondas.py (CoordenadorDeOndas, limite_da_estrategia, sem\u00e1foro global)",
+        "src/aso/application/workflow.py (run_phase e run_plan pelo coordenador; evento CardsAguardandoDependencia)",
+        "tests/integration/test_paralelismo_por_onda.py (4); ajustes em test_mvp2, test_supervisor_concurrency, test_bugs_pontuais_mel20",
+        "ADR-0074; docs/operations.md, HOW_IT_WORKS.md, index.md",
+        "ruff/format OK; mypy strict OK (145); lint-imports OK; alembic OK; pytest 1734 passed, 7 skipped / 94.82%"
+      ]
     }
   ]
 }

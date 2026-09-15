@@ -20,7 +20,7 @@ malformada nem colidir com a de outro candidato rodando em paralelo.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
 from aso.control.models import AgentAssignment
@@ -35,13 +35,18 @@ TIMEOUT_PADRAO = 30.0
 
 _NAMING_SYSTEM = (
     "Você nomeia branches e commits de um runtime de engenharia autônoma.\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"branch": "slug-curto-em-kebab-case", "commit": "feat: assunto em pt-BR"}\n'
     "Regras: o slug tem no máximo 4 palavras, sem acento, e descreve a FUNCIONALIDADE "
     "(não o agente, não a fase). O assunto do commit é imperativo, em português do "
     "Brasil, com no máximo 72 caracteres, e usa o mesmo prefixo Conventional Commits "
     "informado na tarefa."
 )
+
+
+class RespostaNomeacao(BaseModel):
+    """Formato da resposta do agente nomeador (ADR-0072) — o schema vai no prompt."""
+
+    branch: str = Field(description="slug curto em kebab-case, sem prefixo nem acento")
+    commit: str = Field(description="assunto Conventional Commits em pt-BR, até 72 caracteres")
 
 
 class BranchNaming(BaseModel):
@@ -106,6 +111,7 @@ class NamingService:
             self._catalog,
             assignment,
             system=_NAMING_SYSTEM,
+            modelo_resposta=RespostaNomeacao,
             pedido=pedido,
             kind="naming",
             timeout=self._timeout,

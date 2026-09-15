@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.persistence.memory import InMemoryOrchestrationRepository

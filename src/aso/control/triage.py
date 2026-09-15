@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
 from aso.control.decision_engine import _APPROVAL_IMPACTS, _DOMAIN_AGENT, _SENSITIVE_IMPACTS
 from aso.control.models import AgentAssignment, DecisionInput
+from aso.control.respostas_estruturadas import lista_de_vocabulario, vocabulario
 from aso.execution.branch_naming import tem_texto_util
 from aso.execution.catalog import ExecutorCatalog
 from aso.shared.types import RiskLevel
@@ -51,22 +52,27 @@ _COMPLEXIDADES_VALIDAS = frozenset({"simples", "intermediaria", "complexa", "est
 
 _TRIAGE_SYSTEM = (
     "Você faz a triagem de demandas de um runtime de engenharia autônoma.\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"tipo": "...", "objetivo": "...", "problema": "...", "resultado_esperado": "...",\n'
-    ' "modulos_afetados": ["..."], "dominios": ["..."], "impactos": ["..."],\n'
-    ' "riscos": ["..."], "criterios_de_aceite": ["..."], "risco": "...",\n'
-    ' "complexidade": "...", "perguntas_abertas": ["..."]}\n'
-    "Tudo em português do Brasil. Valores aceitos (não use outros):\n"
-    "- tipo: funcionalidade|correcao|refatoracao|arquitetura|infraestrutura|investigacao|"
-    "documentacao|seguranca|desempenho|produto\n"
-    "- dominios (um ou mais): backend|frontend|database|architecture|contract|security|"
-    "tests|docs|devops\n"
-    "- impactos (zero ou mais): architecture|contract|security|database|deploy|secrets|"
-    "database_reset|branch_main\n"
-    "- risco: low|medium|high|critical\n"
-    "- complexidade: simples|intermediaria|complexa|estrategica\n"
+    "Tudo em português do Brasil; use só os valores aceitos que o schema lista para `tipo`, "
+    "`dominios` (um ou mais), `impactos` (zero ou mais), `risco` e `complexidade`.\n"
     "Se a demanda não disser algo, não invente — registre a lacuna em `perguntas_abertas`."
 )
+
+
+class RespostaTriagem(BaseModel):
+    """Formato da resposta do agente de triagem (ADR-0072); o `_sanear` aplica o vocabulário."""
+
+    tipo: str = vocabulario(_TIPOS_VALIDOS)
+    objetivo: str = ""
+    problema: str = ""
+    resultado_esperado: str = ""
+    modulos_afetados: list[str] = Field(default_factory=list)
+    dominios: list[str] = lista_de_vocabulario(_DOMINIOS_VALIDOS)
+    impactos: list[str] = lista_de_vocabulario(_IMPACTOS_VALIDOS)
+    riscos: list[str] = Field(default_factory=list)
+    criterios_de_aceite: list[str] = Field(default_factory=list)
+    risco: str = vocabulario(frozenset(r.value for r in RiskLevel))
+    complexidade: str = vocabulario(_COMPLEXIDADES_VALIDAS)
+    perguntas_abertas: list[str] = Field(default_factory=list)
 
 
 class DemandBrief(BaseModel):
@@ -177,6 +183,7 @@ class TriageService:
             self._catalog,
             assignment,
             system=_TRIAGE_SYSTEM,
+            modelo_resposta=RespostaTriagem,
             pedido=pedido,
             kind="triagem",
             timeout=self._timeout,

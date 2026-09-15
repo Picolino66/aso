@@ -12,9 +12,11 @@ from collections.abc import Callable
 from typing import Any, cast
 
 from aso.agents.registry import AgentRegistry, fase_padrao
+from aso.application.agent_catalog_service import AgentCatalogService
 from aso.application.bundles import BundleStore, OrchestrationBundle
 from aso.application.preparation import _DOMAIN_AGENTS, _tipo_de_card, prioridade_de
-from aso.control.agent_catalog_service import AgentCatalogService
+from aso.application.project_service import ProjectService
+from aso.application.routing_rule_service import RoutingRuleService
 from aso.control.decision_engine import MultiAgentDecisionEngine
 from aso.control.execution_planner import ExecutionPlanner
 from aso.control.models import (
@@ -26,8 +28,6 @@ from aso.control.models import (
     PlannedAgent,
 )
 from aso.control.planning import PlanningService
-from aso.control.project_service import ProjectService
-from aso.control.routing_rule_service import RoutingRuleService
 from aso.control.routing_rules import avaliar_regras, contexto_de_decision_input
 from aso.control.triage import DemandBrief, TriageService
 from aso.execution.catalog import ExecutorCatalog

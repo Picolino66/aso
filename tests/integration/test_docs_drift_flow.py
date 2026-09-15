@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.docs_scaffold import write_scaffold
 from aso.execution.workspace import WorkspaceService

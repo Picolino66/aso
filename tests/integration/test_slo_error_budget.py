@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.observability.metrics import MetricsService
 from aso.shared.types import Phase
 

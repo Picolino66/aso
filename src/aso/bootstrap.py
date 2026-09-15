@@ -14,7 +14,7 @@ import os
 import shlex
 
 from aso.agents.executor import ExecutionProvider
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import (
     SqlAlchemyAgentDefinitionRepository,
     SqlAlchemyAgentRunRepository,
@@ -33,12 +33,17 @@ from aso.execution.settings_store import ExecutorSettingsStore
 
 
 def build_service() -> OrchestrationService:
+    # Produção: o schema é das migrations (Alembic, ADR-0068) — `create_all` só em testes.
     url = os.environ.get("ASO_DATABASE_URL")
-    repository = SqlAlchemyOrchestrationRepository(url) if url else None
-    project_repository = SqlAlchemyProjectRepository(url) if url else None
-    routing_rule_repository = SqlAlchemyRoutingRuleRepository(url) if url else None
-    agent_definition_repository = SqlAlchemyAgentDefinitionRepository(url) if url else None
-    agent_run_repository = SqlAlchemyAgentRunRepository(url) if url else None
+    repository = SqlAlchemyOrchestrationRepository(url, create_schema=False) if url else None
+    project_repository = SqlAlchemyProjectRepository(url, create_schema=False) if url else None
+    routing_rule_repository = (
+        SqlAlchemyRoutingRuleRepository(url, create_schema=False) if url else None
+    )
+    agent_definition_repository = (
+        SqlAlchemyAgentDefinitionRepository(url, create_schema=False) if url else None
+    )
+    agent_run_repository = SqlAlchemyAgentRunRepository(url, create_schema=False) if url else None
 
     cli_command = os.environ.get("ASO_CLI_COMMAND")
     target_repo = os.environ.get("ASO_TARGET_REPO")
@@ -75,7 +80,7 @@ def build_service() -> OrchestrationService:
 def build_job_repository() -> JobRepository:
     """Fila de jobs (ADR-0067): no banco quando há `ASO_DATABASE_URL`, senão em memória."""
     url = os.environ.get("ASO_DATABASE_URL")
-    return SqlAlchemyJobRepository(url) if url else InMemoryJobRepository()
+    return SqlAlchemyJobRepository(url, create_schema=False) if url else InMemoryJobRepository()
 
 
 def build_candidate_providers(target_repo: str | None = None) -> list[ExecutionProvider]:

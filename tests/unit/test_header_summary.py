@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 
 
 def test_header_summary_global_sem_project_id() -> None:

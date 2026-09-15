@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.governance.models import ContextPatch
 from aso.shared.types import ConflictType, PatchType, Phase
 

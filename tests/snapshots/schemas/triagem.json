@@ -1,0 +1,124 @@
+{
+  "description": "Formato da resposta do agente de triagem (ADR-0072); o `_sanear` aplica o vocabulário.",
+  "properties": {
+    "complexidade": {
+      "default": "",
+      "enum": [
+        "complexa",
+        "estrategica",
+        "intermediaria",
+        "simples"
+      ],
+      "title": "Complexidade",
+      "type": "string"
+    },
+    "criterios_de_aceite": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Criterios De Aceite",
+      "type": "array"
+    },
+    "dominios": {
+      "items": {
+        "enum": [
+          "architecture",
+          "backend",
+          "contract",
+          "database",
+          "devops",
+          "docs",
+          "frontend",
+          "security",
+          "tests"
+        ],
+        "type": "string"
+      },
+      "title": "Dominios",
+      "type": "array"
+    },
+    "impactos": {
+      "items": {
+        "enum": [
+          "architecture",
+          "branch_main",
+          "contract",
+          "database",
+          "database_reset",
+          "deploy",
+          "secrets",
+          "security"
+        ],
+        "type": "string"
+      },
+      "title": "Impactos",
+      "type": "array"
+    },
+    "modulos_afetados": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Modulos Afetados",
+      "type": "array"
+    },
+    "objetivo": {
+      "default": "",
+      "title": "Objetivo",
+      "type": "string"
+    },
+    "perguntas_abertas": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Perguntas Abertas",
+      "type": "array"
+    },
+    "problema": {
+      "default": "",
+      "title": "Problema",
+      "type": "string"
+    },
+    "resultado_esperado": {
+      "default": "",
+      "title": "Resultado Esperado",
+      "type": "string"
+    },
+    "risco": {
+      "default": "",
+      "enum": [
+        "critical",
+        "high",
+        "low",
+        "medium"
+      ],
+      "title": "Risco",
+      "type": "string"
+    },
+    "riscos": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Riscos",
+      "type": "array"
+    },
+    "tipo": {
+      "default": "",
+      "enum": [
+        "arquitetura",
+        "correcao",
+        "desempenho",
+        "documentacao",
+        "funcionalidade",
+        "infraestrutura",
+        "investigacao",
+        "produto",
+        "refatoracao",
+        "seguranca"
+      ],
+      "title": "Tipo",
+      "type": "string"
+    }
+  },
+  "title": "RespostaTriagem",
+  "type": "object"
+}

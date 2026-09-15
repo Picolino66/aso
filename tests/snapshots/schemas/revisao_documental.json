@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "AcaoRespondida": {
+      "properties": {
+        "categoria": {
+          "default": "",
+          "enum": [
+            "clareza",
+            "correcao",
+            "documentacao",
+            "escopo",
+            "performance",
+            "seguranca",
+            "teste"
+          ],
+          "title": "Categoria",
+          "type": "string"
+        },
+        "descricao": {
+          "default": "",
+          "title": "Descricao",
+          "type": "string"
+        },
+        "severidade": {
+          "default": "",
+          "enum": [
+            "obrigatoria",
+            "sugestao"
+          ],
+          "title": "Severidade",
+          "type": "string"
+        }
+      },
+      "title": "AcaoRespondida",
+      "type": "object"
+    }
+  },
+  "description": "Formato da resposta da revisão documental (ADR-0072); `veredito` é obrigatório.",
+  "properties": {
+    "acoes": {
+      "items": {
+        "$ref": "#/$defs/AcaoRespondida"
+      },
+      "title": "Acoes",
+      "type": "array"
+    },
+    "pontos_verificados": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pontos Verificados",
+      "type": "array"
+    },
+    "resumo": {
+      "default": "",
+      "title": "Resumo",
+      "type": "string"
+    },
+    "veredito": {
+      "enum": [
+        "aprovado",
+        "aprovado_com_observacoes",
+        "necessita_humano",
+        "reprovado"
+      ],
+      "title": "Veredito",
+      "type": "string"
+    }
+  },
+  "required": [
+    "veredito"
+  ],
+  "title": "RespostaRevisaoDocumental",
+  "type": "object"
+}

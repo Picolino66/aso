@@ -12,17 +12,15 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from aso.agents.executor import ExecutionProvider
-from aso.agents.models import AgentSpec
 from aso.application.agent_task import AgentTaskService
 from aso.application.bundles import BundleStore, OrchestrationBundle
 from aso.application.execution import ExecutionService
+from aso.application.ondas import CoordenadorDeOndas, limite_da_estrategia
 from aso.control.deploy import ACEITE_APROVADO, pipeline_aprovado
 from aso.control.discovery import STATUS_APROVADO
 from aso.control.documentos import versao_atual
 from aso.control.models import (
     Environment,
-    ExecutionPlan,
     Orchestration,
     ValidationCheck,
 )
@@ -32,7 +30,6 @@ from aso.control.validation import NOME_CHECK_LEGADO, checks_efetivos
 from aso.execution.catalog import ExecutorCatalog
 from aso.execution.docs_drift import DocsDriftReport, check_drift
 from aso.execution.gate_command import run_gate_command
-from aso.execution.jobs import verificar_cancelamento
 from aso.execution.workspace import WorkspaceError
 from aso.governance.contextbus import BusResult
 from aso.governance.gate_definitions import (
@@ -43,7 +40,6 @@ from aso.governance.gate_definitions import (
 )
 from aso.governance.models import HumanApproval, QualityGateResult
 from aso.governance.snapshot_engine import secoes_congeladas
-from aso.shared.ids import gen_id
 from aso.shared.types import CardType, ColumnKey, ExecutionMode, GateStatus, PatchStatus, Phase
 
 
@@ -124,6 +120,8 @@ class WorkflowService:
         self._provider_de = provider_for
         self._analyze_folder = analyze_folder
         self._heal_docs = heal_docs
+        # Único caminho de execução em lote (ADR-0074), usado por `run_phase` e `run_plan`.
+        self._ondas = CoordenadorDeOndas(store, run_card=execution.run_card)
         # Execução assíncrona (ADR-0067): quando a API liga a fila, a próxima fase aprovada é
         # enfileirada em vez de rodar dentro da requisição de aprovação.
         self._agendar_fase: Callable[[str, Phase, str | None, str | None], str] | None = None
@@ -296,12 +294,11 @@ class WorkflowService:
         )
 
     def run_plan(self, orchestration_id: str, *, concurrent: bool = True) -> dict[str, object]:
-        """Executa os cards `Ready` em ondas topológicas por `card.dependencies` (§13).
+        """Executa os cards `Ready` (com responsável e não pausados) pelo coordenador de ondas.
 
-        MEL-20: as ondas eram por papel (`plan.agents`) e `{assignee: card}` guardava só o
-        último card de cada papel — cards do backlog/spec com o mesmo papel nunca rodavam.
-        Agora cada card é a unidade; dependência satisfeita = card `Done` ou executado numa
-        onda anterior deste mesmo `run_plan`. Cards de uma onda rodam concorrentes.
+        ADR-0074: deixou de ter laço próprio — é o mesmo caminho do `run_phase` (onda = cards
+        cujas dependências estão `Done`, cada card via `run_card`), só que sobre o board inteiro.
+        `concurrent=False` força um card por vez.
         """
         b = self._bundle(orchestration_id)
         # Mesmos freios de `run_card` (DISCOVERED-01): kill-switch e orçamento.
@@ -309,120 +306,23 @@ class WorkflowService:
             raise ValueError("Orquestração cancelada: execução bloqueada.")
         self._recusar_se_estrategia_pendente(b)
         self._recusar_se_orcamento_estourado(b)
-        plan = b.plan
-        candidatos = {
-            c.id: c
+        candidatos = [
+            c.id
             for c in b.board_service.cards_of(b.board.id)
             if c.status == ColumnKey.READY and not c.pausado and c.assignee
-        }
-        executados: set[str] = set()
-        executed: list[str] = []
-        waves = 0
-        remaining = list(candidatos)
-
-        def satisfeita(dep_id: str) -> bool:
-            dep = b.board_service.get_card(dep_id)
-            return dep is None or dep.status == ColumnKey.DONE or dep_id in executados
-
-        while remaining:
-            verificar_cancelamento()  # job cancelado: nenhuma onda nova (ADR-0067)
-            wave = [
-                cid for cid in remaining if all(satisfeita(d) for d in candidatos[cid].dependencies)
-            ]
-            if not wave:
-                primeiro = candidatos[remaining[0]]
-                pendentes = [d for d in primeiro.dependencies if not satisfeita(d)]
-                if not all(d in remaining for d in pendentes):
-                    break  # dependência fora deste plano ainda pendente: não roda às cegas
-                wave = [remaining[0]]  # quebra defensiva de ciclo entre os próprios cards
-            jobs: list[tuple[str, str, AgentSpec, dict[str, Any], ExecutionProvider | None]] = []
-            try:
-                for card_id in wave:
-                    card = candidatos[card_id]
-                    spec = b.agent_registry.get(str(card.assignee))
-                    if spec is None or card.status != ColumnKey.READY:
-                        continue
-                    # Provider por card: cada um roda com o executor da **sua** etapa.
-                    effort = self._effective_effort(b, None, None, phase=card.phase)
-                    provider = self._provider_for(b, None, effort, phase=card.phase)
-                    execution_id = gen_id("exec")
-                    with self._lock_for(orchestration_id):
-                        # Card já reivindicado (ex.: `run_card` concorrente) fica de
-                        # fora desta onda em vez de rodar em dobro (ADR-0058).
-                        if card.em_execucao_desde:
-                            continue
-                        self._reivindicar_card(b, card, execution_id=execution_id, effort=effort)
-                    jobs.append(
-                        (
-                            card.id,
-                            execution_id,
-                            spec,
-                            {
-                                **self._build_task(b, card, spec, effort=effort),
-                                "run_id": execution_id,
-                                "attempt": card.tentativa_atual + 1,
-                            },
-                            provider,
-                        )
-                    )
-                outputs = self._execute_wave(
-                    [(spec, task, prov) for _c, _e, spec, task, prov in jobs], concurrent
-                )
-                for (card_id, execution_id, _s, _t, prov), (output, events, error) in zip(
-                    jobs, outputs, strict=True
-                ):
-                    executor_name = prov.id if prov is not None else None
-                    with self._lock_for(orchestration_id):
-                        _resultados, decisao = self._apply_execution(
-                            b,
-                            card_id,
-                            output,
-                            events,
-                            error,
-                            executor_name=executor_name,
-                            execution_id=execution_id,
-                        )
-                    self._registrar_decisao_no_run(execution_id, decisao)
-                    executed.append(card_id)
-            finally:
-                with self._lock_for(orchestration_id):
-                    for card_id, *_resto in jobs:
-                        reivindicado = b.board_service.get_card(card_id)
-                        if reivindicado is not None:
-                            self._liberar_claim(reivindicado)
-                    if jobs:
-                        self._persist(b)
-            executados.update(job[0] for job in jobs)
-            remaining = [cid for cid in remaining if cid not in wave]
-            waves += 1
-        with self._lock_for(orchestration_id):
-            self._persist(b)
+        ]
+        limite = limite_da_estrategia(b.plan.strategy) if concurrent else 1
+        ondas = self._ondas.executar(orchestration_id, candidatos, limite=limite)
+        executados = [*ondas.executados, *ondas.falhos]
         return {
-            "strategy": plan.strategy.value,
-            "executed": executed,
-            "count": len(executed),
-            "waves": waves,
+            "strategy": b.plan.strategy.value,
+            "executed": executados,
+            "count": len(executados),
+            "waves": ondas.ondas,
             "concurrent": concurrent,
+            "paralelismo": ondas.paralelismo,
+            "aguardando_dependencia": ondas.aguardando_dependencia,
         }
-
-    @staticmethod
-    def _agent_order(plan: ExecutionPlan) -> list[str]:
-        """Ordem topológica dos agentes do plano por `depends_on` (workers antes do review)."""
-        agents = {a.agent: a for a in plan.agents}
-        order: list[str] = []
-        visited: set[str] = set()
-
-        def visit(name: str) -> None:
-            if name in visited or name not in agents:
-                return
-            visited.add(name)
-            for dep in agents[name].depends_on:
-                visit(dep)
-            order.append(name)
-
-        for planned in plan.agents:
-            visit(planned.agent)
-        return order
 
     def run_quality_gate(
         self, orchestration_id: str, phase: Phase | None = None
@@ -624,19 +524,24 @@ class WorkflowService:
                 if c.phase == target and c.status == ColumnKey.READY
             ]
 
-        ran: list[str] = []
-        failed: list[str] = []
-        for cid in card_ids:
-            verificar_cancelamento()  # job cancelado: nenhum card novo da fase (ADR-0067)
-            try:
-                self.run_card(orchestration_id, cid, provider=provider, effort=effort)
-                card = self._bundle(orchestration_id).board_service.get_card(cid)
-                if card is not None and card.status == ColumnKey.FAILED:
-                    failed.append(cid)
-                else:
-                    ran.append(cid)
-            except Exception:  # noqa: BLE001 — card inválido não derruba a fase inteira
-                failed.append(cid)
+        # Ondas (ADR-0074): cards independentes em paralelo até o limite da estratégia;
+        # dependência pendente não entra na onda.
+        ondas = self._ondas.executar(
+            orchestration_id,
+            card_ids,
+            limite=limite_da_estrategia(b.plan.strategy),
+            provider=provider,
+            effort=effort,
+        )
+        ran, failed = ondas.executados, ondas.falhos
+        if ondas.aguardando_dependencia:
+            with self._lock_for(orchestration_id):
+                b = self._bundle(orchestration_id)
+                b.event_log.append(
+                    "CardsAguardandoDependencia",
+                    {"phase": target.value, "cards": list(ondas.aguardando_dependencia)},
+                )
+                self._persist(b)
 
         if self._bundle(orchestration_id).orchestration.validation_command and target in (
             Phase.F5,

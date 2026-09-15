@@ -20,13 +20,14 @@ import json
 import os
 import subprocess
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import IO, Any
 
 from aso.agents.executor import AgentExecutionError
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.execution.agent_stream import extrair_texto, extrair_uso, interpretar
 from aso.execution.branch_naming import unique_branch
+from aso.execution.effort import suporte_de_effort
 from aso.execution.jobs import desregistrar_processo, registrar_processo
 from aso.execution.worktree import WorktreeManager
 from aso.governance.models import ContextPatch
@@ -53,14 +54,22 @@ class CliAgentExecutionProvider:
         executor_id: str = "cli_agent",
         log_bus: OutputBus | None = None,
         timeout: float | None = None,
+        modelo: str = "",
     ) -> None:
         # `executor_id` distingue candidatos concorrentes no mesmo repo (§26A.6).
         self.id = executor_id
+        # Modelo do perfil: CLIs que só informam tokens (Codex) não dizem o modelo, e sem
+        # ele a tabela de preços não acha o preço (ADR-0070).
+        self.modelo = modelo
         self.command = command
         self.worktree = worktree or WorktreeManager(base_repo)
         # Sem bus, a execução funciona igual — só não há painel ao vivo (testes, CLI).
         self.log_bus = log_bus
         self.timeout = TIMEOUT_PADRAO if timeout is None else timeout
+
+    def aplica_effort(self) -> bool:
+        """O comando deste provider aplica o esforço? (ADR-0073)."""
+        return suporte_de_effort(kind="cli", command=" ".join(self.command)).suporta
 
     def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
         # A branch é batizada pelo card (`feat/calculadora-basica`, ADR-0014) e fechada
@@ -119,7 +128,11 @@ class CliAgentExecutionProvider:
                 "branch": branch,
                 "diff": diff,
                 "stdout": saida.stdout[-4000:],
-                "uso": asdict(saida.uso),
+                "uso": asdict(
+                    saida.uso
+                    if saida.uso.modelo or not self.modelo
+                    else replace(saida.uso, modelo=self.modelo)
+                ),
             },
         )
 

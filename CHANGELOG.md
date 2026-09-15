@@ -14,6 +14,45 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   EPIC-10 (shell e telas).
 
 ### Alterado
+- **MEL-50 — paralelismo por onda (ADR-0074):** `run_phase` e `run_plan` usam o mesmo coordenador
+  de ondas (cards cujas dependências estão Done, via `run_card`), com paralelismo por estratégia
+  (`ASO_MAX_PARALELO_POR_ORQUESTRACAO`) e limite global (`ASO_MAX_EXECUCOES_SIMULTANEAS`);
+  dependente pendente aguarda em vez de ser bloqueado.
+- **MEL-51 — lock git por repositório:** escritas git (worktree add/remove/prune, add, commit, merge)
+  serializadas por repositório (`lock_do_repositorio`) em vez de um lock global; leituras (`diff`,
+  `rev-list`, `worktree list`) sem lock; teste mede execução paralela em repositórios distintos.
+- **MEL-43 — effort mapeado por executor (ADR-0073):** matriz de suporte (Codex flag, Claude
+  `--effort`, OpenAI `reasoning_effort`, Anthropic `thinking`); perfil expõe `suporta_effort`;
+  roteamento de falha não propõe aumentar esforço onde não há efeito; `agent_runs.effort_aplicado`;
+  console avisa quando o esforço não muda nada.
+- **MEL-42 — structured outputs com JSON Schema (ADR-0072):** um modelo de resposta por função de
+  agente; formato gerado do schema (prompts sem JSON escrito à mão), schema no `TaskEnvelope` e
+  saída estruturada nativa (OpenAI `json_schema`, DeepSeek `json_object`, Anthropic tool use);
+  resposta fora do schema aponta o campo e tem no máximo uma correção; snapshots dos schemas.
+- **MEL-35 — retry único via roteamento de falha (ADR-0071):** `AgentSupervisor` com uma tentativa
+  e erro original (sem "falhou após N tentativas"); cada nova chamada ao provider vem de uma
+  decisão do roteamento (`AgentRetry` registrado no laço); nomes do card calculados uma vez e
+  guardados em `kanban_cards` (`branch_stem`, `commit_subject`).
+- **MEL-36 — regra de dependência verificada:** `import-linter` (extra dev) com contrato de camadas
+  em `pyproject.toml` e passo no CI; ciclos de pacote removidos — façade `OrchestrationService` e
+  serviços de catálogo movidos para `application/`, `MetricsService` lê pela porta
+  `FonteDeMetricas`; `module_map` do contexto igual ao grafo real (teste AST).
+- **MEL-41 — uso e custo para todos os executores (ADR-0070):** clientes LLM passam a ler
+  `usage` (OpenAI/DeepSeek/Anthropic), Codex `turn.completed` vira tokens, `ASO_PRECOS_MODELOS`
+  calcula custo quando só há tokens (sem preço: custo indisponível, nunca zero), perguntas a
+  agentes gravam uso no `AgentRun` e entram no orçamento; relatório mostra a proporção de
+  execuções sem custo por executor.
+- **MEL-40 — discovery e revisão com leitura do repositório (ADR-0069):** perguntas a executores
+  CLI rodam num worktree destacado de leitura (Codex `--sandbox read-only`, Claude
+  `--permission-mode plan`), com descarte da resposta e evento `PerguntaDescartadaPorEscrita`
+  se o agente escrever; discovery traz evidências com arquivo e remove componentes inexistentes;
+  o revisor recebe spec de origem, critérios, ADRs e a última CI e lê a branch da PR.
+- **MEL-33 — persistência incremental, versão otimista e cache com descarte (ADR-0068):** `save`
+  grava só entidades alteradas, grupos de junção do dono e a cauda de `events`/`context_history`
+  (sem apagar tabelas); `orchestrations.versao` recusa gravação velha com
+  `ConcurrentModificationError`/409; `posicao` preserva a ordem das coleções; cache LRU
+  (`ASO_BUNDLE_CACHE_MAX`) com sonda de versão (`ASO_BUNDLE_VERIFICACAO_S`); boot sem
+  `create_all`; testes em SQLite e Postgres.
 - **MEL-31 — execução assíncrona com fila e workers (ADR-0067):** tabela `jobs` + `FilaDeJobs`
   (`ASO_WORKERS`); com `ASO_EXECUCAO_ASSINCRONA=1` (ligado no Docker e no manager) as 11 rotas que
   acionam agentes respondem `202` com `job_id`; `GET /v1/jobs/{id}`, `GET …/jobs` e

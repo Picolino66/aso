@@ -19,12 +19,20 @@ falha do revisor numa aprovação automática, o oposto do que o §14 pede.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import json
 
-from aso.control.agent_ask import ERROS_DE_AGENTE, perguntar_ao_agente
+from pydantic import BaseModel, Field, JsonValue
+
+from aso.control.agent_ask import (
+    ERROS_DE_AGENTE,
+    perguntar_ao_agente,
+    tem_acesso_ao_repositorio,
+)
 from aso.control.models import SPEC_KEY, AgentAssignment
+from aso.control.respostas_estruturadas import vocabulario
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.shared.ids import now_iso
 from aso.shared.types import RiskLevel
 
@@ -85,13 +93,8 @@ _DOC_REVIEW_SYSTEM = (
     "Você revisa documentos de um runtime de engenharia autônoma antes da "
     "implementação (§6 do fluxo.md) — o documento pode ser uma especificação técnica "
     "ou um relatório de discovery.\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"veredito": "...", "resumo": "...", '
-    '"acoes": [{"descricao": "...", "categoria": "...", "severidade": "..."}], '
-    '"pontos_verificados": ["..."]}\n'
-    "Tudo em português do Brasil. Valores aceitos para veredito (não use outros, e "
-    "note que NÃO existe 'alteracoes_obrigatorias' aqui — isso é do code review): "
-    "aprovado|aprovado_com_observacoes|reprovado|necessita_humano\n"
+    "Tudo em português do Brasil; use só os vereditos que o schema aceita (NÃO existe "
+    "'alteracoes_obrigatorias' aqui — isso é do code review).\n"
     "Avalie os nove eixos do §6: consistência, completude, viabilidade, segurança, "
     "compatibilidade com o projeto, clareza dos critérios de aceite, presença de "
     "plano de testes, presença de plano de rollback e ausência de contradições — "
@@ -99,27 +102,23 @@ _DOC_REVIEW_SYSTEM = (
     "Na dúvida, use `necessita_humano` — nunca `aprovado`."
 )
 
+_ACESSO_SO_DIFF = (
+    "Você NÃO tem acesso ao restante do repositório — só ao diff fornecido; se algo "
+    "depender de código que você não vê, registre a limitação em vez de supor.\n"
+)
+# ADR-0069: com executor CLI, o revisor lê a branch da PR para verificar impactos.
+_ACESSO_COM_REPOSITORIO = (
+    "O diretório atual é um checkout SOMENTE LEITURA da branch em revisão: leia e busque "
+    "o código para verificar impactos fora do diff (chamadores, testes, contratos), mas "
+    "NÃO altere, crie nem apague nada — qualquer alteração descarta a sua revisão.\n"
+)
+
 _REVIEW_SYSTEM = (
     "Você revisa código de forma independente num runtime de engenharia autônoma "
-    "(§14 do fluxo.md). Você NÃO tem acesso ao restante do repositório — só ao diff "
-    "fornecido; se algo depender de código que você não vê, registre a limitação em "
-    "vez de supor.\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"veredito": "...", "resumo": "...", '
-    '"acoes": [{"descricao": "...", "categoria": "...", "severidade": "..."}], '
-    '"comentarios": [{"arquivo": "...", "linha": 0, "categoria": "...", '
-    '"severidade": "...", "descricao": "...", "sugestao": "...", '
-    '"obrigatorio": true}], '
-    '"pontos_verificados": ["..."]}\n'
-    "Tudo em português do Brasil. Valores aceitos (não use outros):\n"
-    "- veredito: aprovado|aprovado_com_sugestoes|alteracoes_obrigatorias|reprovado|"
-    "necessita_humano\n"
-    "- categoria de cada ação/comentário: correcao|teste|seguranca|clareza|escopo|"
-    "documentacao|performance\n"
-    "- severidade de cada AÇÃO (`acoes`): obrigatoria|sugestao\n"
-    "- severidade de cada COMENTÁRIO (`comentarios`): baixa|media|alta|critica — é uma "
-    "escala de GRAVIDADE, diferente da severidade das ações; `obrigatorio` (true/false) "
-    "é o campo que decide se bloqueia a aprovação, não a severidade\n"
+    "(§14 do fluxo.md). {acesso}"
+    "Tudo em português do Brasil; use só os valores que o schema aceita. A severidade de "
+    "um COMENTÁRIO é uma escala de GRAVIDADE, diferente da severidade das ações; "
+    "`obrigatorio` é o campo que decide se bloqueia a aprovação, não a severidade.\n"
     "Avalie os doze eixos do §14: correção, aderência aos requisitos, qualidade, "
     "clareza, manutenibilidade, segurança, tratamento de erros, performance, padrões, "
     "cobertura de testes, risco de regressão e mudanças fora de escopo — registre em "
@@ -155,6 +154,43 @@ class ReviewCommentDraft(BaseModel):
     descricao: str
     sugestao: str = ""
     obrigatorio: bool = True
+
+
+class AcaoRespondida(BaseModel):
+    descricao: str = ""
+    categoria: str = vocabulario(_CATEGORIAS_VALIDAS)
+    severidade: str = vocabulario(_SEVERIDADES_VALIDAS)
+
+
+class ComentarioRespondido(BaseModel):
+    arquivo: str = ""
+    linha: int = 0
+    categoria: str = vocabulario(_CATEGORIAS_VALIDAS)
+    severidade: str = vocabulario(_GRAVIDADES_VALIDAS, "gravidade do problema")
+    descricao: str = ""
+    sugestao: str = ""
+    obrigatorio: bool = True
+
+
+class RespostaRevisao(BaseModel):
+    """Formato da resposta do revisor de código (ADR-0072); `veredito` é obrigatório."""
+
+    veredito: str = Field(json_schema_extra={"enum": list[JsonValue](sorted(_VEREDITOS_VALIDOS))})
+    resumo: str = ""
+    acoes: list[AcaoRespondida] = Field(default_factory=list)
+    comentarios: list[ComentarioRespondido] = Field(default_factory=list)
+    pontos_verificados: list[str] = Field(default_factory=list)
+
+
+class RespostaRevisaoDocumental(BaseModel):
+    """Formato da resposta da revisão documental (ADR-0072); `veredito` é obrigatório."""
+
+    veredito: str = Field(
+        json_schema_extra={"enum": list[JsonValue](sorted(_VEREDITOS_DOC_VALIDOS))}
+    )
+    resumo: str = ""
+    acoes: list[AcaoRespondida] = Field(default_factory=list)
+    pontos_verificados: list[str] = Field(default_factory=list)
 
 
 class ReviewVerdict(BaseModel):
@@ -224,8 +260,16 @@ class ReviewService:
         card_description: str = "",
         acceptance_criteria: list[str] | None = None,
         riscos: list[str] | None = None,
+        item_de_spec: dict[str, object] | None = None,
+        adrs: list[tuple[str, str, str]] | None = None,
+        saida_ci: str = "",
+        repositorio: AcessoAoRepositorio | None = None,
     ) -> ReviewVerdict:
-        """Veredito da revisão. Sem agente (ou com falha), `necessita_humano`."""
+        """Veredito da revisão. Sem agente (ou com falha), `necessita_humano`.
+
+        O pedido leva o item de spec de origem, os critérios, as ADRs relacionadas
+        (`(id, título, decisão)`) e a última saída da CI; com `repositorio` e executor CLI, o
+        revisor lê a branch da PR em modo leitura (ADR-0069)."""
         if assignment is None or self._catalog is None:
             return _indisponivel("nenhum agente revisor configurado")
         diff_truncado, aviso_truncamento = _truncar_diff(diff)
@@ -238,6 +282,10 @@ class ReviewService:
                 card_description=card_description,
                 acceptance_criteria=acceptance_criteria or [],
                 riscos=riscos or [],
+                item_de_spec=item_de_spec,
+                adrs=adrs or [],
+                saida_ci=saida_ci,
+                repositorio=repositorio,
             )
         except ERROS_DE_AGENTE as exc:
             return _indisponivel(f"{type(exc).__name__}: {exc}"[:200])
@@ -260,16 +308,33 @@ class ReviewService:
         card_description: str,
         acceptance_criteria: list[str],
         riscos: list[str],
+        item_de_spec: dict[str, object] | None = None,
+        adrs: list[tuple[str, str, str]] | None = None,
+        saida_ci: str = "",
+        repositorio: AcessoAoRepositorio | None = None,
     ) -> dict[str, object]:
         assert self._catalog is not None  # noqa: S101 - garantido pelo chamador
-        pedido = _pedido(diff, aviso, card_title, card_description, acceptance_criteria, riscos)
+        pedido = _pedido(
+            diff,
+            aviso,
+            card_title,
+            card_description,
+            acceptance_criteria,
+            riscos,
+            item_de_spec=item_de_spec,
+            adrs=adrs or [],
+            saida_ci=saida_ci,
+        )
+        leitura = tem_acesso_ao_repositorio(self._catalog, assignment, repositorio)
         return perguntar_ao_agente(
             self._catalog,
             assignment,
-            system=_REVIEW_SYSTEM,
+            system=system_de_revisao(com_repositorio=leitura),
             pedido=pedido,
             kind="revisao",
             timeout=self._timeout,
+            repositorio=repositorio if leitura else None,
+            modelo_resposta=RespostaRevisao,
         )
 
     # ---------------------------------------------------------- revisão documental
@@ -317,6 +382,7 @@ class ReviewService:
             self._catalog,
             assignment,
             system=_DOC_REVIEW_SYSTEM,
+            modelo_resposta=RespostaRevisaoDocumental,
             pedido=pedido,
             kind="revisao_documental",
             timeout=self._timeout,
@@ -372,6 +438,12 @@ def _truncar_diff(diff: str) -> tuple[str, str]:
     return truncado, aviso
 
 
+def system_de_revisao(*, com_repositorio: bool) -> str:
+    return _REVIEW_SYSTEM.replace(
+        "{acesso}", _ACESSO_COM_REPOSITORIO if com_repositorio else _ACESSO_SO_DIFF
+    )
+
+
 def _pedido(
     diff: str,
     aviso: str,
@@ -379,6 +451,10 @@ def _pedido(
     card_description: str,
     acceptance_criteria: list[str],
     riscos: list[str],
+    *,
+    item_de_spec: dict[str, object] | None = None,
+    adrs: list[tuple[str, str, str]] | None = None,
+    saida_ci: str = "",
 ) -> str:
     linhas = [f"Card em revisão: {card_title}"]
     if card_description:
@@ -387,6 +463,15 @@ def _pedido(
         linhas.append("Critérios de aceite: " + "; ".join(acceptance_criteria[:10])[:500])
     if riscos:
         linhas.append("Riscos conhecidos da demanda: " + "; ".join(riscos[:10])[:500])
+    if item_de_spec:
+        linhas.append(
+            "Item de especificação de origem: "
+            + json.dumps(item_de_spec, ensure_ascii=False, default=str)[:2000]
+        )
+    for adr_id, titulo, decisao in (adrs or [])[:10]:
+        linhas.append(f"ADR relacionada {adr_id} — {titulo}: {decisao[:400]}")
+    if saida_ci:
+        linhas.append("Última execução da CI:\n" + saida_ci[-3000:])
     if aviso:
         linhas.append(aviso)
     linhas.append("Diff a revisar:\n" + diff)

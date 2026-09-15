@@ -9,18 +9,20 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from aso.execution.llm_client import LlmClient
+from aso.control.respostas_estruturadas import (
+    TENTATIVAS_DE_CORRECAO,
+    RespostaInvalida,
+    esquema_de,
+    instrucao_de_formato,
+    pedido_de_correcao,
+    validar,
+)
+from aso.execution.llm_client import LlmClient, completar
 from aso.execution.llm_provider import parse_llm_json
 
 _PLANNING_SYSTEM = (
     "Você é o planejador-chefe (CTO) de um runtime de engenharia autônoma.\n"
     "A partir de uma ideia de produto, produza um plano inicial em português do Brasil.\n"
-    "Responda SOMENTE com um objeto JSON válido, sem cercas de código, na forma:\n"
-    '{"product": {"name": "...", "domain": "...", "mvp_hypothesis": "..."},\n'
-    ' "adrs": [{"title": "...", "decision": "...", "rationale": "...",\n'
-    '   "locked_paths": ["architecture.pattern"]}],\n'
-    ' "backlog": [{"title": "...", "phase": "F5", "domain": "backend",'
-    ' "acceptance_criteria": ["..."], "depends_on": ["..."]}]}\n'
     "Distribua o backlog por TODA a esteira (fases F1..F7), não só F5:\n"
     "- F1 discovery/requisitos, F2 arquitetura, F3 dados/contratos, F4 UX/planejamento,\n"
     "  F5 desenvolvimento, F6 testes/qualidade/docs, F7 operação/observabilidade.\n"
@@ -79,9 +81,21 @@ class PlanningService:
         self._client = client
 
     def plan(self, idea: str) -> ProjectPlan:
-        raw = self._client.complete(
-            system=_PLANNING_SYSTEM,
-            user=f"Ideia do produto:\n{idea}\n\nProduza o plano JSON.",
-        )
-        data = parse_llm_json(raw)
-        return ProjectPlan.model_validate(data)
+        """Plano validado contra `ProjectPlan` (schema no prompt e saída estruturada nativa,
+        ADR-0072); fora do schema, uma única tentativa de correção com os campos que falharam."""
+        pedido = f"Ideia do produto:\n{idea}\n\nProduza o plano JSON."
+        system = f"{_PLANNING_SYSTEM}\n{instrucao_de_formato(ProjectPlan)}"
+        atual = pedido
+        for tentativa in range(TENTATIVAS_DE_CORRECAO + 1):
+            resposta = completar(
+                self._client, system=system, user=atual, esquema=esquema_de(ProjectPlan)
+            )
+            try:
+                return ProjectPlan.model_validate(
+                    validar(ProjectPlan, parse_llm_json(resposta.texto))
+                )
+            except RespostaInvalida as erro:
+                if tentativa == TENTATIVAS_DE_CORRECAO:
+                    raise
+                atual = pedido_de_correcao(pedido, erro)
+        raise AssertionError("inalcançável")  # pragma: no cover

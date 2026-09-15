@@ -29,7 +29,7 @@ from aso.control.discovery import STATUS_APROVADO, DiscoveryReport
 from aso.control.documentos import versao_atual
 from aso.control.failure import DecisaoDeFalha
 from aso.control.models import NAMING_KEY, AgentAssignment
-from aso.control.naming import NamingService
+from aso.control.naming import BranchNaming, NamingService
 from aso.control.preparation import (
     ITEM_CODIGO_AFETADO_ANALISADO,
     ITEM_CRITERIOS_ANALISADOS,
@@ -40,6 +40,7 @@ from aso.control.preparation import (
 )
 from aso.control.spec import SpecDocument
 from aso.execution.llm_provider import LlmExecutionProvider
+from aso.execution.precos import precificar
 from aso.kanban.models import KanbanCard
 from aso.observability.agent_runs import STATUS_FALHA as STATUS_RUN_FALHA
 from aso.observability.agent_runs import STATUS_SUCESSO as STATUS_RUN_SUCESSO
@@ -93,9 +94,18 @@ def _uso_do_output(output: AgentOutput | None) -> UsoDoAgente:
     if not isinstance(bruto, dict):
         return UsoDoAgente()
     try:
-        return UsoDoAgente(**bruto)
+        # Só tokens (LLM via API, Codex): custo pela tabela de preços, se houver (ADR-0070).
+        return precificar(UsoDoAgente(**bruto))
     except TypeError:
         return UsoDoAgente()
+
+
+def _effort_aplicado(provider: ExecutionProvider | None, effort: object) -> bool | None:
+    """Registra se o esforço pedido tem efeito no executor (ADR-0073)."""
+    if not effort:
+        return None
+    aplica = getattr(provider, "aplica_effort", None)
+    return bool(aplica()) if callable(aplica) else False
 
 
 class AgentTaskService:
@@ -122,15 +132,14 @@ class AgentTaskService:
     def _assignment(self, b: OrchestrationBundle, key: str | None) -> AgentAssignment | None:
         return self._assignment_de(b, key)
 
-    def _build_task(
-        self,
-        b: OrchestrationBundle,
-        card: KanbanCard,
-        agent: AgentSpec,
-        *,
-        effort: str | None = None,
-    ) -> dict[str, Any]:
-        section = agent.context_sections[0] if agent.context_sections else "engineering"
+    def _nomes_do_card(self, b: OrchestrationBundle, card: KanbanCard) -> BranchNaming:
+        """Nomes do card: pergunta ao agente de nomeação só na primeira vez (ADR-0071)."""
+        if card.branch_stem and card.commit_subject:
+            return BranchNaming(
+                branch_stem=card.branch_stem,
+                commit_subject=card.commit_subject,
+                source="card",
+            )
         nomes = self._perguntar_registrando(
             b.orchestration.id,
             card.id,
@@ -143,11 +152,26 @@ class AgentTaskService:
                 phase=card.phase,
             ),
         )
-        if nomes.fallback_reason:
-            b.event_log.append(
-                "NamingFallback",
-                {"card_id": card.id, "reason": nomes.fallback_reason},
-            )
+        with self._bundle_store.lock_for(b.orchestration.id):
+            if nomes.fallback_reason:
+                b.event_log.append(
+                    "NamingFallback",
+                    {"card_id": card.id, "reason": nomes.fallback_reason},
+                )
+            card.branch_stem = nomes.branch_stem
+            card.commit_subject = nomes.commit_subject
+        return nomes
+
+    def _build_task(
+        self,
+        b: OrchestrationBundle,
+        card: KanbanCard,
+        agent: AgentSpec,
+        *,
+        effort: str | None = None,
+    ) -> dict[str, Any]:
+        section = agent.context_sections[0] if agent.context_sections else "engineering"
+        nomes = self._nomes_do_card(b, card)
         task: dict[str, Any] = {
             "orchestration_id": b.orchestration.id,
             "card_id": card.id,
@@ -240,6 +264,9 @@ class AgentTaskService:
             orchestration_id=orchestration_id,
             card_id=card_id,
             request_id=str(structlog.contextvars.get_contextvars().get("request_id", "")),
+            ao_evento=lambda tipo, payload: self._bundle_store.get(
+                orchestration_id
+            ).event_log.append(tipo, payload),
         )
         with contexto_de_run(contexto):
             return chamada()
@@ -260,6 +287,7 @@ class AgentTaskService:
             papel=agent.role,
             executor=provider.id if provider is not None else "",
             effort=str(task.get("effort") or ""),
+            effort_aplicado=_effort_aplicado(provider, task.get("effort")),
             prompt_version=f"task-envelope-v{SCHEMA_VERSION}",
             prompt=_prompt_da_tarefa(agent, task, provider),
             envelope=envelope or {},

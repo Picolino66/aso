@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from aso.application.bundles import BundleStore, OrchestrationBundle
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.persistence.memory import InMemoryOrchestrationRepository
 from aso.shared.cache import TTLCache
 

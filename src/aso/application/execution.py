@@ -17,10 +17,10 @@ from typing import Any
 from aso.agents.executor import AgentExecutionError, ExecutionProvider
 from aso.agents.models import AgentDefinition, AgentOutput, AgentSpec
 from aso.agents.supervisor import AgentSupervisor
+from aso.application.agent_catalog_service import AgentCatalogService
 from aso.application.agent_task import AgentTaskService, _metricas_de_contexto, _uso_do_output
 from aso.application.bundles import BundleStore, OrchestrationBundle
 from aso.application.delivery import DeliveryService
-from aso.control.agent_catalog_service import AgentCatalogService
 from aso.control.attempts import (
     RESULTADO_FALHOU,
     RESULTADO_SUCESSO,
@@ -331,9 +331,13 @@ class ExecutionService:
         return [self._execute_isolated(agent, task, provider) for agent, task, provider in jobs]
 
     def _gasto_usd(self, b: OrchestrationBundle) -> float:
-        """Custo real acumulado (§1.1, ADR-0026): soma `card.uso.custo_usd` de todo
-        card do board — o mesmo número que o relatório de aprendizado usa."""
-        return sum(float(c.uso.get("custo_usd", 0.0)) for c in b.board_service.cards_of(b.board.id))
+        """Custo real acumulado (§1.1, ADR-0026): execuções de card (`card.uso.custo_usd`)
+        **e** perguntas a agentes — triagem, discovery, spec, revisão, nomeação (ADR-0070),
+        lidas do registro `agent_runs`, que é a fonte única delas."""
+        cards = sum(
+            float(c.uso.get("custo_usd", 0.0)) for c in b.board_service.cards_of(b.board.id)
+        )
+        return cards + self._agent_task._agent_runs.custo_de_perguntas(b.orchestration.id)
 
     @staticmethod
     def _recusar_se_estrategia_pendente(b: OrchestrationBundle) -> None:
@@ -748,6 +752,19 @@ class ExecutionService:
                 retentavel = (ACAO_MESMO_AGENTE, ACAO_AUMENTAR_EFFORT, ACAO_TROCAR_EXECUTOR)
                 if decisao is None or decisao.acao not in retentavel:
                     break
+                # Retry único (ADR-0071): cada nova chamada ao provider vem de uma decisão
+                # do roteamento — o evento mantém a métrica de retries (`AgentRetry`).
+                with self._lock_for(orchestration_id):
+                    b.event_log.append(
+                        "AgentRetry",
+                        {
+                            "agent": agent.role,
+                            "card_id": card_id,
+                            "acao": decisao.acao,
+                            "error": str(error)[:500],
+                            "run_id": execution_id,
+                        },
+                    )
                 if decisao.acao == ACAO_AUMENTAR_EFFORT and decisao.effort:
                     effort = decisao.effort
                 elif decisao.acao == ACAO_TROCAR_EXECUTOR and decisao.executor:

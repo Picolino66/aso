@@ -10,13 +10,26 @@ from aso.control.routing_rules import RoutingRule
 from aso.persistence.state import OrchestrationState
 
 
+class ConcurrentModificationError(RuntimeError):
+    """Outro processo gravou a orquestração depois da versão que este bundle leu (ADR-0068).
+
+    A gravação é recusada inteira — nada é sobrescrito. Quem recebe deve recarregar o
+    agregado e decidir de novo (a API responde 409)."""
+
+
 @runtime_checkable
 class OrchestrationRepository(Protocol):
     """Contrato de persistência do aggregate de orquestração."""
 
-    def save(self, state: OrchestrationState) -> None: ...
+    def save(self, state: OrchestrationState) -> int:
+        """Grava se `state.versao` ainda é a versão no repositório; devolve a nova versão."""
+        ...
 
     def load(self, orchestration_id: str) -> OrchestrationState | None: ...
+
+    def versao_atual(self, orchestration_id: str) -> int | None:
+        """Versão gravada (sem hidratar), ou `None` se a orquestração não existe."""
+        ...
 
     def list_ids(self) -> list[str]: ...
 

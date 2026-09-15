@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from aso.agents.executor import LocalMockExecutionProvider
 from aso.agents.models import AgentOutput, AgentSpec
 from aso.api.app import create_app
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.db.repository import SqlAlchemyOrchestrationRepository
 from aso.shared.ids import gen_id
 from aso.shared.types import ColumnKey

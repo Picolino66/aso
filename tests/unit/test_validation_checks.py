@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.models import Orchestration, ValidationCheck
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.validation import checks_efetivos
 from aso.execution.gate_validation import GateCommandError
 from aso.shared.types import Phase

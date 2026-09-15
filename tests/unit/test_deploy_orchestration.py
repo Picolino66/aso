@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.deploy import (
     ACEITE_AGUARDANDO_HUMANO,
     ACEITE_APROVADO,
@@ -20,7 +21,6 @@ from aso.control.deploy import (
     VALIDACAO_REPROVADA,
 )
 from aso.control.models import ValidationCheck
-from aso.control.orchestration_service import OrchestrationService
 from aso.control.triage import DemandBrief
 from aso.shared.types import CardType, ColumnKey, Phase, RiskLevel
 

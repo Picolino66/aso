@@ -111,5 +111,17 @@ def ler_envelope(dados: dict[str, Any]) -> TaskEnvelope:
         raise ContratoInvalido(f"Envelope inválido: {exc}") from exc
 
 
-def envelope_de_pergunta(task_type: str, *, system: str, request: str) -> TaskEnvelope:
-    return TaskEnvelope(kind=KIND_ASK, task_type=task_type, system=system, request=request)
+def envelope_de_pergunta(
+    task_type: str,
+    *,
+    system: str,
+    request: str,
+    output_schema: dict[str, Any] | None = None,
+) -> TaskEnvelope:
+    return TaskEnvelope(
+        kind=KIND_ASK,
+        task_type=task_type,
+        system=system,
+        request=request,
+        output_schema=output_schema,
+    )

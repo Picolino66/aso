@@ -2,7 +2,7 @@
 
 Leitura curta para quem chega agora. Detalhes: [arquitetura](architecture.md),
 [governança (regra → código → teste)](GOVERNANCE.md), [API](api.md). As funções citadas são
-chamadas pela façade `control/orchestration_service.py` (`OrchestrationService`) e implementadas
+chamadas pela façade `application/orchestration_service.py` (`OrchestrationService`) e implementadas
 nos serviços de `src/aso/application/` (ADR-0066).
 
 ## 1. Glossário
@@ -76,8 +76,8 @@ sequenceDiagram
 
 ## 4. Limites atuais
 
-- Execução assíncrona (fila `jobs` + workers, ADR-0067) atrás de `ASO_EXECUCAO_ASSINCRONA`, ainda em processo único — réplicas: MEL-56; paralelismo por onda: MEL-50.
+- Execução assíncrona (fila `jobs` + workers, ADR-0067) atrás de `ASO_EXECUCAO_ASSINCRONA`, ainda em processo único — réplicas: MEL-56. Cards independentes rodam em ondas paralelas por estratégia (ADR-0074).
 - Execuções de agente sem registro próprio (`agent_runs`) e custo só do Claude CLI — MEL-30, MEL-41.
-- Discovery e revisão não leem o repositório (o revisor vê só o diff) — MEL-40.
+- Discovery e revisão leem o repositório só com executor CLI (worktree de leitura, ADR-0069); via LLM de API continuam sem acesso a arquivos.
 - Regra de dependência entre módulos não verificada por lint — MEL-36.
 - Artefatos do processo de construção do ASO misturados em `.aso/` — MEL-04.

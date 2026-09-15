@@ -8,6 +8,7 @@ from typing import Any
 from aso.agents.models import AgentDefinition
 from aso.control.models import Orchestration, Project, ProjectEvent
 from aso.control.routing_rules import RoutingRule
+from aso.persistence.ports import ConcurrentModificationError
 from aso.persistence.state import OrchestrationState
 
 
@@ -16,16 +17,33 @@ class InMemoryOrchestrationRepository:
 
     def __init__(self) -> None:
         self._store: dict[str, str] = {}
+        self._versoes: dict[str, int] = {}
+        self._lock = threading.Lock()
 
-    def save(self, state: OrchestrationState) -> None:
-        # Guarda como JSON para simular o mesmo ciclo serializa/desserializa do SQL.
-        self._store[state.orchestration.id] = state.model_dump_json()
+    def save(self, state: OrchestrationState) -> int:
+        oid = state.orchestration.id
+        with self._lock:
+            # Mesma versão otimista do adapter SQL (ADR-0068): nada de última-gravação-vence.
+            atual = self._versoes.get(oid, 0)
+            if state.versao != atual:
+                raise ConcurrentModificationError(
+                    f"Orquestração {oid} alterada por outra gravação (versão {atual}, "
+                    f"esperada {state.versao})."
+                )
+            nova = atual + 1
+            # Guarda como JSON para simular o mesmo ciclo serializa/desserializa do SQL.
+            self._store[oid] = state.model_copy(update={"versao": nova}).model_dump_json()
+            self._versoes[oid] = nova
+            return nova
 
     def load(self, orchestration_id: str) -> OrchestrationState | None:
         blob = self._store.get(orchestration_id)
         if blob is None:
             return None
         return OrchestrationState.model_validate_json(blob)
+
+    def versao_atual(self, orchestration_id: str) -> int | None:
+        return self._versoes.get(orchestration_id)
 
     def list_ids(self) -> list[str]:
         return list(self._store.keys())

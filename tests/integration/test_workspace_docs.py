@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.execution.branch_naming import slugify
 from aso.execution.catalog import ExecutorCatalog, ExecutorProfile
 from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceError, WorkspaceService

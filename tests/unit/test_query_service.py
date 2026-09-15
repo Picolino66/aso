@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from aso.application.orchestration_service import OrchestrationService
 from aso.application.queries import QueryService
-from aso.control.orchestration_service import OrchestrationService
 
 
 def test_facade_delega_ao_query_service_com_o_mesmo_cache() -> None:
@@ -31,4 +31,4 @@ def test_query_service_nao_depende_da_facade() -> None:
         for n in ast.walk(ast.parse(fonte.read_text(encoding="utf-8")))
         if isinstance(n, ast.ImportFrom)
     }
-    assert "aso.control.orchestration_service" not in importados
+    assert "aso.application.orchestration_service" not in importados

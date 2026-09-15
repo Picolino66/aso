@@ -89,7 +89,7 @@ def test_nudge_e_effort_do_topo_vencem_o_envelope() -> None:
 
 
 def test_build_task_real_renderiza_contexto_adicional() -> None:
-    from aso.control.orchestration_service import OrchestrationService
+    from aso.application.orchestration_service import OrchestrationService
 
     svc = OrchestrationService()
     oid = svc.create_orchestration("backend").id

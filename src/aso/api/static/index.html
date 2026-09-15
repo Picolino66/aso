@@ -464,9 +464,10 @@
         efforts.forEach(function(value) { const item = document.createElement('option'); item.value = value; item.textContent = value; effort.appendChild(item); });
         effort.value = efforts.includes(previous) ? previous : (profile && profile.effort || efforts[0]);
         const availability = document.getElementById('execAvailability');
-        availability.textContent = profile && profile.available
+        availability.textContent = (profile && profile.available
           ? 'Disponível' + (profile.runtime_version ? ' · ' + profile.runtime_version : '')
-          : profile ? 'Indisponível: ' + (profile.availability_reason || 'sincronize o catálogo') : 'Executor padrão do catálogo.';
+          : profile ? 'Indisponível: ' + (profile.availability_reason || 'sincronize o catálogo') : 'Executor padrão do catálogo.')
+          + (profile && profile.suporta_effort === false ? ' · esforço sem efeito neste executor (ADR-0073)' : '');
       }
       select.addEventListener('change', refreshEfforts); refreshEfforts();
       document.getElementById('saveExecutionSettings').addEventListener('click', function() { saveExecutionSettings(id); });
@@ -801,7 +802,7 @@
             <td>${d.rodadas_de_revisao_media}</td>
             <td>${Number(d.custo_total_usd||0).toFixed(4)}</td>
             <td>${d.custo_por_entrega ? Number(d.custo_por_entrega).toFixed(4) : '—'}</td>
-            <td>${d.execucoes_sem_custo || 0}</td>
+            <td>${d.execucoes_sem_custo || 0}${d.proporcao_sem_custo != null ? ' (' + Math.round(d.proporcao_sem_custo*100) + '%)' : ''}</td>
             <td>${esc(Object.entries(d.erros_recorrentes).map(([k,v]) => k+': '+v).join(', ') || '—')}</td>
           </tr>`).join('')}</table>` : '<div class="empty">Sem cards nesta orquestração ainda.</div>'}
         <div class="muted" style="margin-top:8px">Nunca compare custo total entre executores sem olhar custo/entrega: um executor caro que acerta de primeira pode sair mais barato que um barato que precisa de várias tentativas.</div>

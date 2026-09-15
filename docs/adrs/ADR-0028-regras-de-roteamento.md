@@ -92,9 +92,9 @@ otimista por `updated_at`) + `db/repository.py::SqlAlchemyRoutingRuleRepository`
 `acao` em JSONB (`_JSONB`, sem `astext_type=Text()` — mitigação da armadilha de
 import documentada no `CLAUDE.md`, mesmo padrão das migrations de 2026-07/08).
 
-`control/routing_rule_service.py::RoutingRuleService` é o único ponto de I/O:
+`application/routing_rule_service.py::RoutingRuleService` é o único ponto de I/O:
 CRUD + `validar_regra` na escrita + concorrência otimista (`before_updated_at`).
-Espelha `control/project_service.py` na estrutura.
+Espelha `application/project_service.py` na estrutura.
 
 ### 4. Integração no `OrchestrationService` — fallback, nunca substituição
 

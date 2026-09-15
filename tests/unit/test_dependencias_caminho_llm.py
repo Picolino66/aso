@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aso.control.orchestration_service import OrchestrationService
+from aso.application.orchestration_service import OrchestrationService
 from aso.control.planning import BacklogItem, PlannedAdr, ProductSummary, ProjectPlan
 from aso.shared.types import CardType
 
