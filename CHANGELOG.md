@@ -14,6 +14,12 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   EPIC-10 (shell e telas).
 
 ### Adicionado
+- **MEL-45 — demandas parecidas com recomendação citável (ADR-0079):** `GET
+  …/similar-demands` ranqueia por **BM25** o texto da demanda e da ficha e traz, de cada demanda
+  parecida, o executor usado, as tentativas por card, o custo, o veredito de review e os
+  diagnósticos de falha — cada frase citando os **ids** de onde o número veio. Abaixo de duas
+  demandas parecidas com execução registrada, não recomenda nada e diz por quê. Sem `tsvector`/FTS5
+  (uma implementação para os dois bancos) e sem embeddings — a ADR registra o porquê.
 - **MEL-44 — índice estrutural do repositório por commit (ADR-0077):** `execution/code_index.py`
   mapeia símbolos públicos, imports já resolvidos para caminhos, arquivos de teste e pontos de
   entrada (Python por `ast`; TS/JS por regex, com a imprecisão declarada), com cache em
@@ -24,6 +30,25 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   arquivos citados. Sem embeddings nem banco vetorial — a ADR registra por quê.
 
 ### Alterado
+- **MEL-57 — cache por commit com governança e visibilidade (ADR-0077):** o índice estrutural
+  declara de onde veio (`novo`, `disco`, `memoria`) no relatório de discovery, no evento
+  `DiscoveryRun`, no registro da execução e na aba Discovery do console; `.aso/index/` passa a ser
+  limpo por quantidade (`ASO_INDICE_MAX_ARQUIVOS`) e idade (`ASO_INDICE_MAX_IDADE_DIAS`), sem
+  apagar o commit corrente. Ganho medido no próprio repositório: **1.070 ms → 28 ms** (~38×).
+- **MEL-06 — referências de seção qualificadas:** as 630 citações `§n` de `src/` passaram a dizer
+  o documento (`req §n`, `fluxo §n`, `wf §n`, `ADR-NNNN`, `MEL-NN §n`) — `§13` sozinho era
+  ambíguo entre três documentos com assuntos diferentes — e as referências a `plano4`–`plano7`
+  (arquivos que nunca entraram no repositório) apontam agora para as ADRs que registraram cada
+  decisão. Um teste trava a convenção e ainda confere que a seção citada existe no documento.
+- **MEL-55 — consolidação do console (ADR-0078):** as quatro páginas legadas (`/ui/`, `/ui/nova`,
+  `/ui/detalhe`, `/ui/console`) saíram e suas rotas redirecionam para as seções equivalentes,
+  preservando a query. A sidebar não tem mais placeholder: **Esteira** é a sala de controle da
+  demanda, **Modelos** é o catálogo de executores, **Incidentes** lista todas as demandas (rota
+  nova `GET /v1/incidents`) e **Configurações** reúne atalhos, projetos e estado do runtime. A
+  auditoria técnica virou a aba **Governança** de `/ui/demanda-detalhe` (patches, conflitos,
+  snapshots com diff e restauração de seção, orçamento de erro, worktrees) e o tempo/custo por card
+  entrou na aba Execuções. Todas as páginas passaram a usar um módulo único de acesso à API
+  (`aso-api.js`), com mensagens padronizadas de 403/409 e o 202 da fila resolvido sozinho.
 - **MEL-52 — consultas sem hidratar agregados:** decidir uma aprovação carrega **uma**
   orquestração (localizada por consulta, não por varredura do sistema); `GET /v1/approvals`, o
   header e o painel projetam as aprovações das linhas com os filtros na consulta;

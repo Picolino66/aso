@@ -1,4 +1,4 @@
-"""Casos de uso das regras de roteamento (§33, ADR-0028).
+"""Casos de uso das regras de roteamento (req §33, ADR-0028).
 
 Regras de roteamento são configuração do runtime, não estado de uma orquestração
 específica — mesmo raciocínio de `ProjectService`: persistidas por porta própria

@@ -31,7 +31,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/validation-checks")
     def get_validation_checks(orchestration_id: str) -> Any:
-        """Bateria efetiva de validações (§12 do fluxo.md, ADR-0022)."""
+        """Bateria efetiva de validações (fluxo §12, ADR-0022)."""
         deps.guard(orchestration_id)
         return svc.get_validation_checks(orchestration_id)
 
@@ -54,13 +54,13 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/validation-checks/suggest")
     def suggest_validation_checks(orchestration_id: str) -> Any:
-        """Sugestão determinística por stack (§4.5) — não grava nada."""
+        """Sugestão determinística por stack (ADR-0022) — não grava nada."""
         deps.guard(orchestration_id)
         return svc.suggest_validation_checks(orchestration_id)
 
     @router.get("/v1/orchestrations/{orchestration_id}/deploy")
     def get_deploy(orchestration_id: str) -> Any:
-        """Última implantação (§18-22 do fluxo.md, ADR-0023)."""
+        """Última implantação (fluxo §18-22 do fluxo.md, ADR-0023)."""
         deps.guard(orchestration_id)
         return svc.get_deploy(orchestration_id)
 
@@ -94,7 +94,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/deploy/pipeline")
     def get_deploy_pipeline(orchestration_id: str) -> Any:
-        """Status derivado por estágio (§19, wf §25, ADR-0029) — lista vazia =
+        """Status derivado por estágio (wf §19, §25, ADR-0029) — lista vazia =
         monoambiente legado, nenhum pipeline configurado."""
         deps.guard(orchestration_id)
         return svc.get_deploy_pipeline(orchestration_id)
@@ -131,9 +131,9 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     @router.post("/v1/orchestrations/{orchestration_id}/deploy/run")
     def run_deploy(orchestration_id: str, body: DeployRunBody, request: Request) -> Any:
         """Roda a implantação — exige comando configurado e o quality gate mais
-        recente aprovado (§18); o resultado decide aceite automático ou humano.
+        recente aprovado (fluxo §18); o resultado decide aceite automático ou humano.
         Com pipeline configurado, `body.estagio` escolhe qual estágio rodar
-        (omitido, resolve o primeiro pendente — avanço governado, §19)."""
+        (omitido, resolve o primeiro pendente — avanço governado, fluxo §19)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.run_deploy(
@@ -149,7 +149,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/deploy/validate")
     def validate_deploy(orchestration_id: str, request: Request) -> Any:
-        """Roda as verificações pós-implantação configuradas (§20)."""
+        """Roda as verificações pós-implantação configuradas (fluxo §20)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.validate_deploy(orchestration_id, actor=actor_de(request)),
@@ -157,7 +157,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/deploy/approve")
     def approve_deploy(orchestration_id: str, body: DeployApproveBody, request: Request) -> Any:
-        """Aceite final da implantação (§22) — ação crítica, exige admin."""
+        """Aceite final da implantação (fluxo §22) — ação crítica, exige admin."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.decide_deploy(
@@ -171,7 +171,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/deploy/rollback")
     def rollback_deploy(orchestration_id: str, body: DeployRollbackBody, request: Request) -> Any:
-        """Reverte a última implantação e abre uma tarefa de causa raiz (§21)."""
+        """Reverte a última implantação e abre uma tarefa de causa raiz (fluxo §21)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.rollback_deploy(
@@ -219,7 +219,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
             },
         )
 
-    # --- incidentes (§21, wf §27/§38, ADR-0032) ---
+    # --- incidentes (wf §21, §27/§38, ADR-0032) ---
 
     @router.get("/v1/incidents")
     def list_all_incidents(
@@ -234,7 +234,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/incidents")
     def list_incidents(orchestration_id: str) -> Any:
-        """Incidentes da orquestração — abertos automaticamente por rollback (§21)."""
+        """Incidentes da orquestração — abertos automaticamente por rollback (fluxo §21)."""
         deps.guard(orchestration_id)
         return svc.list_incidents(orchestration_id)
 

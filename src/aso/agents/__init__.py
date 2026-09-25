@@ -1,1 +1,1 @@
-"""Agent Plane — registro, execução e permissões de agentes especializados (§15)."""
+"""Agent Plane — registro, execução e permissões de agentes especializados (req §15)."""

@@ -1,1 +1,1 @@
-"""Observability Plane — métricas, SLOs e leitura operacional (§33, F7)."""
+"""Observability Plane — métricas, SLOs e leitura operacional (req §33, F7)."""

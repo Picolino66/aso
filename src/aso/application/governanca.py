@@ -61,7 +61,7 @@ class GovernanceOpsService:
     def _propose_resolution(
         self, b: OrchestrationBundle, conflict: Conflict, *, auto: bool = False
     ) -> None:
-        """ConflictResolutionAgent (§15.15): escala o conflito e cria card ADRTask."""
+        """ConflictResolutionAgent (req §15.15): escala o conflito e cria card ADRTask."""
         suggestion = self._RESOLUTIONS.get(conflict.type, "Escalar para resolução humana.")
         conflict.resolution = suggestion
         conflict.status = "escalated"
@@ -223,7 +223,8 @@ class GovernanceOpsService:
     def _submit_with_approval(
         self, b: OrchestrationBundle, patch: ContextPatch, *, card_id: str | None = None
     ) -> BusResult:
-        """Submete ao ContextBus; pendente → aprovação (§24); rejeitado → auto-resolução (§20)."""
+        """Submete ao ContextBus; pendente → aprovação (req §24); rejeitado →
+        auto-resolução (req §20)."""
         result = b.bus.submit(patch)
         if result.status == PatchStatus.PENDING:
             b.approvals.append(

@@ -5,21 +5,29 @@ espalhados em eventos, logs em memória (`AgentLogBus`) e `artifacts` descartado
 execução de card e cada pergunta a agente (triagem, discovery, spec, revisão, nomeação) vira
 um `AgentRun` append-only, gravado no início (`running`) e completado no fim.
 
-Nada que pareça segredo é persistido: `mascarar_segredos` passa por prompt, envelope, stdout,
-resumo e erro antes de gravar (regra inviolável 9).
+Nada que pareça segredo é persistido: `mascarar_segredos` (`shared/segredos.py`, ADR-0080) passa
+por prompt, envelope, stdout, resumo e erro antes de gravar (regra inviolável 9).
 """
 
 from __future__ import annotations
 
-import json
 import os
-import re
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
 
 from aso.shared.ids import gen_id, now_iso
+from aso.shared.segredos import MASCARA, mascarar_json, mascarar_segredos
+
+__all__ = [
+    "MASCARA",
+    "AgentRun",
+    "AgentRunRepository",
+    "InMemoryAgentRunRepository",
+    "mascarar_json",
+    "mascarar_segredos",
+]
 
 STATUS_RUNNING = "running"
 STATUS_SUCESSO = "sucesso"
@@ -27,42 +35,8 @@ STATUS_FALHA = "falha"
 KIND_EXECUTE = "execute"
 KIND_ASK = "ask"
 
-MASCARA = "[SEGREDO REMOVIDO]"
-_PADROES = (
-    re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{12,}"),
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|senha)\s*[=:]\s*[^\s\"',]{8,}"),
-)
-_NOME_SENSIVEL = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|SENHA", re.IGNORECASE)
-
-
-def _valores_sensiveis_do_ambiente() -> list[str]:
-    return sorted(
-        {v for k, v in os.environ.items() if _NOME_SENSIVEL.search(k) and v and len(v) >= 8},
-        key=len,
-        reverse=True,
-    )
-
-
-def mascarar_segredos(texto: str) -> str:
-    """Troca por `[SEGREDO REMOVIDO]` padrões de chave conhecidos e valores de variáveis de
-    ambiente com nome sensível (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`)."""
-    if not texto:
-        return texto
-    for valor in _valores_sensiveis_do_ambiente():
-        texto = texto.replace(valor, MASCARA)
-    for padrao in _PADROES:
-        texto = padrao.sub(MASCARA, texto)
-    return texto
-
-
-def mascarar_json(valor: dict[str, Any]) -> dict[str, Any]:
-    if not valor:
-        return valor
-    resultado = json.loads(mascarar_segredos(json.dumps(valor, ensure_ascii=False, default=str)))
-    return resultado if isinstance(resultado, dict) else {}
+# A redação mora em `shared/segredos.py` desde a MEL-58 (ADR-0080): ela é aplicada em vários
+# pontos de entrada do estado governado (evento, card, log ao vivo), não só aqui.
 
 
 class AgentRun(BaseModel):

@@ -1,7 +1,7 @@
-"""MultiAgentDecisionEngine (§14, TASK-06).
+"""MultiAgentDecisionEngine (req §14, TASK-06).
 
 Decide, por regras determinísticas, se a demanda usa um único agente ou múltiplos
-agentes, qual padrão de execução (§13) e se exige aprovação humana. Sempre com justificativa.
+agentes, qual padrão de execução (req §13) e se exige aprovação humana. Sempre com justificativa.
 """
 
 from __future__ import annotations
@@ -9,11 +9,11 @@ from __future__ import annotations
 from aso.control.models import DecisionInput, MultiAgentDecision, PlannedAgent
 from aso.shared.types import ExecutionStrategy, RiskLevel
 
-# Impactos que exigem aprovação humana (§24) ou elevam o risco (§14).
+# Impactos que exigem aprovação humana (req §24) ou elevam o risco (req §14).
 _SENSITIVE_IMPACTS = {"architecture", "contract", "security", "database", "deploy"}
 _APPROVAL_IMPACTS = {"deploy", "secrets", "database_reset", "branch_main"}
 
-# Mapa domínio -> papel de agente (§15) para compor o time.
+# Mapa domínio -> papel de agente (req §15) para compor o time.
 _DOMAIN_AGENT = {
     "backend": "BackendDevelopmentAgent",
     "frontend": "FrontendDevelopmentAgent",
@@ -28,7 +28,7 @@ _DOMAIN_AGENT = {
 
 
 class MultiAgentDecisionEngine:
-    """Escolhe a estratégia de execução para uma demanda (§13, §14)."""
+    """Escolhe a estratégia de execução para uma demanda (req §13, §14)."""
 
     def decide(self, inp: DecisionInput) -> MultiAgentDecision:
         high_risk = inp.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL)
@@ -113,5 +113,5 @@ class MultiAgentDecisionEngine:
                 )
             )
         # Sem card do ReviewAgent (MEL-53, ADR-0075): ele duplicava o `ReviewService` e rodava
-        # pelo implementador genérico. A revisão independente acontece na PR (§14, ADR-0017).
+        # pelo implementador genérico. A revisão independente acontece na PR (fluxo §14, ADR-0017).
         return agents

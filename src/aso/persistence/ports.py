@@ -70,6 +70,10 @@ class OrchestrationRepository(Protocol):
 
     def amostras_de_aprendizado(self, orchestration_ids: list[str]) -> list[dict[str, Any]]: ...
 
+    def textos_de_demandas(
+        self, *, limite: int, project_id: str | None = None, excluir: str | None = None
+    ) -> list[dict[str, Any]]: ...
+
     def incidents(
         self, *, status: str | None = None, orchestration_ids: set[str] | None = None
     ) -> list[Incident]: ...
@@ -115,7 +119,7 @@ class ProjectRepository(Protocol):
 
 @runtime_checkable
 class RoutingRuleRepository(Protocol):
-    """Contrato de persistência das regras de roteamento (§33, ADR-0028)."""
+    """Contrato de persistência das regras de roteamento (req §33, ADR-0028)."""
 
     def save_rule(self, rule: RoutingRule, *, before_updated_at: str | None = None) -> None: ...
 

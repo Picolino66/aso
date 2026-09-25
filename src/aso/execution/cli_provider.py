@@ -1,4 +1,4 @@
-"""CliAgentExecutionProvider — executa um agente CLI real em worktree isolado (§26.3).
+"""CliAgentExecutionProvider — executa um agente CLI real em worktree isolado (req §26.3).
 
 Cria um worktree/branch por card, roda o comando do agente CLI (ex.: `claude`, `codex`)
 com o prompt via stdin, coleta o diff e retorna uma `AgentOutput` com um ContextPatch
@@ -56,7 +56,7 @@ class CliAgentExecutionProvider:
         timeout: float | None = None,
         modelo: str = "",
     ) -> None:
-        # `executor_id` distingue candidatos concorrentes no mesmo repo (§26A.6).
+        # `executor_id` distingue candidatos concorrentes no mesmo repo (req §26A.6).
         self.id = executor_id
         # Modelo do perfil: CLIs que só informam tokens (Codex) não dizem o modelo, e sem
         # ele a tabela de preços não acha o preço (ADR-0070).
@@ -73,7 +73,7 @@ class CliAgentExecutionProvider:
 
     def execute(self, agent: AgentSpec, task: dict[str, Any]) -> AgentOutput:
         # A branch é batizada pelo card (`feat/calculadora-basica`, ADR-0014) e fechada
-        # aqui com um sufixo único: candidatos concorrentes (§26A.6) e retries executam
+        # aqui com um sufixo único: candidatos concorrentes (req §26A.6) e retries executam
         # a MESMA task e colidiriam em `git worktree add` com um nome fixo.
         # Sem raiz — execução direta do provider, testes, chamadas legadas — mantém o
         # nome antigo, que já carregava executor_id + uuid pelo mesmo motivo.
@@ -215,7 +215,7 @@ class CliAgentExecutionProvider:
     def _enviar_tarefa(proc: subprocess.Popen[str], task: dict[str, Any]) -> None:
         """Escreve a tarefa no stdin do processo — sem presumir que ele vai lê-la.
 
-        Causa raiz da corrida de candidatos intermitente (plano6 §0, ADR-0024): um
+        Causa raiz da corrida de candidatos intermitente (ADR-0024): um
         comando rápido e determinístico que não lê stdin (ou já terminou) fecha o
         pipe antes desta escrita, e `proc.stdin.write` levanta `BrokenPipeError`.
         O código antigo tratava isso como falha do executor e abortava — mas o
@@ -257,7 +257,7 @@ class CliAgentExecutionProvider:
 
 class _Saida:
     """Resultado de uma execução — o mesmo trio que o `subprocess.run` devolvia, mais
-    o consumo relatado pelo agente (§26A.11, ADR-0026)."""
+    o consumo relatado pelo agente (req §26A.11, ADR-0026)."""
 
     __slots__ = ("returncode", "stdout", "stderr", "uso")
 

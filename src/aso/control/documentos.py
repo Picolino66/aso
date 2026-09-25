@@ -1,9 +1,9 @@
-"""Versionamento de documentos em ring — discovery e spec (§4.2 do plano4.md, ADR-0021).
+"""Versionamento de documentos em ring — discovery e spec (ADR-0021).
 
 `DiscoveryReport` (ADR-0020) era sobrescrito a cada `/discovery/run`: reexecutar
 depois de uma reprovação apagava o relatório anterior, e o comentário da reprovação
 só sobrevivia porque entrava no prompt da próxima tentativa — não como histórico
-consultável. O §6 do fluxo.md exige um ciclo de reprovação e reenvio até a aprovação;
+consultável. O fluxo §6 exige um ciclo de reprovação e reenvio até a aprovação;
 sem histórico não há como responder "esta spec já foi reprovada duas vezes, pelos
 mesmos motivos?" — a pergunta que detecta um agente girando em falso.
 

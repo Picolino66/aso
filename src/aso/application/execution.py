@@ -54,6 +54,7 @@ from aso.kanban.models import KanbanCard
 from aso.shared.agent_usage import acumular_uso
 from aso.shared.events import DomainEvent, EventLog
 from aso.shared.ids import gen_id, now_iso
+from aso.shared.segredos import mascarar_segredos
 from aso.shared.types import CardType, ColumnKey, PatchStatus
 
 
@@ -229,7 +230,7 @@ class ExecutionService:
 
     @staticmethod
     def _pending_dependencies(b: OrchestrationBundle, card: KanbanCard) -> list[KanbanCard]:
-        """Dependências (§10 do fluxo.md) que ainda não chegaram a `Done`.
+        """Dependências (fluxo §10) que ainda não chegaram a `Done`.
 
         Só usado no caminho manual de execução (`run_card`): o `run_plan` já ordena
         agentes por `depends_on` nas suas próprias ondas e não precisa deste guard.
@@ -245,7 +246,7 @@ class ExecutionService:
     def _criar_tarefa_vinculada(
         b: OrchestrationBundle, card: KanbanCard, titulos_pendentes: str
     ) -> KanbanCard:
-        """§10, ADR-0030: tarefa de acompanhamento criada na primeira vez que `card`
+        """fluxo §10, ADR-0030: tarefa de acompanhamento criada na primeira vez que `card`
         bloqueia por dependência — dá ao operador um ponto de triagem próprio, distinto
         da(s) dependência(s) em si (que já são cards, possivelmente grandes/em curso).
         Idempotente por chamador: só é chamada quando `card.dependency_task_id is None`.
@@ -258,7 +259,7 @@ class ExecutionService:
             title=f"Resolver dependência(s) de '{card.title}'",
             description=f"O card '{card.title}' está bloqueado aguardando: {titulos_pendentes}.",
             status=ColumnKey.BACKLOG,
-            linked_requirements=["§10"],
+            linked_requirements=["fluxo §10"],
         )
         b.board_service.add_card(tarefa)
         return tarefa
@@ -331,7 +332,7 @@ class ExecutionService:
         return [self._execute_isolated(agent, task, provider) for agent, task, provider in jobs]
 
     def _gasto_usd(self, b: OrchestrationBundle) -> float:
-        """Custo real acumulado (§1.1, ADR-0026): execuções de card (`card.uso.custo_usd`)
+        """Custo real acumulado (fluxo §1.1, ADR-0026): execuções de card (`card.uso.custo_usd`)
         **e** perguntas a agentes — triagem, discovery, spec, revisão, nomeação (ADR-0070),
         lidas do registro `agent_runs`, que é a fonte única delas."""
         cards = sum(
@@ -358,7 +359,7 @@ class ExecutionService:
             raise ValueError("Estratégia rejeitada pelo humano: execução bloqueada.")
 
     def _recusar_se_orcamento_estourado(self, b: OrchestrationBundle) -> None:
-        """§3.2 do plano7: orçamento estourado recusa **execução nova**, nunca mata a
+        """orçamento estourado recusa **execução nova**, nunca mata a
         que já está rodando — o freio vive na entrada de `run_card`/`race_card`, não
         num kill no meio da chamada."""
         situacao, motivo = avaliar_orcamento(self._gasto_usd(b), b.orchestration.orcamento_usd)
@@ -423,7 +424,7 @@ class ExecutionService:
         effort_atual: str | None,
         execution_id: str | None = None,
     ) -> DecisaoDeFalha:
-        """Registra a falha (§13), diagnostica e decide o roteamento (ADR-0019).
+        """Registra a falha (fluxo §13), diagnostica e decide o roteamento (ADR-0019).
 
         Chamada de dentro do laço de `run_card`: a decisão pode mandar re-tentar (mesmo
         agente, effort maior, outro executor — o laço continua) ou parar (bloquear ou
@@ -431,8 +432,9 @@ class ExecutionService:
         próxima onda simplesmente segue com o que sobrou.
         """
         mensagem = str(error) if error is not None else "execução não produziu saída"
-        card.tentativa_atual += 1  # §36.4, ADR-0031: contador autoritativo, não o ring
-        card.tentativa_falha_atual += 1  # §13, ADR-0019: só falha consecutiva, decidir() usa este
+        card.tentativa_atual += 1  # req §36.4, ADR-0031: contador autoritativo, não o ring
+        # fluxo §13, ADR-0019: só falha consecutiva — é este contador que `decidir()` usa.
+        card.tentativa_falha_atual += 1
         record = FailureRecord(
             etapa=ETAPA_EXECUCAO,
             tentativa=card.tentativa_atual,
@@ -464,7 +466,7 @@ class ExecutionService:
                 diagnostico=diagnostico,
             ),
         )
-        # Freio de orçamento (§1.2/§3.2, ADR-0026): antes de gastar mais (effort maior
+        # Freio de orçamento (wf §1.2/§3.2, ADR-0026): antes de gastar mais (effort maior
         # ou outro executor), confere o teto. Estourado vira `escalar_humano` — é
         # justamente quando as coisas já estão dando errado que a política, sem isto,
         # escalaria para o modelo mais caro sem ninguém olhar.
@@ -478,7 +480,8 @@ class ExecutionService:
                 )
         # O motivo técnico (mensagem crua) continua visível no card — a política só
         # acrescenta o "por quê" da decisão, não substitui o erro real do agente.
-        detalhe = f"{mensagem} — {decisao.motivo}"
+        # Redigido (ADR-0080, regra 9): `mensagem` é a fala crua do agente e o card é persistido.
+        detalhe = mascarar_segredos(f"{mensagem} — {decisao.motivo}")
         card.block_reason = detalhe
         # Nudge da política reaproveita o canal que `_build_task` já encaminha ao
         # agente (ADR-0017, `correction_actions`) — instrução concreta para a próxima
@@ -583,10 +586,10 @@ class ExecutionService:
             card.executor = executor_name
         card.uso = acumular_uso(card.uso, _uso_do_output(output))
         modelo = str(card.uso.get("modelo") or "") or None
-        # §36.4, ADR-0031: sucesso também é uma tentativa — conta para o histórico
+        # req §36.4, ADR-0031: sucesso também é uma tentativa — conta para o histórico
         # (não para o limite de escalação, que só olha falhas consecutivas).
         card.tentativa_atual += 1
-        card.tentativa_falha_atual = 0  # §13, ADR-0019: sucesso zera a sequência de falhas
+        card.tentativa_falha_atual = 0  # fluxo §13, ADR-0019: sucesso zera a sequência de falhas
         card.tentativas = registrar_tentativa(
             card.tentativas,
             TentativaRegistro(
@@ -599,7 +602,7 @@ class ExecutionService:
         branch = output.artifacts.get("branch")
         if branch:
             card.branch = str(branch)
-            # §10, ADR-0030: a branch existe de fato (nome gravado acima) — fato
+            # fluxo §10, ADR-0030: a branch existe de fato (nome gravado acima) — fato
             # estrutural, não uma etapa separada a inferir.
             card.preparation_checklist = marcar_item(card.preparation_checklist, ITEM_BRANCH_CRIADA)
         card.correction_actions = []  # sucesso: nudge/correções pendentes não se aplicam mais
@@ -648,7 +651,7 @@ class ExecutionService:
         `provider`/`effort` permitem escolher o executor e o esforço por etapa. Em
         falha, o roteamento (ADR-0019) pode mandar re-tentar dentro deste mesmo laço
         (mesmo agente, effort maior, outro executor) antes de bloquear ou escalar —
-        "retorna exatamente ao ponto responsável pelo erro" (§13 do fluxo.md).
+        "retorna exatamente ao ponto responsável pelo erro" (fluxo §13).
 
         Claim atômico (ADR-0058): guards + claim sob `_lock_for`, agente FORA do lock
         (execução longa não segura a orquestração), resultado aplicado sob lock e claim
@@ -673,7 +676,7 @@ class ExecutionService:
                 )
             self._recusar_se_limite_do_agente_estourado(b, card)
             pendentes = self._pending_dependencies(b, card)
-            # §10, ADR-0030: o guard rodou — fato estrutural, independente do resultado.
+            # fluxo §10, ADR-0030: o guard rodou — fato estrutural, independente do resultado.
             card.preparation_checklist = marcar_item(
                 card.preparation_checklist, ITEM_DEPENDENCIAS_VERIFICADAS
             )
@@ -696,7 +699,7 @@ class ExecutionService:
             if card.blocked_by:
                 card.blocked_by = []  # dependências resolvidas: limpa o registro obsoleto
             card.dependency_task_id = None  # nenhum bloqueio ativo — ponteiro não se aplica
-            # §10, ADR-0030: chegou até aqui sem pendência — o card está desbloqueado.
+            # fluxo §10, ADR-0030: chegou até aqui sem pendência — o card está desbloqueado.
             card.preparation_checklist = marcar_item(
                 card.preparation_checklist, ITEM_CARD_DESBLOQUEADO
             )

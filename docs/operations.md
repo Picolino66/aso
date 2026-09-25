@@ -405,9 +405,14 @@ gravado em `<repo-alvo>/.aso/index/<commit>.json` (o `.gitignore` do alvo recebe
 - **o que nunca entra:** `.env*`, `*secret*`/`*credential*`/`*password*`/`*senha*`, `id_rsa`,
   `*.pem|key|p12|crt`, binários, arquivos acima de 1 MB e os diretórios ignorados do workspace
   (`.git`, `.venv`, `node_modules`, caches, `dist`, `build`…);
-- **custo:** ~1 s para o repositório do ASO (642 arquivos, 3.163 símbolos, ~388 KB de JSON); o
-  mesmo commit reaproveita o arquivo, e árvore suja recalcula sem gravar (60 s de cache no
-  processo). Apagar `.aso/index/` é seguro a qualquer momento: o próximo uso reconstrói.
+- **custo:** ~1 s para o repositório do ASO (642 arquivos, 3.163 símbolos, ~388 KB de JSON);
+  o mesmo commit reaproveita o arquivo (**28 ms**, ~38× mais rápido — medição na ADR-0077) e
+  árvore suja recalcula sem gravar (60 s de cache no processo). Apagar `.aso/index/` é seguro a
+  qualquer momento: o próximo uso reconstrói;
+- **limpeza (MEL-57):** ao gravar um índice novo, os excedentes saem por quantidade
+  (`ASO_INDICE_MAX_ARQUIVOS`, padrão 10) e idade (`ASO_INDICE_MAX_IDADE_DIAS`, padrão 30); o commit
+  corrente nunca é apagado. O relatório de discovery e o `AgentRun` declaram se o mapa estrutural
+  veio do cache (`indice_origem`: `novo`/`disco`/`memoria`).
 
 Efeito prático: componente afetado que o agente inventa no discovery é descartado
 (`componentes_descartados`), a revisão recebe "quem importa os arquivos alterados" e "testes

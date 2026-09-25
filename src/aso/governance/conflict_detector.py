@@ -1,4 +1,4 @@
-"""ConflictDetector (§20).
+"""ConflictDetector (req §20).
 
 Analisa um ContextPatch contra o estado do contexto, os snapshots congelados e
 as ADRs aceitas, retornando o tipo de conflito quando houver. Usado pelo ContextBus.

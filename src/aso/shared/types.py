@@ -18,7 +18,7 @@ class Phase(StrEnum):
 
 
 class PatchType(StrEnum):
-    """Tipos de ContextPatch (§18)."""
+    """Tipos de ContextPatch (req §18)."""
 
     ADD = "add"
     UPDATE = "update"
@@ -27,7 +27,7 @@ class PatchType(StrEnum):
 
 
 class GateStatus(StrEnum):
-    """Resultado de um quality gate (§22)."""
+    """Resultado de um quality gate (req §22)."""
 
     PASSED = "PASSED"
     FAILED = "FAILED"
@@ -46,7 +46,7 @@ class PatchStatus(StrEnum):
 
 
 class ConflictType(StrEnum):
-    """Conflitos que o runtime de fato levanta (§20; MEL-53 removeu os nunca levantados)."""
+    """Conflitos que o runtime de fato levanta (req §20; MEL-53 removeu os nunca levantados)."""
 
     ARCHITECTURE = "ARCHITECTURE_CONFLICT"
     CONTRACT = "CONTRACT_CONFLICT"
@@ -57,7 +57,7 @@ class ConflictType(StrEnum):
 
 
 class ADRStatus(StrEnum):
-    """Status de uma ADR (§21)."""
+    """Status de uma ADR (req §21)."""
 
     PROPOSED = "proposed"
     ACCEPTED = "accepted"
@@ -67,7 +67,7 @@ class ADRStatus(StrEnum):
 
 
 class ExecutionMode(StrEnum):
-    """Modos de execução da orquestração (§12)."""
+    """Modos de execução da orquestração (req §12)."""
 
     FULL_PIPELINE = "full-pipeline"
     FEATURE_EVOLUTION = "feature-evolution"
@@ -85,9 +85,9 @@ class ProjectStatus(StrEnum):
 
 
 class ExecutionStrategy(StrEnum):
-    """Estratégias que mudam a execução (§13, ADR-0074/ADR-0075).
+    """Estratégias que mudam a execução (req §13, ADR-0074/ADR-0075).
 
-    Os outros sete padrões do §13 eram só rótulos — nenhum mudava como os cards rodam; a
+    Os outros sete padrões do req §13 eram só rótulos — nenhum mudava como os cards rodam; a
     MEL-53 os removeu. O que distingue a execução é o paralelismo das ondas (ADR-0074).
     """
 
@@ -106,7 +106,7 @@ class RiskLevel(StrEnum):
 
 
 class ExecutorType(StrEnum):
-    """Tipo de executor de um papel de agente (§26A)."""
+    """Tipo de executor de um papel de agente (req §26A)."""
 
     LLM_PROVIDER = "llm_provider"
     CLI_AGENT = "cli_agent"
@@ -114,7 +114,7 @@ class ExecutorType(StrEnum):
 
 
 class AssigneeType(StrEnum):
-    """Tipo de responsável por um card (§16.5)."""
+    """Tipo de responsável por um card (req §16.5)."""
 
     HUMAN = "human"
     AGENT = "agent"
@@ -122,7 +122,7 @@ class AssigneeType(StrEnum):
 
 
 class ColumnKey(StrEnum):
-    """Colunas do Kanban (§16.2)."""
+    """Colunas do Kanban (req §16.2)."""
 
     BACKLOG = "Backlog"
     READY = "Ready"
@@ -143,7 +143,7 @@ class ColumnKey(StrEnum):
 
 
 class CardType(StrEnum):
-    """Tipos de card (§16.4)."""
+    """Tipos de card (req §16.4)."""
 
     EPIC = "Epic"
     FEATURE = "Feature"

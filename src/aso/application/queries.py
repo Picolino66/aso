@@ -477,7 +477,7 @@ class QueryService:
         return card
 
     def get_card_events(self, orchestration_id: str, card_id: str) -> list[CardEvent]:
-        """Histórico de movimentações do card (§8 do fluxo.md, ADR-0019, aba
+        """Histórico de movimentações do card (fluxo §8, ADR-0019, aba
         'Histórico' da Tela 12, ADR-0041) — log append-only, nunca truncado,
         diferente dos rings `failures`/`tentativas`/`qa_checks` (limitados a
         5/10/10)."""

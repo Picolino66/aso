@@ -130,7 +130,7 @@ class MetricsService:
         custo real por card.
 
         Tempo (ms) é **fallback declarado**, não custo: dois agentes de 30s podem
-        diferir em 50x no valor pago (§1.1, ADR-0026). Quando o agente informa
+        diferir em 50x no valor pago (ADR-0026). Quando o agente informa
         `total_cost_usd` no envelope de saída, `total_custo_usd` reflete o gasto real;
         sem isso (`uso_origem != "agente"`), o tempo continua sendo a única pista de
         onde o esforço se concentrou — não confunda um com o outro.

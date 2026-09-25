@@ -61,20 +61,20 @@ def _inteiro(explicito: int | None, variavel: str, padrao: str) -> int:
 class LimitesDoRuntime:
     """Limites e interruptores do runtime: argumento explícito vence a variável de ambiente."""
 
-    # Rodadas do ciclo de revisão documental (§6, ADR-0021): esgotado, a decisão escala para
+    # Rodadas do ciclo de revisão documental (fluxo §6, ADR-0021): esgotado, a decisão escala para
     # humano — sem isto, autor e revisor podem girar indefinidamente queimando tokens.
     max_rodadas_doc: int
     # Retenção de corridas por card: evita o candidate_runs crescer sem limite.
     max_races_per_card: int
     # Retenção de amostras de SLO: evita slo_evaluations crescer sem limite.
     max_slo_samples: int
-    # Limite duro do roteamento de falha (§13, ADR-0019): esgotado, a ação é sempre escalar
+    # Limite duro do roteamento de falha (fluxo §13, ADR-0019): esgotado, a ação é sempre escalar
     # para humano — nunca deixa o laço de retry de `run_card` aberto.
     max_escalonamentos: int
-    # Escolha automática de esforço (§9, ADR-0022): liga por padrão — a sugestão só preenche
-    # o vazio abaixo de toda escolha humana (§4.6); `ASO_EFFORT_AUTOMATICO=0` desliga.
+    # Escolha automática de esforço (fluxo §9, ADR-0022): liga por padrão — a sugestão só preenche
+    # o vazio abaixo de toda escolha humana (ADR-0022); `ASO_EFFORT_AUTOMATICO=0` desliga.
     effort_automatico: bool
-    # Orçamento com freio (§1.2/§3.2, ADR-0026): default de orquestrações NOVAS. Sem a env,
+    # Orçamento com freio (wf §1.2/§3.2, ADR-0026): default de orquestrações NOVAS. Sem a env,
     # `None` — nenhum teto (opt-in, não uma trava imposta a toda orquestração).
     orcamento_padrao_usd: float | None
 
@@ -235,7 +235,7 @@ def compor_servicos(c: Colaboradores) -> Servicos:
         resolve_provider=s.settings.resolve_provider,
         submit_with_approval=s.governanca._submit_with_approval,
     )
-    # Corrida de candidatos (§26A.6) sob o claim do ExecutionService.
+    # Corrida de candidatos (req §26A.6) sob o claim do ExecutionService.
     s.candidates = CandidateRaceService(
         store, execution=s.execution, max_races_per_card=limites.max_races_per_card
     )

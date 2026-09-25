@@ -245,7 +245,7 @@ _AGENTES_EXEMPLO: tuple[dict[str, object], ...] = (
     {
         "nome": "Discovery técnico",
         "tipo": "descoberta",
-        "funcao": "Investiga viabilidade técnica antes da especificação (§3/§4).",
+        "funcao": "Investiga viabilidade técnica antes da especificação (fluxo §3/§4).",
     },
     {
         "nome": "Arquiteto",
@@ -308,7 +308,7 @@ _AGENTES_EXEMPLO: tuple[dict[str, object], ...] = (
     {
         "nome": "Code reviewer",
         "tipo": "qualidade",
-        "funcao": "Revisão independente de código antes do merge (§14).",
+        "funcao": "Revisão independente de código antes do merge (fluxo §14).",
         "role": "ReviewAgent",
         "permissoes": ["quality"],
     },
@@ -330,7 +330,7 @@ _AGENTES_EXEMPLO: tuple[dict[str, object], ...] = (
     {
         "nome": "Incidentes",
         "tipo": "operacao",
-        "funcao": "Investigação de causa raiz pós-incidente (§21).",
+        "funcao": "Investigação de causa raiz pós-incidente (fluxo §21).",
     },
     {
         "nome": "Documentação",

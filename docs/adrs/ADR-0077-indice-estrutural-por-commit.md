@@ -58,8 +58,9 @@ Falta um mapa. A pergunta é de que tipo.
      Prioridade abaixo das ADRs e acima do ledger; o item respeita o orçamento como os demais.
    - **Discovery** (ADR-0020): o pedido leva um mapa compacto (módulos, pontos de entrada,
      números) e todo `componente_afetado` é conferido contra o índice — o que não existe lá é
-     descartado e registrado em `componentes_descartados`. Isso é **mais estrito** que a checagem anterior por
-     disco: `.env`, `node_modules`, caches e binários não estão no índice, logo não passam.
+     descartado e registrado em `componentes_descartados`. Isso é **mais estrito** que a checagem
+     anterior por disco: `.env`, `node_modules`, caches e binários não estão no índice, logo não
+     passam.
    - **Revisão** (ADR-0017): o pedido recebe "arquivos que importam os alterados" e "testes
      relacionados", derivados dos arquivos do diff. "Risco de regressão" deixa de ser adivinhação.
 6. **Nunca indexar segredo nem lixo:** diretórios ignorados são os mesmos do workspace
@@ -92,5 +93,22 @@ tem task própria (MEL-45); cache de discovery por commit é a MEL-57, que se ap
   dinâmicos). O índice declara `precisao`, e o consumidor que precisar de exatidão em TS deve
   esperar um coletor com parser — não há promessa em contrário.
 - `.aso/index/` cresce um arquivo por commit indexado; são artefatos derivados, ignorados pelo git
-  e removíveis a qualquer momento (o próximo uso reconstrói). Limpeza automática por idade fica
-  para a MEL-57, que passa a gerenciar cache por commit.
+  e removíveis a qualquer momento (o próximo uso reconstrói).
+
+## Adendo (MEL-57): governança e visibilidade do cache
+
+A MEL-57 fechou o que esta ADR deixou em aberto:
+
+- **Origem declarada.** O índice carrega `origem` (`novo` | `disco` | `memoria`), que aparece no
+  `resumo()`, no relatório de discovery (`indice_commit`/`indice_origem`), no evento `DiscoveryRun`,
+  no envelope do `AgentRun` (ADR-0065) e na aba Discovery do console. O operador vê se a
+  investigação estrutural foi **refeita** ou **reaproveitada**, em vez de adivinhar.
+- **Limpeza configurável.** Ao gravar um índice novo, `limpar_indices` apaga os excedentes por
+  quantidade (`ASO_INDICE_MAX_ARQUIVOS`, padrão 10 — os mais recentes ficam) e por idade
+  (`ASO_INDICE_MAX_IDADE_DIAS`, padrão 30). O índice do commit corrente nunca é apagado.
+- **Medição do reaproveitamento** (critério da MEL-57), num clone do próprio repositório do ASO
+  (634 arquivos, JSON de 386 KB): **1.070 ms** para construir, **28 ms** lendo o arquivo do commit
+  (~38× mais rápido) e **16 ms** no reaproveitamento dentro do processo. Uma segunda demanda no
+  mesmo commit não reconstrói nada — um teste conta as construções para garantir isso.
+- **Invalidação** continua sendo o próprio commit: commit novo grava outro arquivo e o anterior
+  segue servindo se alguém voltar para ele; árvore suja nem lê nem grava cache.

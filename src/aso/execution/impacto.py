@@ -2,7 +2,8 @@
 
 O índice (`code_index.py`) é grande; o que entra num prompt é **pequeno e verificável**: quem
 importa os arquivos alterados (raio da regressão) e quais testes os cobrem. Este módulo faz essa
-redução e devolve o texto pronto — a revisão (§14) e o contexto do card (ADR-0063) usam o mesmo.
+redução e devolve o texto pronto — a revisão (fluxo §14) e o contexto do card (ADR-0063) usam
+o mesmo.
 
 Nada aqui lê disco: recebe o índice já carregado, para o cálculo ser testável e determinístico.
 """

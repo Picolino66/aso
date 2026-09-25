@@ -81,6 +81,12 @@ anteriores (nunca contrarie uma ADR aceita sem supersedê-la).
   veja `module_map` no orchestrator-context.
 - Rode `ruff check` **antes** de `ruff format` (o check falha rápido em erros
   reais; o format só reformata). Linhas ≤ 100 colunas.
+- **Referência a documento sempre qualificada** (MEL-06): `req §n` (requerimentos.md),
+  `fluxo §n` (fluxo.md), `wf §n` (wiframe-fluxo.md), `ADR-NNNN` ou `MEL-NN §n`. `§13` solto
+  é ambíguo — existe nos três documentos com assuntos diferentes. Numa lista, o prefixo não
+  se repete: `fluxo §5/§6`. `tests/unit/test_convencao_de_referencias.py` falha se aparecer
+  `§` sem documento, se a seção citada não existir ou se voltar referência a `plano*.md`
+  (arquivos que nunca entraram no repositório — o que importava deles está em ADR).
 - Testes ficam em `tests/unit/` e `tests/integration/`; toda feature nova entra
   com teste. Integrações de execução usam git real em `tmp_path`.
 

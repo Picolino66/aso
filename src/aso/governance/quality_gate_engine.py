@@ -1,4 +1,4 @@
-"""QualityGateEngine (§22).
+"""QualityGateEngine (req §22).
 
 Avalia critérios objetivos por fase sobre o OrchestratorContext. Gate falho
 bloqueia o avanço de fase. Cada critério é um predicado sobre o payload do contexto.

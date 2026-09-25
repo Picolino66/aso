@@ -1,4 +1,4 @@
-"""Porta de consumo do agente: tokens e custo, quando o CLI os informa (§26A.11, ADR-0026).
+"""Porta de consumo do agente: tokens e custo, quando o CLI os informa (req §26A.11, ADR-0026).
 
 Mesma solução da ADR-0015 (`shared/agent_output.py`), pelo mesmo motivo — `execution`
 (quem produz o dado, em `agent_stream.extrair_uso`) não pode importar `observability`
@@ -36,7 +36,7 @@ class UsoDoAgente:
 def acumular_uso(atual: dict[str, Any], novo: UsoDoAgente) -> dict[str, Any]:
     """Soma `novo` ao total já acumulado no card (`card.uso`, JSONB) — reexecuções
     somam, não substituem. `execucoes_sem_custo` conta separadamente das que
-    informaram (§26A.11): uma execução sem uso informado nunca soma zero ao custo
+    informaram (req §26A.11): uma execução sem uso informado nunca soma zero ao custo
     como se tivesse sido gratuita, mas o total de execuções continua correto."""
     sem_custo = int(atual.get("execucoes_sem_custo", 0))
     if novo.origem not in ORIGENS_COM_CUSTO:

@@ -80,7 +80,7 @@ class DiscoveryRunBody(BaseModel):
 
 
 class DiscoveryDecideBody(BaseModel):
-    """Decide a aprovação humana do discovery (ADR-0020, §4)."""
+    """Decide a aprovação humana do discovery (ADR-0020, fluxo §4)."""
 
     approved: bool
     comentario: str = ""
@@ -94,13 +94,13 @@ class SpecRunBody(BaseModel):
 
 
 class SpecReviewBody(BaseModel):
-    """Roda a revisão documental sobre a especificação corrente (ADR-0021, §6)."""
+    """Roda a revisão documental sobre a especificação corrente (ADR-0021, fluxo §6)."""
 
     executor: str | None = None
 
 
 class SpecApproveBody(BaseModel):
-    """Decisão humana da especificação quando o ciclo do §6 escalou (ADR-0021, §4.4)."""
+    """Decisão humana da especificação quando o ciclo do wf §6 escalou (ADR-0021, wf §4.4)."""
 
     approved: bool
     comentario: str = ""
@@ -138,7 +138,7 @@ class DocumentoCommentResolveBody(BaseModel):
 
 
 class ValidationCheckBody(BaseModel):
-    """Uma verificação nomeada da bateria do §12 (ADR-0022)."""
+    """Uma verificação nomeada da bateria do fluxo §12 (ADR-0022)."""
 
     nome: str
     comando: str
@@ -153,7 +153,7 @@ class ValidationChecksBody(BaseModel):
 
 
 class DeployConfigBody(BaseModel):
-    """Configura a implantação (ADR-0023, §18-22); tudo opcional — só altera o
+    """Configura a implantação (ADR-0023, fluxo §18-22); tudo opcional — só altera o
     que for enviado, mesmo padrão de `ExecutionSettingsBody`."""
 
     command: str | None = None
@@ -165,7 +165,7 @@ class DeployConfigBody(BaseModel):
 class DeployRunBody(BaseModel):
     """Roda a implantação (POST .../deploy/run); tudo opcional.
 
-    `estagio` só tem efeito com pipeline configurado (§19, ADR-0029): nomeia qual
+    `estagio` só tem efeito com pipeline configurado (fluxo §19, ADR-0029): nomeia qual
     estágio rodar; omitido, resolve para o primeiro pendente (avanço governado).
     """
 
@@ -177,7 +177,7 @@ class DeployRunBody(BaseModel):
 
 
 class EnvironmentBody(BaseModel):
-    """Um estágio do pipeline de implantação (§19, wf §25, ADR-0029)."""
+    """Um estágio do pipeline de implantação (wf §19, §25, ADR-0029)."""
 
     chave: str
     nome: str = ""
@@ -196,7 +196,7 @@ class DeployPipelineBody(BaseModel):
 
 
 class DeployApproveBody(BaseModel):
-    """Aceite final da implantação (ADR-0023, §22) — ação crítica, exige admin."""
+    """Aceite final da implantação (ADR-0023, fluxo §22) — ação crítica, exige admin."""
 
     approved: bool
     comentario: str = ""
@@ -205,7 +205,7 @@ class DeployApproveBody(BaseModel):
 
 
 class DeployRollbackBody(BaseModel):
-    """Reverte a última implantação (ADR-0023, §21) — ação crítica, exige admin."""
+    """Reverte a última implantação (ADR-0023, fluxo §21) — ação crítica, exige admin."""
 
     reason: str
     # Estratégia escolhida (Tela 25, wf §27.1, ADR-0050) — opcional, descritiva.
@@ -213,13 +213,13 @@ class DeployRollbackBody(BaseModel):
 
 
 class IncidentInvestigateBody(BaseModel):
-    """Marca um incidente como em investigação (§21, ADR-0032)."""
+    """Marca um incidente como em investigação (fluxo §21, ADR-0032)."""
 
     detalhe: str = ""
 
 
 class IncidentResolveBody(BaseModel):
-    """Resolve um incidente com a causa raiz identificada (§21, ADR-0032)."""
+    """Resolve um incidente com a causa raiz identificada (fluxo §21, ADR-0032)."""
 
     causa_raiz: str
 
@@ -231,7 +231,7 @@ class BudgetBody(BaseModel):
 
 
 class QaCheckBody(BaseModel):
-    """Registra uma verificação manual de QA (§16, plano de teste do wf §22.1,
+    """Registra uma verificação manual de QA (wf §16, plano de teste do wf §22.1,
     ADR-0049)."""
 
     cenario: str
@@ -248,7 +248,7 @@ class QaCheckBody(BaseModel):
 
 
 class QaFailBody(BaseModel):
-    """Reprova uma verificação de QA já registrada (§17) — cria o bug vinculado."""
+    """Reprova uma verificação de QA já registrada (fluxo §17) — cria o bug vinculado."""
 
     resultado_obtido: str = ""
     evidencias: list[str] = []
@@ -339,13 +339,13 @@ class ExecutorBody(BaseModel):
 
 
 class RaceBody(BaseModel):
-    """Corrida de candidatos (§26A.6): perfis do catálogo; vazio = perfis `candidato`."""
+    """Corrida de candidatos (req §26A.6): perfis do catálogo; vazio = perfis `candidato`."""
 
     executores: list[str] | None = None
 
 
 class RoutingRuleBody(BaseModel):
-    """Corpo de criação/edição de uma regra de roteamento (§33, ADR-0028)."""
+    """Corpo de criação/edição de uma regra de roteamento (req §33, ADR-0028)."""
 
     nome: str
     descricao: str = ""

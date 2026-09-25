@@ -231,6 +231,7 @@ Rotas públicas: `/health`, `/metrics`, `/`, `/ui`, `/docs`.
 | `ASO_TARGET_REPO` | repo alvo dos worktrees de orquestrações sem pasta própria |
 | `ASO_CLI_COMMAND` | **só semeia** o catálogo sem arquivo salvo: perfil `cli` (ADR-0076) |
 | `ASO_CANDIDATE_COMMANDS` | **só semeia** o catálogo: perfis CLI marcados `candidato` da corrida (§26A.6, ADR-0076) |
+| `ASO_INDICE_MAX_ARQUIVOS` / `ASO_INDICE_MAX_IDADE_DIAS` | limpeza do cache do índice estrutural em `<repo>/.aso/index/` (padrões 10 arquivos / 30 dias, ADR-0077) |
 | `ASO_MAX_RACES_PER_CARD` | retenção de corridas de candidatos por card (default 20) |
 | `ASO_SLO_FAILURE_BUDGET` | orçamento de erro da taxa de falhas de execução no `/slo` (default 0.10) |
 | `ASO_MAX_SLO_SAMPLES` | retenção de amostras de SLO por orquestração (default 200) |

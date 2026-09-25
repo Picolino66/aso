@@ -22,6 +22,13 @@ from aso.control.documentos import versao_atual
 from aso.control.next_step import NextStepInput, NextStepReport, compute_next_step
 from aso.control.routing_rules import avaliar_regras, contexto_de_demand_brief
 from aso.control.selecao import sugerir_effort
+from aso.control.similaridade import (
+    LIMITE_DE_CANDIDATAS,
+    MINIMO_DE_HISTORICO,
+    DemandaIndexada,
+    ranquear,
+    texto_da_demanda,
+)
 from aso.control.spec import SpecDocument
 from aso.control.triage import DemandBrief
 from aso.execution.cli_provider import TIMEOUT_PADRAO as CLI_AGENT_TIMEOUT_PADRAO
@@ -50,7 +57,7 @@ def _ultima_falha_de_planejamento(b: OrchestrationBundle) -> str:
 
 def _faixa(valor: float, todos: list[float]) -> str:
     """Posição categórica (baixo/médio/alto) de `valor` dentro de `todos` (wf
-    §15.3, `_estimar_custo_e_tempo`).
+    wf §15.3, `_estimar_custo_e_tempo`).
 
     Bug real (code-review ultra): a versão anterior usava `sorted(todos).index(valor)`
     — `list.index` devolve sempre a primeira ocorrência, então todo grupo empatado
@@ -72,7 +79,7 @@ def _faixa(valor: float, todos: list[float]) -> str:
 
 
 def _tempo_ms_por_card(events: list[DomainEvent]) -> dict[str, float]:
-    """Soma `AgentExecuted.ms` por card — insumo de "tempo gasto" do §24."""
+    """Soma `AgentExecuted.ms` por card — insumo de "tempo gasto" do fluxo §24."""
     tempos: dict[str, float] = {}
     for e in events:
         if e.type != "AgentExecuted":
@@ -120,7 +127,7 @@ class InsightService:
     def get_preparation_checklist(
         self, orchestration_id: str, card_id: str
     ) -> list[dict[str, object]]:
-        """Checklist de preparação do card (§10, ADR-0030) — só leitura: a escrita é
+        """Checklist de preparação do card (fluxo §10, ADR-0030) — só leitura: a escrita é
         100% automática pelo runtime, nunca manual (um checklist editável mentiria
         sobre o que de fato foi verificado)."""
         b = self._bundle(orchestration_id)
@@ -173,9 +180,9 @@ class InsightService:
         return indicadores_da_amostra(self._amostra_do_bundle(b), status_revertido=STATUS_REVERTIDO)
 
     def get_learning_report(self, orchestration_id: str) -> RelatorioDeAprendizado:
-        """Relatório de aprendizado de UMA demanda (§24) — retrabalho, falhas por
+        """Relatório de aprendizado de UMA demanda (fluxo §24) — retrabalho, falhas por
         etapa, desempenho por executor, intervenções humanas. Informativo: não
-        altera nenhuma decisão automaticamente (§3.4 do plano6)."""
+        altera nenhuma decisão automaticamente (ADR-0052)."""
         b = self._bundle(orchestration_id)
         cards, pulls, intervencoes = self._coletar_aprendizado(b)
         extra = self._coletar_indicadores_extra(b)
@@ -238,6 +245,82 @@ class InsightService:
             cards_com_tentativa=cards_com_tentativa,
             tempo_por_etapa_ms=tempo_por_etapa_ms,
         )
+
+    # ------------------------------------------------- demandas parecidas (MEL-45, ADR-0079)
+    def demandas_similares(
+        self, orchestration_id: str, *, limite: int = 5, do_projeto: bool = False
+    ) -> dict[str, object]:
+        """Demandas parecidas com esta e o que aconteceu com elas (ADR-0079).
+
+        Responde "parecidas com esta falharam onde, com qual executor e a que custo?" com
+        **evidência citável**: cada linha traz o id e o título da demanda de onde o número veio.
+        Sem histórico suficiente, diz isso — o painel nunca inventa recomendação.
+
+        `do_projeto` restringe ao projeto da demanda (o histórico do mesmo repositório é mais
+        relevante); sem projeto definido, o recorte não se aplica e a janela é global."""
+        b = self._bundle(orchestration_id)
+        ficha = dict(b.orchestration.demand_brief or {})
+        consulta = texto_da_demanda(b.orchestration.user_request, ficha)
+        projeto = b.orchestration.project_id if do_projeto else None
+        brutas = self._repo.textos_de_demandas(
+            limite=LIMITE_DE_CANDIDATAS, project_id=projeto, excluir=orchestration_id
+        )
+        candidatas = [
+            DemandaIndexada(
+                orchestration_id=str(item["id"]),
+                titulo=str(item["user_request"])[:120],
+                texto=texto_da_demanda(
+                    str(item["user_request"]), dict(item.get("demand_brief") or {})
+                ),
+                criada_em=str(item.get("created_at") or ""),
+                status=str(item.get("status") or ""),
+            )
+            for item in brutas
+        ]
+        parecidas = ranquear(consulta, candidatas, limite=limite)
+        if not parecidas:
+            return {
+                "consulta": consulta[:200],
+                "candidatas_avaliadas": len(candidatas),
+                "similares": [],
+                "recomendacoes": [],
+                "fonte": "sem demanda parecida no histórico",
+            }
+        # Desfecho só das vencedoras: uma amostra por demanda, com as colunas que já existem.
+        amostras = {
+            str(amostra["orchestration_id"]): amostra
+            for amostra in self._repo.amostras_de_aprendizado(
+                [p.orchestration_id for p in parecidas]
+            )
+        }
+        similares: list[dict[str, Any]] = []
+        for parecida in parecidas:
+            similares.append(
+                {
+                    "orchestration_id": parecida.orchestration_id,
+                    "titulo": parecida.titulo,
+                    "score": parecida.score,
+                    "termos_em_comum": parecida.termos_em_comum[:8],
+                    "criada_em": parecida.criada_em,
+                    "status": parecida.status,
+                    **_desfecho_da_amostra(amostras.get(parecida.orchestration_id, {})),
+                }
+            )
+        com_execucao = [s for s in similares if int(s.get("cards_executados") or 0) > 0]
+        return {
+            "consulta": consulta[:200],
+            "candidatas_avaliadas": len(candidatas),
+            "similares": similares,
+            "recomendacoes": _recomendacoes_dos_similares(com_execucao),
+            "fonte": (
+                f"baseado em {len(com_execucao)} demanda(s) parecida(s) com execução registrada"
+                if len(com_execucao) >= MINIMO_DE_HISTORICO
+                else (
+                    f"{len(similares)} demanda(s) parecida(s), mas só {len(com_execucao)} com "
+                    "execução registrada — histórico insuficiente para recomendar"
+                )
+            ),
+        }
 
     def preview_recommendation(self, orchestration_id: str) -> dict[str, object]:
         """Painel de recomendação (Tela 13, wf §15, ADR-0044) — o que o motor
@@ -341,7 +424,7 @@ class InsightService:
     def next_step(
         self, orchestration_id: str, *, slo_breaches: list[str] | None = None
     ) -> NextStepReport:
-        """Diz o que falta para a esteira seguir (§14 · ADR-0013).
+        """Diz o que falta para a esteira seguir (ADR-0013).
 
         Coleta o retrato do estado governado e delega o cálculo ao motor puro em
         `control/next_step.py` — assim a UI não reimplementa regra de governança.
@@ -379,3 +462,123 @@ class InsightService:
                 planejamento_falhou=_ultima_falha_de_planejamento(b),
             )
         )
+
+
+def _desfecho_da_amostra(amostra: dict[str, Any]) -> dict[str, Any]:
+    """O que a demanda parecida ensina: executor mais usado, tentativas, custo e falhas.
+
+    Tudo vem das colunas que o runtime já grava (cards e PRs). Custo ausente é `None`, nunca
+    zero: "ninguém informou" e "custou zero" são coisas diferentes (ADR-0026)."""
+    cards = list(amostra.get("cards") or [])
+    if not cards:
+        return {
+            "cards_executados": 0,
+            "executor": None,
+            "tentativas": None,
+            "custo_usd": None,
+            "entregues": 0,
+            "review": None,
+            "falhas": [],
+        }
+    executados = [c for c in cards if int(c.get("tentativa_atual") or 0) >= 1]
+    por_executor: dict[str, int] = {}
+    for card in executados:
+        nome = str(card.get("executor") or "")
+        if nome:
+            por_executor[nome] = por_executor.get(nome, 0) + 1
+    custos = [
+        float((card.get("uso") or {}).get("custo_usd", 0.0) or 0.0)
+        for card in executados
+        if (card.get("uso") or {}).get("custo_usd")
+    ]
+    tentativas = [int(card.get("tentativa_atual") or 0) for card in executados]
+    diagnosticos: dict[str, int] = {}
+    for card in cards:
+        for falha in card.get("failures") or []:
+            chave = str(falha.get("diagnostico") or falha.get("categoria") or "").strip()
+            if chave:
+                diagnosticos[chave] = diagnosticos.get(chave, 0) + 1
+    vereditos = [
+        str(pr.get("review_status") or "")
+        for pr in (amostra.get("pulls") or [])
+        if pr.get("review_status")
+    ]
+    return {
+        "cards_executados": len(executados),
+        "executor": max(por_executor, key=lambda k: por_executor[k]) if por_executor else None,
+        "tentativas": round(sum(tentativas) / len(tentativas), 2) if tentativas else None,
+        "custo_usd": round(sum(custos), 6) if custos else None,
+        "entregues": sum(1 for c in cards if c.get("status") == "Done"),
+        "review": vereditos[-1] if vereditos else None,
+        "falhas": sorted(diagnosticos, key=lambda k: -diagnosticos[k])[:3],
+    }
+
+
+def _recomendacoes_dos_similares(similares: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Frases com fonte a partir das demandas parecidas — nunca uma decisão automática.
+
+    Só afirma o que os dados sustentam: o executor que mais apareceu, o diagnóstico de falha
+    recorrente e o custo observado. Abaixo de `MINIMO_DE_HISTORICO` demandas, devolve vazio."""
+    if len(similares) < MINIMO_DE_HISTORICO:
+        return []
+    recomendacoes: list[dict[str, Any]] = []
+    executores: dict[str, list[str]] = {}
+    for similar in similares:
+        nome = similar.get("executor")
+        if isinstance(nome, str) and nome:
+            executores.setdefault(nome, []).append(str(similar["orchestration_id"]))
+    if executores:
+        melhor = max(executores, key=lambda k: len(executores[k]))
+        recomendacoes.append(
+            {
+                "tipo": "executor",
+                "texto": f"Demandas parecidas rodaram com `{melhor}`.",
+                "fonte": executores[melhor],
+            }
+        )
+    falhas: dict[str, list[str]] = {}
+    for similar in similares:
+        for falha in similar.get("falhas") or []:
+            falhas.setdefault(str(falha), []).append(str(similar["orchestration_id"]))
+    for falha, fontes in sorted(falhas.items(), key=lambda par: -len(par[1]))[:2]:
+        if len(fontes) >= MINIMO_DE_HISTORICO:
+            recomendacoes.append(
+                {
+                    "tipo": "falha",
+                    "texto": f"Demandas parecidas falharam por `{falha}` — vale prevenir.",
+                    "fonte": fontes,
+                }
+            )
+    custos = [
+        (str(s["orchestration_id"]), float(s["custo_usd"]))
+        for s in similares
+        if isinstance(s.get("custo_usd"), (int, float)) and s.get("custo_usd")
+    ]
+    if len(custos) >= MINIMO_DE_HISTORICO:
+        media = sum(valor for _, valor in custos) / len(custos)
+        recomendacoes.append(
+            {
+                "tipo": "custo",
+                "texto": f"Custo observado em demandas parecidas: US$ {media:.4f} em média.",
+                "fonte": [oid for oid, _ in custos],
+            }
+        )
+    tentativas = [
+        (str(s["orchestration_id"]), float(s["tentativas"]))
+        for s in similares
+        if isinstance(s.get("tentativas"), (int, float)) and s.get("tentativas")
+    ]
+    if len(tentativas) >= MINIMO_DE_HISTORICO:
+        media = sum(valor for _, valor in tentativas) / len(tentativas)
+        if media > 1.5:
+            recomendacoes.append(
+                {
+                    "tipo": "tentativas",
+                    "texto": (
+                        f"Demandas parecidas precisaram de {media:.1f} tentativas por card em "
+                        "média — considere esforço maior desde o início."
+                    ),
+                    "fonte": [oid for oid, _ in tentativas],
+                }
+            )
+    return recomendacoes

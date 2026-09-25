@@ -1,4 +1,4 @@
-"""AgentRegistry (§15, TASK-07).
+"""AgentRegistry (req §15, TASK-07).
 
 Registra os agentes especializados, suas capacidades, permissões de tools e as
 seções do contexto que podem escrever (usado para compor a PermissionPolicy do ContextBus).
@@ -37,7 +37,7 @@ def fase_padrao(role: str) -> Phase:
     return FASE_PADRAO_POR_PAPEL.get(role, Phase.F5)
 
 
-# Definição-base dos 16 agentes obrigatórios (§15). Mantida enxuta no MVP-1.
+# Definição-base dos 16 agentes obrigatórios (req §15). Mantida enxuta no MVP-1.
 _DEFAULT_AGENTS: list[dict[str, object]] = [
     {
         "role": "OrchestratorAgent",
@@ -100,7 +100,7 @@ class AgentRegistry:
         return sorted(self._agents.values(), key=lambda a: a.role)
 
     def seed_defaults(self) -> None:
-        """Registra os 16 agentes obrigatórios (§15) com defaults do MVP-1."""
+        """Registra os 16 agentes obrigatórios (req §15) com defaults do MVP-1."""
         for data in _DEFAULT_AGENTS:
             self.register(AgentSpec(**data))  # type: ignore[arg-type]
 

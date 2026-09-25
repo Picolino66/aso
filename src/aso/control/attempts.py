@@ -1,4 +1,4 @@
-"""Histórico de tentativas por card (§36.4 do wiframe, ADR-0031).
+"""Histórico de tentativas por card (wf §36.4 do wiframe, ADR-0031).
 
 `card.failures` (ADR-0019) só registra **falhas** — não há registro nenhum de
 tentativas bem-sucedidas, e o contador de "quantas vezes esta card já foi
@@ -12,7 +12,7 @@ simples, nunca truncado, contador AUTORITATIVO de tentativas totais — sucesso 
 falha — para exibição e para o teto por agente, ADR-0053) e `card.tentativas`
 (ring com histórico detalhado — sucesso e falha — para auditoria/UI, mesma
 disciplina de tamanho limitado de `card.failures`/`qa_checks`). `decidir()` usa
-um terceiro contador, `card.tentativa_falha_atual` (§13, ADR-0019) — zera a cada
+um terceiro contador, `card.tentativa_falha_atual` (fluxo §13, ADR-0019) — zera a cada
 sucesso, pois a escalação de falha olha só falhas consecutivas, não o total.
 
 Puro e determinístico, no mesmo molde de `control/failure.py`/`control/qa.py`.
@@ -32,7 +32,7 @@ _RING_PADRAO = 10
 
 class TentativaRegistro(BaseModel):
     """Uma tentativa de execução do card — sucesso ou falha, sempre com modelo e
-    esforço usados (§36.4 do wiframe: "Modelo: Luna / Effort: Médio / Resultado")."""
+    esforço usados (wf §36.4 do wiframe: "Modelo: Luna / Effort: Médio / Resultado")."""
 
     numero: int
     executor: str = ""

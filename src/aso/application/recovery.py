@@ -59,7 +59,7 @@ class RecoveryService:
         return self._execution.run_card(*args, **kwargs)
 
     def retry(self, orchestration_id: str) -> list[str]:
-        """Reexecuta cards pendentes/falhos (§28.1), respeitando o ponto certo (§13).
+        """Reexecuta cards pendentes/falhos (req §28.1), respeitando o ponto certo (fluxo §13).
 
         Gate reprovado roteia só os cards da fase que ainda não chegaram a `Done` —
         não reinicia a fase inteira (Princípio central do fluxo.md: "retorna
@@ -85,7 +85,7 @@ class RecoveryService:
         recente daquela fase) que ainda não chegaram a `Done`. `None` = não se aplica
         (cai na varredura genérica de `retry`).
 
-        Desde a ADR-0022, a reprovação também passa pelo roteamento de falha (§13,
+        Desde a ADR-0022, a reprovação também passa pelo roteamento de falha (fluxo §13,
         ADR-0019): a verificação nomeada que reprovou primeiro dá `categoria` ao
         diagnóstico — fato, não heurística por palavra-chave (`diagnosticar` prefere
         a categoria quando ela existe). A escalada (effort maior/outro executor) é

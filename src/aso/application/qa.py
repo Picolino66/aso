@@ -31,7 +31,7 @@ from aso.governance.models import BugReport
 from aso.kanban.models import KanbanCard
 from aso.shared.types import CardType, ColumnKey, RiskLevel
 
-# Ring de verificações de QA por card (§16, ADR-0025) — mesmo raciocínio de
+# Ring de verificações de QA por card (fluxo §16, ADR-0025) — mesmo raciocínio de
 # `_max_races_per_card`/ring de discovery/spec: histórico limitado, não ilimitado.
 _QA_RING = 10
 
@@ -45,7 +45,7 @@ _GRAVIDADE_PARA_PRIORIDADE: dict[str, RiskLevel] = {
 
 
 def _descricao_bug_de_qa(check: QaCheck) -> str:
-    """Monta a descrição do bug do §17 a partir do `QaCheck` reprovado — como
+    """Monta a descrição do bug do fluxo §17 a partir do `QaCheck` reprovado — como
     reproduzir, ambiente, evidências, resultado atual e esperado, gravidade."""
     linhas = [f"Cenário: {check.cenario}"]
     if check.ambiente:
@@ -63,7 +63,7 @@ def _descricao_bug_de_qa(check: QaCheck) -> str:
     return "\n".join(linhas)
 
 
-# 13 blocos do §23 do fluxo.md (Tela 27, wf §29.1, ADR-0050) — a wireframe tem um
+# 13 blocos do fluxo §23 (Tela 27, wf §29.1, ADR-0050) — a wireframe tem um
 # 14º bloco ("Cards concluídos") que o fluxo.md não lista; fica de fora daqui e
 # vira métrica de resumo (`_demand_closure_metricas`), não bloco de relatório —
 # ver ADR-0050 para o raciocínio completo.
@@ -86,7 +86,7 @@ _BLOCOS_ENCERRAMENTO_DEMANDA: list[tuple[str, str]] = [
 
 def _build_demand_closure(b: OrchestrationBundle) -> dict[str, Any]:
     """Relatório de encerramento da demanda (Tela 27, wf §29, ADR-0050) — os 13
-    blocos do §23 do fluxo.md, no nível da demanda inteira (`_build_card_closure`
+    blocos do fluxo §23, no nível da demanda inteira (`_build_card_closure`
     é o mesmo relatório por CARD). Mesma disciplina de só montar o que o runtime
     já tem à mão: sem tabela central de commits, "commits" vira a lista de
     branches mescladas (fato real, não uma contagem inventada); "decisões
@@ -240,7 +240,7 @@ class QaService:
         tipo_responsavel: str = "humano",
         actor: str = "system",
     ) -> QaCheck:
-        """Registra uma verificação manual de QA (§16, plano de teste do wf §22.1)
+        """Registra uma verificação manual de QA (wf §16, plano de teste do wf §22.1)
         no ring do card (10 últimas)."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -287,7 +287,7 @@ class QaService:
         gravidade: str | None = None,
         actor: str = "system",
     ) -> KanbanCard:
-        """§17: reprovação de QA cria um bug vinculado ao card original e devolve o
+        """fluxo §17: reprovação de QA cria um bug vinculado ao card original e devolve o
         card ao ponto certo do fluxo — via a mesma tabela de roteamento de falha
         (ADR-0019, `diagnosticar`/`decidir`), sem taxonomia nova."""
         with self._lock_for(orchestration_id):
@@ -309,9 +309,9 @@ class QaService:
 
             bug = self._criar_bug_de_qa(b, card, check)
 
-            card.tentativa_atual += 1  # §36.4, ADR-0031: contador autoritativo, não o ring
+            card.tentativa_atual += 1  # req §36.4, ADR-0031: contador autoritativo, não o ring
             card.tentativa_falha_atual += (
-                1  # §13, ADR-0019: só falha consecutiva, decidir() usa este
+                1  # fluxo §13, ADR-0019: só falha consecutiva, decidir() usa este
             )
             record = FailureRecord(
                 etapa=ETAPA_QA,
@@ -369,8 +369,8 @@ class QaService:
     def _criar_bug_de_qa(
         self, b: OrchestrationBundle, card: KanbanCard, check: QaCheck
     ) -> KanbanCard:
-        """Cria o card `Bug` do §17, vinculado por `dependencies` (para o observador
-        de `blocked_by` da ADR-0018/0022) e por `parent_id` quando a hierarquia (§7)
+        """Cria o card `Bug` do fluxo §17, vinculado por `dependencies` (para o observador
+        de `blocked_by` da ADR-0018/0022) e por `parent_id` quando a hierarquia (fluxo §7)
         permitir — card original já no nível mais profundo cai sem `parent_id`, a
         dependência sozinha já vincula."""
         bug = KanbanCard(
@@ -419,7 +419,7 @@ class QaService:
         de QA, ADR-0025) e o `BugReport` estruturado companion (ADR-0049).
 
         `retorno_de_fluxo == "card_independente"` é a única das 6 opções do wf
-        §23.2 com efeito real no backend: o card nasce SEM vínculo de
+        wf §23.2 com efeito real no backend: o card nasce SEM vínculo de
         dependência com o original. As outras 5 ("retornar para X") são
         metadado descritivo — o runtime não tem mecanismo de roteamento
         automático entre disciplinas/times, então fabricar esse roteamento

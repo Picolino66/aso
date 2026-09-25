@@ -12,7 +12,7 @@ Modelo de dados, Contrato de API, Plano de migração.
 
 Reaproveita o mesmo vocabulário de status de `control/spec.py` e o mesmo motor de
 revisão documental (`ReviewService.revisar_documento`/`DocReviewVerdict`, ADR-0021)
-— os quatro desfechos do §6 já batem EXATAMENTE com os quatro do wf §11.2. Também
+— os quatro desfechos do wf §6 já batem EXATAMENTE com os quatro do wf §11.2. Também
 reaproveita o versionamento em ring genérico de `control/documentos.py`
 (`proxima_versao`/`acrescentar_versao`/`versao_atual`), só que com um ring por tipo
 em vez de um ring único — mesmo raciocínio de `discovery_reports`/`spec_documents`,
@@ -50,7 +50,7 @@ TIPOS_VALIDOS = frozenset(
     }
 )
 
-# Rótulo humano (wf §10.1, coluna "Documento" de §10.2) — usado na lista e no
+# Rótulo humano (wf §10.1, coluna "Documento" de wf §10.2) — usado na lista e no
 # título do editor; a chave é o valor persistido, o rótulo é só para exibição.
 ROTULOS: dict[str, str] = {
     TIPO_REQUISITOS: "Requisitos",

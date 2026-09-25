@@ -1,4 +1,4 @@
-"""Bateria de validações (§12 do fluxo.md) — ADR-0022.
+"""Bateria de validações (fluxo §12) — ADR-0022.
 
 Puro e determinístico, no mesmo espírito de `next_step.py`/`failure.py`: dado o
 mesmo estado (orquestração ou workspace), o resultado é sempre o mesmo — nenhum
@@ -23,7 +23,7 @@ def checks_efetivos(orch: Orchestration) -> list[ValidationCheck]:
 
     Sem bateria configurada (`validation_checks` vazio), o `validation_command`
     legado vira uma verificação única chamada "testes" — compatibilidade é
-    requisito, não cortesia (§4.1 do plano5.md): toda orquestração criada antes
+    requisito, não cortesia (ADR-0022): toda orquestração criada antes
     deste incremento continua funcionando exatamente igual.
     """
     if orch.validation_checks:
@@ -34,7 +34,7 @@ def checks_efetivos(orch: Orchestration) -> list[ValidationCheck]:
 
 
 # Scripts de `package.json` reconhecidos, na ordem em que aparecem na bateria
-# sugerida — só entram os que existem de fato no arquivo (§4.5: nunca inventar).
+# sugerida — só entram os que existem de fato no arquivo (ADR-0022: nunca inventar).
 _SCRIPTS_NPM: tuple[tuple[str, str, str], ...] = (
     ("lint", "lint", "lint"),
     ("test", "testes", "testes"),
@@ -43,7 +43,7 @@ _SCRIPTS_NPM: tuple[tuple[str, str, str], ...] = (
 
 
 def sugerir_bateria(target_path: str) -> list[ValidationCheck]:
-    """Sugestão determinística por stack (§4.5) — nunca grava nada e nunca inventa
+    """Sugestão determinística por stack (ADR-0022) — nunca grava nada e nunca inventa
     comando de arquivo/script que não existe no workspace. Pasta sem stack
     reconhecida devolve lista vazia."""
     raiz = Path(target_path).expanduser()

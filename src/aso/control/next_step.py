@@ -1,4 +1,4 @@
-"""Motor de *próximo passo* da esteira (§14 · ADR-0013).
+"""Motor de *próximo passo* da esteira (ADR-0013).
 
 Traduz o estado governado de uma orquestração na única pergunta que o operador faz
 ao abrir a tela de detalhe: **o que falta para seguir em frente?**
@@ -260,10 +260,10 @@ class NextStepInput:
     executor_available: bool | None = None
     executor_reason: str = ""
     slo_breaches: list[str] = field(default_factory=list)
-    # Orçamento com freio (§1.2/§3.2, ADR-0026) — custo real acumulado (soma de
+    # Orçamento com freio (wf §1.2/§3.2, ADR-0026) — custo real acumulado (soma de
     # `card.uso.custo_usd`), comparado ao teto opcional da orquestração.
     gasto_usd: float = 0.0
-    # Sobrevivência a crash (§1.4/§3.3, ADR-0027) — o mesmo timeout que já mata um
+    # Sobrevivência a crash (wf §1.4/§3.3, ADR-0027) — o mesmo timeout que já mata um
     # agente travado (`ASO_AGENT_TIMEOUT`) é o sinal de que ninguém mais pode estar
     # trabalhando num card parado em `InProgress` há mais tempo que isso.
     agent_timeout_seconds: float = 1800.0
@@ -374,7 +374,7 @@ def _setup_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
 
 
 def _demand_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
-    """Perguntas abertas da triagem (§1 do fluxo.md: *"poderá solicitar informações
+    """Perguntas abertas da triagem (fluxo §1: *"poderá solicitar informações
     adicionais antes de iniciar a execução"*). `SEVERITY_HUMAN` fica abaixo de
     `SEVERITY_BLOCKS` na ordenação: aparece com destaque, mas não trava a esteira — o
     orquestrador *poderá* pedir mais informação, não *deverá* parar.
@@ -450,7 +450,7 @@ def _governance_blockers(inp: NextStepInput) -> list[NextStepBlocker]:
 
 
 def _budget_blocker(inp: NextStepInput) -> NextStepBlocker | None:
-    """Orçamento com freio (§1.2/§3.2, ADR-0026). `alerta` é informativo (não trava a
+    """Orçamento com freio (wf §1.2/§3.2, ADR-0026). `alerta` é informativo (não trava a
     esteira); `estourado` bloqueia — a ação de elevar o teto é sempre `admin`, no
     mesmo espírito da regra 4 do CLAUDE.md: autorizar mais gasto é decisão humana."""
     orch = inp.orchestration
@@ -486,7 +486,7 @@ def _budget_blocker(inp: NextStepInput) -> NextStepBlocker | None:
 
 
 def _orphan_card_blocker(inp: NextStepInput) -> NextStepBlocker | None:
-    """Card órfão (§1.4/§3.3, ADR-0027): `InProgress` parado por mais tempo que
+    """Card órfão (wf §1.4/§3.3, ADR-0027): `InProgress` parado por mais tempo que
     `ASO_AGENT_TIMEOUT` — o próprio timeout já garante que nenhum agente vivo poderia
     ainda estar nele (o provider mata e move o card fora de `InProgress` antes disso).
     Aponta para `route_card` (ADR-0019), não um caminho novo de recuperação."""
@@ -575,7 +575,7 @@ def _pr_blocker(
         )
     if pr.review_status != "approved":
         # Cobre `necessita_humano`, indisponibilidade do revisor e o caso em que o
-        # agente aprovou mas o risco da demanda exige confirmação humana (§4.3).
+        # agente aprovou mas o risco da demanda exige confirmação humana (wf §4.3).
         return NextStepBlocker(
             code="pr_review_humana",
             severity=SEVERITY_HUMAN,
@@ -628,7 +628,7 @@ def _cards_falhos_blocker(orchestration_id: str, falhos: list[KanbanCard]) -> Ne
     if primeiro.failures:
         ultimo = FailureRecord.model_validate(primeiro.failures[-1])
         diagnostico = diagnosticar(ultimo)
-        # §36.4, ADR-0031: `tentativa_atual` é o contador autoritativo (nunca
+        # req §36.4, ADR-0031: `tentativa_atual` é o contador autoritativo (nunca
         # truncado) — `len(failures)` é só o tamanho do ring, travado em 5.
         rotulo_tentativa = f"tentativa {primeiro.tentativa_atual}"
         if primeiro.max_tentativas is not None:
@@ -646,7 +646,7 @@ def _cards_falhos_blocker(orchestration_id: str, falhos: list[KanbanCard]) -> Ne
 
 
 def _discovery_blocker(orch_id: str, report: DiscoveryReport) -> NextStepBlocker | None:
-    """Bloqueio de discovery (§3/§4, ADR-0020) — só existe quando um relatório foi
+    """Bloqueio de discovery (fluxo §3/§4, ADR-0020) — só existe quando um relatório foi
     gerado (`status` vazio = discovery nunca rodado, não bloqueia nada)."""
     if report.status == STATUS_REPROVADO:
         return NextStepBlocker(
@@ -674,7 +674,7 @@ def _discovery_blocker(orch_id: str, report: DiscoveryReport) -> NextStepBlocker
 
 
 def _spec_blocker(orch_id: str, spec: SpecDocument, *, enforced: bool) -> NextStepBlocker | None:
-    """Bloqueio de especificação (§5/§6, ADR-0021).
+    """Bloqueio de especificação (fluxo §5/§6, ADR-0021).
 
     `enforced` = True quando `run_phase` já recusa rodar F5 sem spec aprovada
     (`execution_mode == FULL_PIPELINE`) — aí a severidade é `bloqueia`, refletindo o
@@ -696,7 +696,7 @@ def _spec_blocker(orch_id: str, spec: SpecDocument, *, enforced: bool) -> NextSt
             code="spec_aguardando_humano",
             severity=SEVERITY_HUMAN,
             title="Especificação aguardando decisão humana",
-            detail="O ciclo de revisão documental (§6) esgotou as rodadas automáticas.",
+            detail="O ciclo de revisão documental (fluxo §6) esgotou as rodadas automáticas.",
             action=NextStepAction(
                 label="Decidir especificação",
                 path=_orch_path(orch_id, "/spec/approve"),
@@ -708,7 +708,7 @@ def _spec_blocker(orch_id: str, spec: SpecDocument, *, enforced: bool) -> NextSt
             code="spec_em_revisao",
             severity=severidade,
             title="Especificação gerada, aguardando revisão documental",
-            detail="Rode a revisão documental (§6) antes de liberar a execução.",
+            detail="Rode a revisão documental (fluxo §6) antes de liberar a execução.",
             action=NextStepAction(
                 label="Rodar revisão documental", path=_orch_path(orch_id, "/spec/review")
             ),
@@ -717,13 +717,13 @@ def _spec_blocker(orch_id: str, spec: SpecDocument, *, enforced: bool) -> NextSt
         code="spec_pendente",
         severity=severidade,
         title="Especificação ainda não gerada",
-        detail="Com o discovery aprovado, gere a especificação (§5) antes de F5.",
+        detail="Com o discovery aprovado, gere a especificação (fluxo §5) antes de F5.",
         action=NextStepAction(label="Gerar especificação", path=_orch_path(orch_id, "/spec/run")),
     )
 
 
 def _deploy_blocker(orch_id: str, deploy: DeployRun) -> NextStepBlocker | None:
-    """Bloqueio de implantação (§18-22, ADR-0023; §19, ADR-0029) — só existe quando
+    """Bloqueio de implantação (fluxo §18-22, ADR-0023; fluxo §19, ADR-0029) — só existe quando
     uma tentativa de implantação de fato ocorreu (`status` pendente = nunca
     implantou, não bloqueia nada). Com pipeline configurado, `deploy.estagio` nomeia
     o estágio no título; `diagnostico_falha`/`proxima_acao_falha` (quando presentes)
@@ -744,7 +744,8 @@ def _deploy_blocker(orch_id: str, deploy: DeployRun) -> NextStepBlocker | None:
         )
     if deploy.aceite_status == DEPLOY_ACEITE_AGUARDANDO_HUMANO:
         detail = (
-            "Risco/impacto da demanda ou validação pós-implantação exigem confirmação humana (§22)."
+            "Risco/impacto da demanda ou validação pós-implantação exigem confirmação "
+            "humana (fluxo §22)."
         )
         if deploy.proxima_acao_falha:
             detail = f"{deploy.proxima_acao_falha} {detail}"
@@ -779,7 +780,7 @@ def _deploy_blocker(orch_id: str, deploy: DeployRun) -> NextStepBlocker | None:
 def _race_blocker(
     orch_id: str, do_ciclo: list[KanbanCard], candidate_runs: list[CandidateRun]
 ) -> NextStepBlocker | None:
-    """§26A.6 (plano6 §0, ADR-0024): uma corrida que perdeu candidato nunca é
+    """req §26A.6 (ADR-0024): uma corrida que perdeu candidato nunca é
     silenciosa — o operador vê "recomendado: X" e precisa saber que Y nem
     competiu antes de confiar na recomendação. Só olha cards ainda não `Done`:
     uma corrida degradada num card já mesclado é histórico, não bloqueio."""
@@ -808,7 +809,7 @@ def _race_blocker(
 def _qa_blocker(
     orch_id: str, do_ciclo: list[KanbanCard], brief: DemandBrief
 ) -> NextStepBlocker | None:
-    """QA manual (§16/§17, ADR-0025): olha o ÚLTIMO `QaCheck` de cada card — um novo
+    """QA manual (fluxo §16/§17, ADR-0025): olha o ÚLTIMO `QaCheck` de cada card — um novo
     registro depois de uma reprovação resolve o bloqueio sozinho, sem precisar
     "fechar" o item antigo. Cards ainda não avaliados por `exige_qa_manual` não
     entram aqui: a regra é a mesma usada para exigir QA em primeiro lugar."""
@@ -833,7 +834,7 @@ def _qa_blocker(
                 code="qa_pendente",
                 severity=SEVERITY_HUMAN,
                 title=f"QA manual exigido para '{card.title}'",
-                detail="Domínio/complexidade/tipo do card exigem verificação manual (§16) "
+                detail="Domínio/complexidade/tipo do card exigem verificação manual (fluxo §16) "
                 "antes de seguir.",
                 action=NextStepAction(
                     label="Registrar QA", path=_orch_path(orch_id, f"/cards/{card.id}/qa")
@@ -1119,7 +1120,7 @@ def _checklist(inp: NextStepInput, phase: Phase) -> list[NextStepChecklistItem]:
         ),
     ]
     if phase == Phase.F1 and inp.discovery_report.status != STATUS_RASCUNHO:
-        # Só entra quando `/discovery/run` já foi chamado ao menos uma vez (§3/§4,
+        # Só entra quando `/discovery/run` já foi chamado ao menos uma vez (fluxo §3/§4,
         # ADR-0020) — a maioria das orquestrações nunca passa por discovery.
         itens.append(
             NextStepChecklistItem(
@@ -1131,7 +1132,7 @@ def _checklist(inp: NextStepInput, phase: Phase) -> list[NextStepChecklistItem]:
             )
         )
     if phase == Phase.F5 and inp.spec.status != SPEC_STATUS_RASCUNHO:
-        # Só entra quando `/spec/run` já foi chamado ao menos uma vez (§5/§6,
+        # Só entra quando `/spec/run` já foi chamado ao menos uma vez (fluxo §5/§6,
         # ADR-0021) — CODE_EXECUTION nunca passa por especificação.
         itens.append(
             NextStepChecklistItem(
@@ -1141,7 +1142,7 @@ def _checklist(inp: NextStepInput, phase: Phase) -> list[NextStepChecklistItem]:
             )
         )
     if phase == Phase.F6 and inp.deploy.status != DEPLOY_STATUS_PENDENTE:
-        # Só entra quando `/deploy/run` já foi chamado ao menos uma vez (§18-22,
+        # Só entra quando `/deploy/run` já foi chamado ao menos uma vez (fluxo §18-22,
         # ADR-0023) — a maioria das orquestrações nunca implanta pelo runtime.
         itens.append(
             NextStepChecklistItem(

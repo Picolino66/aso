@@ -62,7 +62,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
 
-    # ---- Regras de roteamento (§33, ADR-0028) --------------------------------
+    # ---- Regras de roteamento (req §33, ADR-0028) --------------------------------
 
     @router.get("/v1/routing-rules")
     def list_routing_rules(only_active: bool = Query(default=False)) -> Any:

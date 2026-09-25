@@ -236,7 +236,7 @@ def extrair_resposta_final(saida: str) -> str:
 
 
 def extrair_uso(linha: str) -> UsoDoAgente | None:
-    """Lê tokens/custo do envelope final, quando o CLI os informa (§26A.11, ADR-0026).
+    """Lê tokens/custo do envelope final, quando o CLI os informa (req §26A.11, ADR-0026).
 
     Reconhece só o que se conhece e devolve `None` no resto — mesma postura de
     `interpretar` (§ princípio de projeto, topo do arquivo). Nenhum consumidor deve

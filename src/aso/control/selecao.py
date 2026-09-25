@@ -1,4 +1,4 @@
-"""Escolha automática de esforço (§9 do fluxo.md) — ADR-0022.
+"""Escolha automática de esforço (fluxo §9) — ADR-0022.
 
 Puro e determinístico: dado a mesma complexidade e o mesmo risco, a sugestão é
 sempre a mesma — tabela, não palpite de agente. `DemandBrief.complexidade` é
@@ -29,7 +29,7 @@ _PADRAO = ("medium", "high")
 
 
 def sugerir_effort(complexidade: str, risco: RiskLevel) -> str:
-    """§9: complexidade e risco decidem o esforço — tabela, não palpite."""
+    """fluxo §9: complexidade e risco decidem o esforço — tabela, não palpite."""
     risco_alto = risco in (RiskLevel.HIGH, RiskLevel.CRITICAL)
     baixo, alto = _TABELA.get(complexidade, _PADRAO)
     return alto if risco_alto else baixo

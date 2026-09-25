@@ -1,4 +1,4 @@
-"""AgentSupervisor — executa um agente sob supervisão (§15, AgentWrapper).
+"""AgentSupervisor — executa um agente sob supervisão (req §15, AgentWrapper).
 
 Tenta executar via ExecutionProvider; com `max_attempts > 1`, re-tenta anexando um `nudge`
 (dica de correção) à tarefa. **Por padrão, uma tentativa só (ADR-0071):** quem decide se e
@@ -50,6 +50,6 @@ class AgentSupervisor:
                     "AgentRetry",
                     {"agent": agent.role, "attempt": attempt, "error": str(exc)},
                 )
-                # Nudge: re-envia com uma dica de correção (§26A supports_nudge).
+                # Nudge: re-envia com uma dica de correção (req §26A supports_nudge).
                 current = {**current, "nudge": f"tentativa {attempt} falhou: {exc}"}
         raise AssertionError("inalcançável: o laço retorna ou relança")  # pragma: no cover

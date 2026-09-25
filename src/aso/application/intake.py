@@ -158,7 +158,7 @@ class IntakeService:
             demand_brief=brief.model_dump(mode="json") if demand_brief is not None else {},
             validation_command=validation_command,
             current_phase=Phase.F5 if execution_mode == ExecutionMode.CODE_EXECUTION else Phase.F1,
-            # Tela 03 (§5.2, ADR-0039): orçamento explícito na criação vence o
+            # Tela 03 (wf §5.2, ADR-0039): orçamento explícito na criação vence o
             # default de ambiente — `None` preserva o comportamento de sempre.
             orcamento_usd=(
                 orcamento_usd if orcamento_usd is not None else self._orcamento_padrao_usd
@@ -190,14 +190,14 @@ class IntakeService:
         self._apply_routing_rule(
             orchestration, din, plan, executor_explicito=executor, effort_explicito=effort
         )
-        # Tela 03 (§5.2, ADR-0039): "Aprovação humana obrigatória" força o mesmo
+        # Tela 03 (wf §5.2, ADR-0039): "Aprovação humana obrigatória" força o mesmo
         # efeito que `RoutingRuleAction.aprovacao_humana` (ADR-0028) já tem — só
         # adiciona a exigência, nunca remove o que o motor/regra já decidiram.
         if brief.aprovacao_humana_obrigatoria:
             plan.requires_human_approval = True
 
-        # Registra a decisão de estratégia como ADR (rastreabilidade §21) — cita a
-        # regra de roteamento que decidiu, quando uma casou (§33, ADR-0028).
+        # Registra a decisão de estratégia como ADR (rastreabilidade req §21) — cita a
+        # regra de roteamento que decidiu, quando uma casou (req §33, ADR-0028).
         adr_registry.create(
             title=f"Estratégia de execução: {plan.strategy.value}",
             decision=plan.reason,
@@ -205,9 +205,9 @@ class IntakeService:
             context=f"Demanda: {user_request}",
             rationale=(
                 f"Regra de roteamento '{orchestration.routing_rule_applied['regra_nome']}' "
-                "(§33, ADR-0028)."
+                "(req §33, ADR-0028)."
                 if orchestration.routing_rule_applied
-                else "Decisão do MultiAgentDecisionEngine (§14)."
+                else "Decisão do MultiAgentDecisionEngine (req §14)."
             ),
         )
 
@@ -238,7 +238,7 @@ class IntakeService:
                 max_tentativas=max_tentativas_da_regra,
             )
             planned_cards.append((planned, card))
-        # Segunda passada: `dependencies` (§10 do fluxo.md) referencia IDs de cards
+        # Segunda passada: `dependencies` (fluxo §10) referencia IDs de cards
         # irmãos, que só existem depois que todos os cards desta onda nasceram.
         # Dependência apontando para um agente fora do plano é ignorada — ele não
         # participou desta estratégia (ex.: descartado pelo MultiAgentDecisionEngine).
@@ -267,7 +267,7 @@ class IntakeService:
             board=board,
             plan=plan,
         )
-        # Ação crítica: registra aprovação humana pendente (§8.6/§24).
+        # Ação crítica: registra aprovação humana pendente (req §8.6/§24).
         if plan.requires_human_approval:
             motivo = plan.reason
             if brief.aprovacao_humana_obrigatoria:
@@ -301,7 +301,7 @@ class IntakeService:
         executor_explicito: str | None,
         effort_explicito: str | None,
     ) -> None:
-        """Avalia as regras ativas (§33, ADR-0028) e, se uma casar, ajusta o plano.
+        """Avalia as regras ativas (req §33, ADR-0028) e, se uma casar, ajusta o plano.
 
         Nenhuma regra casando (nenhuma configurada, ou nenhuma condição bateu),
         `plan`/`orchestration` saem exatamente como a heurística
@@ -319,7 +319,7 @@ class IntakeService:
         acao = resultado.acao
         if acao.agente and plan.agents:
             plan.agents[0].agent = acao.agente
-            plan.agents[0].reason = f"Regra de roteamento '{resultado.regra_nome}' (§33)."
+            plan.agents[0].reason = f"Regra de roteamento '{resultado.regra_nome}' (req §33)."
         if acao.aprovacao_humana:
             plan.requires_human_approval = True
         if acao.modelo and executor_explicito is None:
@@ -330,8 +330,8 @@ class IntakeService:
 
     @staticmethod
     def _max_tentativas_da_regra(orchestration: Orchestration) -> int | None:
-        """§36.4, ADR-0031: limite de tentativas herdado da regra que casou na
-        criação/replanejamento (§33, ADR-0028), quando ela declara um.
+        """req §36.4, ADR-0031: limite de tentativas herdado da regra que casou na
+        criação/replanejamento (req §33, ADR-0028), quando ela declara um.
 
         A regra decide sobre o perfil de risco da DEMANDA (ex.: "segurança crítica
         → no máximo 3 tentativas"), não sobre um agente específico — por isso o
@@ -424,7 +424,7 @@ class IntakeService:
                     max_tentativas=max_tentativas_da_regra,
                 )
                 planned_cards.append((item, card))
-            # Segunda passada: `depends_on` (§7/§10 do fluxo.md) referencia TÍTULOS de
+            # Segunda passada: `depends_on` (fluxo §7/§10) referencia TÍTULOS de
             # itens irmãos deste mesmo backlog, que só viram ids depois que todos os
             # cards nasceram — mesmo padrão de `PlannedAgent.depends_on` em
             # `create_orchestration`. Título desconhecido é descartado, não quebra.
@@ -464,7 +464,7 @@ class IntakeService:
     def triage_demand(
         self, user_request: str, *, executor: str | None = None, effort: str | None = None
     ) -> DemandBrief:
-        """Tria a demanda (§1/§2) antes de criar a orquestração.
+        """Tria a demanda (fluxo §1/§2) antes de criar a orquestração.
 
         Ainda não existe orquestração, logo não há `agent_assignments["triagem"]`: o
         agente vem do parâmetro explícito ou do default do catálogo, e cai na

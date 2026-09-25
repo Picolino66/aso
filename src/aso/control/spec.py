@@ -1,18 +1,18 @@
-"""SpecService — especificação da solução (§5 do fluxo.md, ADR-0021).
+"""SpecService — especificação da solução (fluxo §5, ADR-0021).
 
 Espelha `aso.control.discovery` (o exemplar mais recente e já validado): agente (LLM
 ou CLI, via `ExecutorCatalog`) que responde em JSON saneado, com fallback
 determinístico que nunca falha. Diferença central: gerar spec **exige um discovery
-aprovado** (§5: "Com o discovery aprovado") — sem ele, `especificar` recusa com uma
+aprovado** (fluxo §5: "Com o discovery aprovado") — sem ele, `especificar` recusa com uma
 mensagem clara, porque é regra do fluxo, não detalhe de implementação.
 
-Os artefatos opcionais do §5 (diagrama de componentes, diagrama de fluxo, modelo de
+Os artefatos opcionais do fluxo §5 (diagrama de componentes, diagrama de fluxo, modelo de
 dados, contrato de API, plano de migração) são **conteúdo, não estrutura**: o agente
 é instruído a colocá-los em Markdown dentro de `componentes`/`alteracoes_banco`/
 `alteracoes_infra` — não ganham onze campos novos (ADR-0021).
 
 A especificação nunca sai daqui já `aprovada` (nem vinda de agente, nem do
-fallback): §6 exige revisão documental antes da implementação, sempre.
+fallback): fluxo §6 exige revisão documental antes da implementação, sempre.
 """
 
 from __future__ import annotations
@@ -37,12 +37,12 @@ STATUS_APROVADO_COM_OBSERVACOES = "aprovado_com_observacoes"
 STATUS_REPROVADO = "reprovado"
 STATUS_NECESSITA_HUMANO = "necessita_humano"
 
-# Os dois desfechos do §6 que liberam a implementação — `aprovado_com_observacoes`
+# Os dois desfechos do fluxo §6 que liberam a implementação — `aprovado_com_observacoes`
 # fecha o ciclo como `aprovado_com_sugestoes` fecha o code review (ADR-0017).
 STATUS_APROVADOS = frozenset({STATUS_APROVADO, STATUS_APROVADO_COM_OBSERVACOES})
 
 _SPEC_SYSTEM = (
-    "Você especifica a solução de uma demanda já investigada (§5 do fluxo.md).\n"
+    "Você especifica a solução de uma demanda já investigada (fluxo §5).\n"
     "Tudo em português do Brasil. `fora_de_escopo` é o campo que mais economiza "
     "retrabalho — não deixe vazio sem justificar por quê. Diagramas de componentes/"
     "fluxo, modelo de dados, contrato de API e plano de migração (quando existirem) "
@@ -57,25 +57,25 @@ _SPEC_SYSTEM = (
 
 
 class SpecWorkItem(BaseModel):
-    """Item de trabalho derivado da spec — vira card com dependências (§7/§10)."""
+    """Item de trabalho derivado da spec — vira card com dependências (fluxo §7/§10)."""
 
     titulo: str
     descricao: str = ""
     fase: str = "F5"
     dominio: str = "backend"
-    # Tipo do card (§16.4/§7, ADR-0025) — "Epic"/"Feature" quando o item tem
+    # Tipo do card (req §16.4/§7, ADR-0025) — "Epic"/"Feature" quando o item tem
     # `itens_filhos`; "Task" (default) é o de sempre, o único que existia até aqui.
     tipo: str = "Task"
     criterios_de_aceite: list[str] = Field(default_factory=list)
     depende_de: list[str] = Field(default_factory=list)  # títulos de irmãos (mesmo nível)
-    # Hierarquia épico → história → subtarefa (§7, ADR-0025) — só um nível: cada
+    # Hierarquia épico → história → subtarefa (fluxo §7, ADR-0025) — só um nível: cada
     # item pode ter filhos diretos, mas o runtime não desce além disso (profundidade
     # é aplicada por `BoardService.add_card`, não aqui).
     itens_filhos: list[SpecWorkItem] = Field(default_factory=list)
 
 
 class SpecDocument(BaseModel):
-    """A especificação da solução (§5 do fluxo.md) + o estado do ciclo do §6."""
+    """A especificação da solução (fluxo §5) + o estado do ciclo do fluxo §6."""
 
     o_que_sera_construido: str = ""
     fora_de_escopo: list[str] = Field(default_factory=list)
@@ -91,12 +91,12 @@ class SpecDocument(BaseModel):
     plano_de_rollback: str = ""
     checklist_seguranca: list[str] = Field(default_factory=list)
     itens_de_trabalho: list[SpecWorkItem] = Field(default_factory=list)
-    # Versão dentro do ring (§4.2 do plano4.md, ADR-0021) — 1-based, monotônica.
+    # Versão dentro do ring (ADR-0021) — 1-based, monotônica.
     versao: int = 1
     status: str = STATUS_RASCUNHO
     revisao_comentarios: str = ""
     # Rodadas de revisão documental já consumidas por este ciclo (carregado entre
-    # regenerações pelo chamador) — cap em `ASO_MAX_RODADAS_DOC` (§4.4).
+    # regenerações pelo chamador) — cap em `ASO_MAX_RODADAS_DOC` (wf §4.4).
     rodadas_revisao: int = 0
     origem: str = "heuristica"  # nome do executor, ou "heuristica"
     fallback_reason: str = ""
@@ -154,10 +154,10 @@ class SpecService:
         discovery: DiscoveryReport,
         comentarios_anteriores: str = "",
     ) -> SpecDocument:
-        """Especificação da solução. Recusa (`ValueError`) sem discovery aprovado (§5)."""
+        """Especificação da solução. Recusa (`ValueError`) sem discovery aprovado (fluxo §5)."""
         if discovery.status != DISCOVERY_APROVADO:
             raise ValueError(
-                "Especificação exige discovery aprovado (§5 do fluxo.md) — "
+                "Especificação exige discovery aprovado (fluxo §5) — "
                 f"status atual: '{discovery.status or 'nunca rodado'}'."
             )
         base = _heuristica(demand_brief, discovery)
@@ -224,7 +224,7 @@ def _montar_pedido(
 def _heuristica(demand_brief: DemandBrief, discovery: DiscoveryReport) -> SpecDocument:
     """Esqueleto determinístico a partir do brief e do discovery — nunca falha, nunca
     aprovado (sem agente de verdade, a especificação é só um resumo do que já se
-    sabia, e ainda precisa passar pela revisão documental do §6)."""
+    sabia, e ainda precisa passar pela revisão documental do fluxo §6)."""
     return SpecDocument(
         o_que_sera_construido=discovery.recomendacao_tecnica or demand_brief.objetivo,
         como_funciona=discovery.situacao_atual,
@@ -267,7 +267,7 @@ def _sanear_itens(valor: object) -> list[SpecWorkItem]:
                 tipo=str(item.get("tipo") or "Task").strip() or "Task",
                 criterios_de_aceite=_lista_texto(item.get("criterios_de_aceite")),
                 depende_de=_lista_texto(item.get("depende_de")),
-                # Só um nível (§7, ADR-0025): não recorre em `itens_filhos` do filho —
+                # Só um nível (fluxo §7, ADR-0025): não recorre em `itens_filhos` do filho —
                 # a mesma função aceita a lista, mas quem consome (`_materialize_spec_cards`)
                 # também não desce além do primeiro nível.
                 itens_filhos=_sanear_itens(item.get("itens_filhos")),

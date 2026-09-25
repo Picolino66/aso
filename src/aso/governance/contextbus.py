@@ -1,4 +1,4 @@
-"""ContextBus (§19, ADR-0003).
+"""ContextBus (req §19, ADR-0003).
 
 Único componente autorizado a aplicar patches ao OrchestratorContext. `_validate` roda 6
 etapas, em ordem (os dois ganchos vazios de conflito entre outputs e impacto em gate foram
@@ -53,7 +53,7 @@ class BusResult:
 
 
 class PermissionPolicy:
-    """Permissões de escrita por agente sobre seções do contexto (§25).
+    """Permissões de escrita por agente sobre seções do contexto (req §25).
 
     Mapeia agente -> prefixos de seção permitidos. `"*"` libera qualquer seção.
     Deny-by-default: agente sem entrada na política não pode escrever.
@@ -135,7 +135,7 @@ class ContextBus:
         )
 
     def apply_approved(self, patch: ContextPatch) -> BusResult:
-        """Aplica um patch previamente pendente após aprovação humana (§24)."""
+        """Aplica um patch previamente pendente após aprovação humana (req §24)."""
         failure = self._validate(patch)
         if failure is not None:
             return self._reject(patch, failure)
@@ -150,7 +150,7 @@ class ContextBus:
         if failure is not None:
             return self._reject(patch, failure)
 
-        # Proposta ou ação que exige aprovação: validada, porém NÃO aplicada (§8.3/§8.6).
+        # Proposta ou ação que exige aprovação: validada, porém NÃO aplicada (req §8.3/§8.6).
         # Fica pendente até promoção/aprovação humana (`HumanApproval tipo=patch`).
         if patch.patch_type == PatchType.PROPOSE or patch.requires_approval:
             patch.status = PatchStatus.PENDING

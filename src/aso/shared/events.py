@@ -1,4 +1,4 @@
-"""EventLog append-only in-memory (observabilidade mínima — §33).
+"""EventLog append-only in-memory (observabilidade mínima — req §33).
 
 Registra eventos de domínio para timeline e auditoria. Um adapter persistente
 (Postgres) substituirá o armazenamento in-memory em MVP posterior.
@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from aso.shared.ids import now_iso
+from aso.shared.segredos import mascarar_valor
 
 
 @dataclass(frozen=True)
@@ -28,7 +29,12 @@ class EventLog:
         self._events: list[DomainEvent] = []
 
     def append(self, event_type: str, payload: dict[str, Any]) -> DomainEvent:
-        event = DomainEvent(type=event_type, payload=payload)
+        """Registra o evento com a redação de segredos aplicada (ADR-0080, regra 9).
+
+        Aqui e não em cada chamador: o payload de `AgentExecuted`/`AgentFailed`/`FailureRouted`
+        carrega mensagem e trecho de saída do agente, que podem conter o valor de um segredo —
+        e este log é persistido, servido em `/timeline`, `/audit` e no SSE."""
+        event = DomainEvent(type=event_type, payload=mascarar_valor(payload))
         self._events.append(event)
         return event
 

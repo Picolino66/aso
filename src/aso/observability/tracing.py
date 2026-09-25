@@ -1,4 +1,4 @@
-"""Tracing OpenTelemetry opcional (§33).
+"""Tracing OpenTelemetry opcional (req §33).
 
 Ativado com `ASO_OTEL=1` (requer o extra `[otel]` instalado). Caso contrário — ou se
 o OTel não estiver disponível — retorna um tracer no-op, sem custo e sem dependência

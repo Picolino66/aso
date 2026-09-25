@@ -1,6 +1,6 @@
 """CLI do ASO Runtime (Typer, TASK-14).
 
-Comandos mínimos (§31). Como o MVP-1 é in-memory (sem persistência), `aso run`
+Comandos mínimos (req §31). Como o MVP-1 é in-memory (sem persistência), `aso run`
 é autocontido: cria a orquestração, executa os agentes (mock), roda o quality gate
 e imprime o resultado — demonstrando o ciclo completo de governança.
 """
@@ -115,7 +115,7 @@ def feedback(orchestration_id: str, text: str) -> None:
 
 @app.command()
 def approvals(orchestration_id: str) -> None:
-    """Lista aprovações humanas de uma orquestração (§24)."""
+    """Lista aprovações humanas de uma orquestração (req §24)."""
     for a in _service.list_approvals(orchestration_id):
         typer.echo(f"{a.id} [{a.status}] risco={a.risk} — {a.action}")
 

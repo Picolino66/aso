@@ -1,16 +1,11 @@
 """AgentLogBus — saída ao vivo dos agentes, por orquestração (ADR-0015).
 
-Antes, a saída do agente CLI só existia depois que o processo morria: `subprocess.run`
-com `capture_output` lê os pipes no fim, e o runtime guardava 2 000 caracteres num
-`artifacts` que nunca era persistido. O operador ficava minutos olhando uma tela parada
-sem saber se o agente estava trabalhando, travado esperando permissão, ou morto.
+O canal por onde a saída do agente passa **enquanto** acontece (o histórico do problema
+que isto resolve está na ADR-0015). Duas escolhas deliberadas:
 
-Este módulo é o canal por onde a saída passa **enquanto** acontece. Duas escolhas
-deliberadas:
-
-1. **Fora do `EventLog`.** O repositório reescreve todas as tabelas filhas em cada `save`
-   (delete + reinsert), então centenas de linhas de log no event log custariam O(n) de
-   escrita por mutação. Log de execução é telemetria, não estado governado.
+1. **Fora do `EventLog`.** O event log é estado governado e persistido (hoje por cauda
+   incremental, ADR-0068): centenas de linhas de saída de agente por execução inflariam o
+   agregado e a reidratação. Log de execução é telemetria, não estado governado.
 2. **Ring em memória, não asyncio.** O produtor é a thread do agente (a execução roda em
    `ThreadPoolExecutor`) e o consumidor é o handler HTTP. Um `threading.Lock` sobre um
    `deque` resolve isso sem a ponte thread→event-loop que o `EventBroker` exigiria — e
@@ -34,6 +29,7 @@ from typing import Any
 
 from aso.shared.agent_output import KIND_BRUTO, KIND_MARCO, STREAM_ASO
 from aso.shared.ids import now_iso
+from aso.shared.segredos import mascarar_segredos
 
 # Linhas retidas por orquestração. Um agente verboso em `stream-json` produz algumas
 # centenas de linhas por card; 2 000 cobre a execução corrente e um pouco de histórico
@@ -204,7 +200,9 @@ class AgentLogBus:
         kind: str,
         detail: str,
     ) -> None:
-        limpo = text.rstrip("\n")
+        # Redação antes de guardar (ADR-0080, regra 9): a linha vem do stdout/stderr do agente e
+        # é servida por `GET …/agent-log` — um `echo $ASO_LLM_API_KEY` não pode virar log.
+        limpo = mascarar_segredos(text.rstrip("\n"))
         if not limpo.strip():
             return  # linha vazia do pipe não vira ruído na tela
         with self._lock:
@@ -220,7 +218,7 @@ class AgentLogBus:
                     stream=stream,
                     kind=kind,
                     text=limpo,
-                    detail=detail,
+                    detail=mascarar_segredos(detail),
                     card_id=sessao.card_id,
                     agent=sessao.agent,
                     executor=sessao.executor,
@@ -228,6 +226,9 @@ class AgentLogBus:
             )
 
     def _close(self, orchestration_id: str, sessao: Session, *, ok: bool, detail: str) -> None:
+        # O desfecho carrega a mensagem de erro do agente (ADR-0080, regra 9): a sessão vai para
+        # `state()`/`GET …/agent-log`, então é redigida aqui e não só nas linhas.
+        detail = mascarar_segredos(detail)
         with self._lock:
             if not sessao.running:
                 return

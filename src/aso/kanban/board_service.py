@@ -1,7 +1,7 @@
-"""BoardService (§16, TASK-04).
+"""BoardService (req §16, TASK-04).
 
 Cria boards com as colunas padrão, gerencia cards e aplica a automação de
-movimentação dirigida por eventos (§16.7). Kanban é o plano de execução (ADR-0002).
+movimentação dirigida por eventos (req §16.7). Kanban é o plano de execução (ADR-0002).
 """
 
 from __future__ import annotations
@@ -16,9 +16,10 @@ from aso.kanban.hierarchy import (
 from aso.kanban.models import Board, BoardColumn, CardEvent, KanbanCard
 from aso.shared.events import EventLog
 from aso.shared.ids import now_iso
+from aso.shared.segredos import mascarar_segredos
 from aso.shared.types import ColumnKey
 
-# Colunas padrão na ordem canônica (§16.2).
+# Colunas padrão na ordem canônica (req §16.2).
 _DEFAULT_COLUMNS: list[ColumnKey] = [
     ColumnKey.BACKLOG,
     ColumnKey.READY,
@@ -29,7 +30,7 @@ _DEFAULT_COLUMNS: list[ColumnKey] = [
     ColumnKey.REVIEW,
     ColumnKey.NEEDS_FIX,
     ColumnKey.TESTING,
-    # Deploying/Validating (fluxo.md §8) são colunas selecionáveis via /cards/{id}/move
+    # Deploying/Validating (fluxo §8) são colunas selecionáveis via /cards/{id}/move
     # genérico — o gatilho automático de quando um card entra nelas é o Incremento F
     # (gate de implantação); aqui só a coluna existe.
     ColumnKey.DEPLOYING,
@@ -48,26 +49,26 @@ _TERMINAIS_ABANDONAM: frozenset[ColumnKey] = frozenset({ColumnKey.CANCELLED, Col
 # satisfaz a dependência; `Cancelled`/`Archived` a abandonam (ADR-0022).
 _TERMINAIS_QUE_RECOMPUTAM: frozenset[ColumnKey] = frozenset({ColumnKey.DONE, *_TERMINAIS_ABANDONAM})
 
-# Automação: evento de runtime -> coluna destino (§16.7).
+# Automação: evento de runtime -> coluna destino (req §16.7).
 _EVENT_TRANSITIONS: dict[str, ColumnKey] = {
     "AgentStarted": ColumnKey.IN_PROGRESS,
     "AgentNeedsInput": ColumnKey.WAITING_HUMAN,
     "PROpened": ColumnKey.REVIEW,
-    # CI reprovada volta para "Aguardando correção" (ADR-0019, §13 do fluxo.md): é uma
+    # CI reprovada volta para "Aguardando correção" (ADR-0019, fluxo §13): é uma
     # causa corrigível e reexecutável, não um beco sem saída — `Failed` fica reservado
     # para o que o roteamento de falha decidiu escalar para humano (ver `failure.py`).
     "CIFailed": ColumnKey.NEEDS_FIX,
     # Reprovada na revisão independente (ADR-0017) vai para "Aguardando correção"
-    # (§8/§15 do fluxo.md) — distinta de "Em revisão", que ainda não tem veredito.
+    # (fluxo §8/§15) — distinta de "Em revisão", que ainda não tem veredito.
     "ReviewRequestedChanges": ColumnKey.NEEDS_FIX,
     "TestsPassed": ColumnKey.TESTING,
     "QualityGatePassed": ColumnKey.DONE,
     "QualityGateFailed": ColumnKey.BLOCKED,
 }
 
-# Resultado/próxima ação padrão de cada transição automática (§8 do fluxo.md,
+# Resultado/próxima ação padrão de cada transição automática (fluxo §8,
 # ADR-0019): `apply_event` preenche o `CardEvent` a partir disto — o mesmo dado que o
-# §13 pede a cada falha é o que o §8 pede a cada movimentação, gravado no mesmo ponto.
+# fluxo §13 pede a cada falha é o que o req §8 pede a cada movimentação, gravado no mesmo ponto.
 _EVENT_RESULT: dict[str, tuple[str, str]] = {
     "AgentStarted": ("agente iniciou a execução", "aguardar conclusão"),
     "AgentNeedsInput": ("agente produziu patch que exige aprovação", "revisar e aprovar o patch"),
@@ -114,7 +115,7 @@ class BoardService:
         return self._boards.get(board_id)
 
     def add_card(self, card: KanbanCard) -> KanbanCard:
-        """Adiciona o card ao board — valida a hierarquia (§7, ADR-0025) quando
+        """Adiciona o card ao board — valida a hierarquia (fluxo §7, ADR-0025) quando
         `parent_id` está preenchido; `None` (todo card anterior a esta ADR) segue
         sem checagem, a hierarquia é opcional."""
         if card.parent_id is not None:
@@ -152,14 +153,23 @@ class BoardService:
         phase: str | None = None,
         execution_id: str | None = None,
     ) -> KanbanCard:
-        """Move o card e registra a movimentação (§8 do fluxo.md, ADR-0019): motivo,
+        """Move o card e registra a movimentação (fluxo §8, ADR-0019): motivo,
         resultado, evidências e próxima ação — não só data e ator.
 
-        §7 (ADR-0025): um card com filho ainda aberto (fora de `Done`/`Cancelled`)
+        fluxo §7 (ADR-0025): um card com filho ainda aberto (fora de `Done`/`Cancelled`)
         não pode chegar a `Done` — é o que torna a hierarquia útil em vez de
         decorativa. Cancelar, ao contrário, cascateia para os filhos abaixo.
         """
         card = self._cards[card_id]
+        # Redação no ponto de entrada (ADR-0080, regra 9): `reason`/`result`/`next_action` podem
+        # trazer mensagem do agente (diagnóstico de falha, saída do CLI) e são persistidos no card
+        # e no histórico de movimentações servido pela API.
+        reason, result, next_action = (
+            mascarar_segredos(reason),
+            mascarar_segredos(result),
+            mascarar_segredos(next_action),
+        )
+        evidence = [mascarar_segredos(item) for item in (evidence or [])]
         if to_status == ColumnKey.DONE:
             abertos = filhos_em_aberto(self._cards, card_id)
             if abertos:
@@ -180,7 +190,7 @@ class BoardService:
             actor=actor,
             reason=reason,
             result=result,
-            evidence=list(evidence or []),
+            evidence=list(evidence),
             next_action=next_action,
             model=model,
             effort=effort,
@@ -199,7 +209,7 @@ class BoardService:
         return card
 
     def _cancelar_filhos(self, card_id: str, *, actor: str, motivo_pai: str) -> None:
-        """§7 (ADR-0025): cancelar o pai cancela os filhos — mesmo espírito da
+        """fluxo §7 (ADR-0025): cancelar o pai cancela os filhos — mesmo espírito da
         ADR-0022, onde um dependente de card cancelado nunca fica órfão em silêncio."""
         for filho in filhos(self._cards, card_id):
             if filho.status in (ColumnKey.DONE, ColumnKey.CANCELLED):
@@ -209,7 +219,7 @@ class BoardService:
             )
 
     def _refresh_dependents(self, done_card_id: str) -> None:
-        """Observador ativo de `blocked_by` (§10 do fluxo.md, ADR-0018/ADR-0021/ADR-0022).
+        """Observador ativo de `blocked_by` (fluxo §10, ADR-0018/ADR-0021/ADR-0022).
 
         Sem isto, `blocked_by` só se preenchia quando alguém tentava RODAR o card
         dependente (`OrchestrationService._pending_dependencies`) — um card com
@@ -267,7 +277,7 @@ class BoardService:
         phase: str | None = None,
         execution_id: str | None = None,
     ) -> KanbanCard:
-        """Aplica a automação de coluna a partir de um evento de runtime (§16.7)."""
+        """Aplica a automação de coluna a partir de um evento de runtime (req §16.7)."""
         to_status = _EVENT_TRANSITIONS.get(event_name)
         if to_status is None:
             raise KeyError(f"Evento sem transição automática definida: {event_name}")

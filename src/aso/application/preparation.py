@@ -60,7 +60,7 @@ def prioridade_de(brief: DemandBrief) -> RiskLevel:
 
 
 def _tipo_de_card(valor: str) -> CardType:
-    """Converte o `tipo`/`type` de um item de plano/spec num `CardType` (§7,
+    """Converte o `tipo`/`type` de um item de plano/spec num `CardType` (fluxo §7,
     ADR-0025) — valor desconhecido cai em `TASK`, o mesmo comportamento que todo
     caminho de criação de card tinha antes desta ADR."""
     try:
@@ -71,7 +71,7 @@ def _tipo_de_card(valor: str) -> CardType:
 
 # Domínio (ficha da demanda / spec) → agente do registro. Reaproveitado por
 # `populate_from_plan` (backlog do LLM, M2) e `_materialize_spec_cards` (itens de
-# trabalho da especificação, §5/§7/§10 do fluxo.md, ADR-0021) — mesmo vocabulário.
+# trabalho da especificação, fluxo §5/§7/§10, ADR-0021) — mesmo vocabulário.
 _DOMAIN_AGENTS: dict[str, str] = {
     "backend": "BackendDevelopmentAgent",
     "frontend": "FrontendDevelopmentAgent",
@@ -139,7 +139,7 @@ class PreparationService:
     def _perguntar_registrando(self, *args: Any, **kwargs: Any) -> Any:
         return self._perguntar(*args, **kwargs)
 
-    # ------------------------------------------------- discovery e aprovação (§3/§4)
+    # ------------------------------------------------- discovery e aprovação (fluxo §3/§4)
     def _discovery_executor(
         self, explicit: str | None, assignment: AgentAssignment | None
     ) -> str | None:
@@ -156,12 +156,12 @@ class PreparationService:
     def run_discovery(
         self, orchestration_id: str, *, executor: str | None = None, effort: str | None = None
     ) -> Orchestration:
-        """Roda o discovery (§3) e aplica a regra de aprovação automática/humana (§4).
+        """Roda o discovery (fluxo §3) e aplica a regra de aprovação automática/humana (fluxo §4).
 
-        Reexecutar depois de uma reprovação acrescenta uma NOVA versão ao ring (§4.2,
+        Reexecutar depois de uma reprovação acrescenta uma NOVA versão ao ring (wf §4.2,
         ADR-0021) — o comentário da reprovação anterior entra no pedido ao agente
         (ADR-0020), para ele ajustar o documento e submeter de novo (mesmo mecanismo
-        do §4), e sobrevive como histórico consultável, não só no prompt seguinte.
+        do fluxo §4), e sobrevive como histórico consultável, não só no prompt seguinte.
         """
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -216,6 +216,7 @@ class PreparationService:
                     "versao": report.versao,
                     "acesso_repo": report.acesso_repo,
                     "indice_commit": indice.commit if indice else "",
+                    "indice_origem": indice.origem if indice else "",
                     "componentes_descartados": list(report.componentes_descartados),
                 },
             )
@@ -228,7 +229,7 @@ class PreparationService:
         return versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
 
     def get_discovery_history(self, orchestration_id: str) -> list[DiscoveryReport]:
-        """Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5."""
+        """Histórico de versões do discovery (wf §4.2, ADR-0021) — ring de até 5."""
         b = self._bundle(orchestration_id)
         return [DiscoveryReport.model_validate(d) for d in b.orchestration.discovery_reports]
 
@@ -248,7 +249,7 @@ class PreparationService:
         comentario: str = "",
         actor: str = "system",
     ) -> Orchestration:
-        """Decide a aprovação humana do discovery (§4) — ação crítica (regra 4 do
+        """Decide a aprovação humana do discovery (fluxo §4) — ação crítica (regra 4 do
         CLAUDE.md), papel admin checado no handler da API (mesmo padrão de
         `report_review`). Atualiza a versão corrente no lugar — decidir não cria uma
         versão nova, só muda o status da que já existe."""
@@ -275,7 +276,7 @@ class PreparationService:
             self._persist(b)
             return b.orchestration
 
-    # --------------------------------------------- especificação e revisão documental (§5/§6)
+    # --------------------------------------------- especificação e revisão documental (fluxo §5/§6)
     def _spec_executor(
         self, explicit: str | None, assignment: AgentAssignment | None
     ) -> str | None:
@@ -292,7 +293,7 @@ class PreparationService:
     def run_spec(
         self, orchestration_id: str, *, executor: str | None = None, effort: str | None = None
     ) -> Orchestration:
-        """Gera/regenera a especificação (§5) — exige discovery aprovado (`ValueError`
+        """Gera/regenera a especificação (fluxo §5) — exige discovery aprovado (`ValueError`
         propagado por `SpecService.especificar`, viram 409 no handler da API)."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -317,7 +318,7 @@ class PreparationService:
                 ),
             )
             spec.versao = proxima_versao(b.orchestration.spec_documents)
-            # Rodadas do ciclo de revisão (§4.4) atravessam regenerações — zeram só
+            # Rodadas do ciclo de revisão (wf §4.4) atravessam regenerações — zeram só
             # quando não há versão anterior (spec gerada pela primeira vez).
             tem_versao_anterior = bool(b.orchestration.spec_documents)
             spec.rodadas_revisao = anterior.rodadas_revisao if tem_versao_anterior else 0
@@ -343,17 +344,17 @@ class PreparationService:
         return versao_atual(b.orchestration.spec_documents, SpecDocument)
 
     def get_spec_history(self, orchestration_id: str) -> list[SpecDocument]:
-        """Histórico de versões da especificação (§4.2, ADR-0021) — ring de até 5."""
+        """Histórico de versões da especificação (wf §4.2, ADR-0021) — ring de até 5."""
         b = self._bundle(orchestration_id)
         return [SpecDocument.model_validate(s) for s in b.orchestration.spec_documents]
 
     def run_spec_review(
         self, orchestration_id: str, *, executor: str | None = None, actor: str = "system"
     ) -> Orchestration:
-        """Roda a revisão documental (§6) sobre a versão corrente da especificação.
+        """Roda a revisão documental (fluxo §6) sobre a versão corrente da especificação.
 
         O revisor precisa ser diferente de quem produziu o documento (mesmo princípio
-        do §14 aplicado a documentos). Esgotado `ASO_MAX_RODADAS_DOC`, uma reprovação
+        do fluxo §14 aplicado a documentos). Esgotado `ASO_MAX_RODADAS_DOC`, uma reprovação
         vira `necessita_humano` em vez de continuar o ciclo indefinidamente.
         """
         with self._lock_for(orchestration_id):
@@ -370,7 +371,7 @@ class PreparationService:
                 b, origem_executor=origem_executor, explicit=executor
             )
             brief = DemandBrief.model_validate(b.orchestration.demand_brief)
-            # A checagem determinística (§6: plano de testes/rollback) roda mesmo sem
+            # A checagem determinística (fluxo §6: plano de testes/rollback) roda mesmo sem
             # revisor disponível — ela não depende de agente. Só cai no fallback
             # genérico de `recusa` quando o documento passa nela.
             assignment = (
@@ -423,7 +424,7 @@ class PreparationService:
         comentario: str = "",
         actor: str = "system",
     ) -> Orchestration:
-        """Decisão humana da especificação quando o ciclo do §6 escalou (§4.4) — ação
+        """Decisão humana da especificação quando o ciclo do wf §6 escalou (wf §4.4) — ação
         crítica, papel admin checado no handler da API (mesmo padrão de
         `decide_discovery`)."""
         with self._lock_for(orchestration_id):
@@ -576,7 +577,7 @@ class PreparationService:
         actor: str = "system",
     ) -> Documento:
         """Checklist do revisor (wf §11) — reaproveita `ReviewService.revisar_documento`/
-        `DocReviewVerdict` (ADR-0021): os quatro desfechos do §6 já batem exatamente
+        `DocReviewVerdict` (ADR-0021): os quatro desfechos do fluxo §6 já batem exatamente
         com os quatro do wf §11.2. Fluxo deliberadamente mais simples que o da
         especificação: sem contagem de rodadas nem exigência de revisor diferente do
         autor — os 8 tipos novos são artefatos de apoio, não o gate central de
@@ -712,14 +713,14 @@ class PreparationService:
 
     def _materialize_spec_cards(self, b: OrchestrationBundle, spec: SpecDocument) -> list[str]:
         """Cria cards a partir de `spec.itens_de_trabalho` quando a especificação é
-        aprovada (§5/§7/§10 do fluxo.md, ADR-0021) — mesmo padrão de
+        aprovada (fluxo §5/§7/§10, ADR-0021) — mesmo padrão de
         `populate_from_plan`, com dependências resolvidas numa segunda passada.
 
         Domínio desconhecido é descartado (não trava a aprovação da spec por isso —
         diferente de `populate_from_plan`, que é síncrono com a criação da
         orquestração e pode recusar sem custo já pago).
 
-        `itens_filhos` (§7, ADR-0025) vira `parent_id` — só um nível: cada item pode
+        `itens_filhos` (fluxo §7, ADR-0025) vira `parent_id` — só um nível: cada item pode
         ter filhos diretos, o runtime não desce além disso. Cards-raiz nascem antes
         dos filhos para que `BoardService.add_card` encontre o pai já cadastrado.
         """

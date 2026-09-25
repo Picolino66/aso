@@ -1,4 +1,4 @@
-"""CandidateRunner — executa múltiplos agentes CLI em paralelo por card (§26A.6).
+"""CandidateRunner — executa múltiplos agentes CLI em paralelo por card (req §26A.6).
 
 Cada agente CLI (ex.: Claude Code, Codex) gera um candidato em worktree/branch
 isolado; os diffs são coletados e comparados antes de escolher qual vira PR/merge.
@@ -67,7 +67,7 @@ class CandidateRunner:
 
         `falhas` nunca fica implícito dentro de `candidates`: uma corrida que perdeu
         candidato precisa dizer isso, não parecer uma comparação completa com menos
-        concorrentes (plano6 §0/ADR-0024) — o mesmo princípio do fallback do
+        concorrentes (ADR-0024) — o mesmo princípio do fallback do
         `ReviewService` (ADR-0017): quando o runtime não sabe/não conseguiu, ele diz.
         """
         valid = [c for c in candidates if c.error is None and c.branch]

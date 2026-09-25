@@ -1,6 +1,6 @@
 """`ExecutionSettingsService` — executor e esforço efetivos, atribuições e validações (ADR-0066).
 
-MEL-32, passo 11a: a resolução de executor/esforço (§9, ADR-0022), as atribuições por etapa,
+MEL-32, passo 11a: a resolução de executor/esforço (fluxo §9, ADR-0022), as atribuições por etapa,
 os checks de validação, o orçamento (ADR-0026) e a limpeza de worktrees órfãos (ADR-0027)
 saem da façade; os demais serviços recebem essas resoluções por construtor.
 """
@@ -42,7 +42,7 @@ from aso.shared.types import ColumnKey, Phase
 class ExecutionSettingsService:
     """Configuração de execução de uma orquestração e resolução do executor/esforço efetivos."""
 
-    # -------------------------------------- worktrees órfãos (§1.4/§3.3, ADR-0027)
+    # -------------------------------------- worktrees órfãos (wf §1.4/§3.3, ADR-0027)
     _STATUS_INATIVOS = (ColumnKey.DONE, ColumnKey.CANCELLED, ColumnKey.ARCHIVED)
 
     def __init__(
@@ -124,7 +124,7 @@ class ExecutionSettingsService:
     def candidatos_da_corrida(
         self, orchestration_id: str, executores: list[str] | None = None
     ) -> list[ExecutionProvider]:
-        """Providers da corrida de candidatos (§26A.6), todos do catálogo (ADR-0076).
+        """Providers da corrida de candidatos (req §26A.6), todos do catálogo (ADR-0076).
 
         `executores` escolhidos na requisição; sem lista, os perfis marcados `candidato`.
         Só agentes CLI competem: a corrida compara diffs de worktrees isolados."""
@@ -181,7 +181,7 @@ class ExecutionSettingsService:
         *,
         phase: Phase | None = None,
     ) -> str | None:
-        """Ordem de resolução (§9 do fluxo.md, ADR-0022): explícito → etapa →
+        """Ordem de resolução (fluxo §9, ADR-0022): explícito → etapa →
         padrão da orquestração → sugestão automática da ficha → default do perfil.
         A sugestão só preenche o vazio que, sem ela, cairia direto no perfil — toda
         escolha humana (explícita, de etapa ou da orquestração) continua vencendo."""
@@ -207,7 +207,7 @@ class ExecutionSettingsService:
     def _effort_sugerido(
         self, b: OrchestrationBundle, executor: str | None, *, phase: Phase | None = None
     ) -> str | None:
-        """§9: complexidade + risco da ficha da demanda sugerem o esforço.
+        """fluxo §9: complexidade + risco da ficha da demanda sugerem o esforço.
 
         Só age quando a triagem de fato rodou (`demand_brief` não vazio) — ficha
         vazia é o mesmo "nunca triou" das demais orquestrações, e não pode mudar o
@@ -381,7 +381,7 @@ class ExecutionSettingsService:
             return b.orchestration
 
     def get_validation_checks(self, orchestration_id: str) -> list[ValidationCheck]:
-        """A bateria efetiva (§12, ADR-0022) — bateria configurada, ou o
+        """A bateria efetiva (fluxo §12, ADR-0022) — bateria configurada, ou o
         `validation_command` legado convertido numa única verificação "testes"."""
         b = self._bundle(orchestration_id)
         return checks_efetivos(b.orchestration)
@@ -389,7 +389,7 @@ class ExecutionSettingsService:
     def set_validation_checks(
         self, orchestration_id: str, checks: list[ValidationCheck], *, actor: str = "system"
     ) -> Orchestration:
-        """Substitui a bateria de validações (§12). Ação de operador (`PUT`) —
+        """Substitui a bateria de validações (fluxo §12). Ação de operador (`PUT`) —
         cada comando passa por `validate_gate_command`, exatamente como o
         `validation_command` legado: um `npm run dev` no meio da lista travaria o
         gate para sempre, tanto quanto travaria sozinho."""
@@ -415,14 +415,14 @@ class ExecutionSettingsService:
             return b.orchestration
 
     def suggest_validation_checks(self, orchestration_id: str) -> list[ValidationCheck]:
-        """Sugestão determinística por stack (§4.5) — não grava nada. Sem
+        """Sugestão determinística por stack (ADR-0022) — não grava nada. Sem
         `target_path`, não há workspace para inspecionar: lista vazia, não erro."""
         b = self._bundle(orchestration_id)
         if not b.orchestration.target_path:
             return []
         return sugerir_bateria(b.orchestration.target_path)
 
-    # -------------------------------------------- orçamento com freio (§1.2/§3.2)
+    # -------------------------------------------- orçamento com freio (wf §1.2/§3.2)
     def set_orcamento(
         self, orchestration_id: str, teto_usd: float | None, *, actor: str = "system"
     ) -> Orchestration:

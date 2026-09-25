@@ -1,4 +1,4 @@
-"""Modelos do Control Plane (§14)."""
+"""Modelos do Control Plane (req §14)."""
 
 from __future__ import annotations
 
@@ -40,19 +40,19 @@ class ProjectEvent(BaseModel):
 # momento, inclusive com a orquestração já em andamento.
 NAMING_KEY = "naming"
 
-# Chave reservada para o agente de triagem da demanda (§1/§2 do fluxo.md). Mesmo
+# Chave reservada para o agente de triagem da demanda (fluxo §1/§2). Mesmo
 # regime do NAMING_KEY: não é fase da esteira, sempre editável.
 TRIAGE_KEY = "triagem"
 
-# Chave reservada para o agente de revisão independente de código (§14, ADR-0017).
+# Chave reservada para o agente de revisão independente de código (fluxo §14, ADR-0017).
 # Mesmo regime do NAMING_KEY: não é fase da esteira, sempre editável.
 REVIEW_KEY = "revisao"
 
-# Chave reservada para o agente de discovery (§3, ADR-0020). Mesmo regime do
+# Chave reservada para o agente de discovery (fluxo §3, ADR-0020). Mesmo regime do
 # NAMING_KEY: não é fase da esteira, sempre editável.
 DISCOVERY_KEY = "discovery"
 
-# Chave reservada para o agente de especificação (§5, ADR-0021). Mesmo regime do
+# Chave reservada para o agente de especificação (fluxo §5, ADR-0021). Mesmo regime do
 # NAMING_KEY: não é fase da esteira, sempre editável.
 SPEC_KEY = "especificacao"
 
@@ -61,7 +61,7 @@ SPEC_KEY = "especificacao"
 PLANNING_KEY = "planejamento"
 
 
-# Categorias válidas de uma verificação da bateria (§12 do fluxo.md) — vocabulário
+# Categorias válidas de uma verificação da bateria (fluxo §12) — vocabulário
 # fechado para o diagnóstico de falha (ADR-0019/ADR-0022) poder mapear categoria ->
 # causa sem depender de heurística por palavra-chave.
 CATEGORIAS_VALIDACAO = frozenset(
@@ -86,7 +86,7 @@ CATEGORIAS_VALIDACAO = frozenset(
 
 
 class ValidationCheck(BaseModel):
-    """Uma verificação nomeada da bateria do §12 (ADR-0022) — não mais um único
+    """Uma verificação nomeada da bateria do fluxo §12 (ADR-0022) — não mais um único
     comando indiferenciado: o gate sabe QUAL verificação falhou, não só que "o
     comando falhou"."""
 
@@ -97,7 +97,7 @@ class ValidationCheck(BaseModel):
 
 
 class Environment(BaseModel):
-    """Um estágio do pipeline de implantação (§19 do fluxo.md, wf §25) — ADR-0029.
+    """Um estágio do pipeline de implantação (fluxo §19, wf §25) — ADR-0029.
 
     Configuração pura, não estado: o status corrente de cada estágio é derivado a
     partir de `Orchestration.deploy_runs` (`control/deploy.py::status_do_pipeline`),
@@ -128,7 +128,7 @@ class AgentAssignment(BaseModel):
 
 
 class Orchestration(BaseModel):
-    """Instância de uma orquestração (§17)."""
+    """Instância de uma orquestração (req §17)."""
 
     id: str = Field(default_factory=lambda: gen_id("orch"))
     project_id: str | None = None
@@ -143,17 +143,17 @@ class Orchestration(BaseModel):
     # Chaves: "F1".."F7" (etapas da esteira) e NAMING_KEY ("naming", o agente que batiza
     # branches e commits). Etapa sem entrada aqui herda `selected_*`.
     agent_assignments: dict[str, AgentAssignment] = Field(default_factory=dict)
-    # Ficha estruturada da demanda (§1/§2 do fluxo.md), produzida na criação pelo agente
+    # Ficha estruturada da demanda (fluxo §1/§2), produzida na criação pelo agente
     # de triagem ou pela heurística. É o que alimenta o DecisionInput — sem ela o motor
     # de decisão roda sobre uma constante. Guardada como dict (não como DemandBrief) para
     # espelhar agent_assignments e manter a serialização do repositório simples.
     demand_brief: dict[str, Any] = Field(default_factory=dict)
-    # Ring de até 5 versões do relatório de discovery (§3/§4, ADR-0020, versionado
+    # Ring de até 5 versões do relatório de discovery (fluxo §3/§4, ADR-0020, versionado
     # pela ADR-0021 §4.2) — a última é a versão corrente. Lista vazia = discovery
     # nunca rodado — não regride o gate de F1 de nenhuma orquestração que não passar
     # por `POST .../discovery/run`.
     discovery_reports: list[dict[str, Any]] = Field(default_factory=list)
-    # Ring de até 5 versões da especificação da solução (§5/§6, ADR-0021) — mesmo
+    # Ring de até 5 versões da especificação da solução (fluxo §5/§6, ADR-0021) — mesmo
     # raciocínio de `discovery_reports`. Lista vazia = especificação nunca gerada.
     spec_documents: list[dict[str, Any]] = Field(default_factory=list)
     # Documentos da Tela 08 (wf §10, ADR-0046) — um ring por tipo (chave = tipo do
@@ -168,17 +168,17 @@ class Orchestration(BaseModel):
     # `deploy_health_checks`: lista JSON direta na orquestração, sem tabela nova).
     documento_comentarios: list[dict[str, Any]] = Field(default_factory=list)
     validation_command: str | None = None
-    # Bateria nomeada do §12 (ADR-0022). Vazia = a orquestração ainda usa só o
+    # Bateria nomeada do fluxo §12 (ADR-0022). Vazia = a orquestração ainda usa só o
     # `validation_command` legado — `checks_efetivos` (control/validation.py)
     # resolve os dois num único formato, sem mudar comportamento de nenhuma
     # orquestração existente.
     validation_checks: list[ValidationCheck] = Field(default_factory=list)
-    # Implantação governada (§18-22, ADR-0023): comando configurável pelo
+    # Implantação governada (fluxo §18-22, ADR-0023): comando configurável pelo
     # operador — o runtime não provisiona infraestrutura, só orquestra o
     # comando (mesma disciplina de `validation_command`/`validation_checks`).
     deploy_command: str | None = None
     deploy_environment: str = "producao"
-    # Verificações pós-implantação (§20) — reaproveita ValidationCheck: um
+    # Verificações pós-implantação (fluxo §20) — reaproveita ValidationCheck: um
     # health check é "nome + comando + categoria + bloqueante", igual a uma
     # verificação da bateria.
     deploy_health_checks: list[ValidationCheck] = Field(default_factory=list)
@@ -187,7 +187,7 @@ class Orchestration(BaseModel):
     # raciocínio de discovery_reports/spec_documents. Lista vazia = nunca
     # implantou — não regride o gate de F6 de nenhuma orquestração existente.
     deploy_runs: list[dict[str, Any]] = Field(default_factory=list)
-    # Pipeline de estágios (§19, wf §25, ADR-0029) — lista de `Environment`
+    # Pipeline de estágios (wf §19, §25, ADR-0029) — lista de `Environment`
     # (control/models.py, serializados como dict pelo mesmo motivo de deploy_runs:
     # `DeployRun`/`Environment` vivem em control/deploy.py, que importa deste
     # módulo — tipar aqui criaria import circular). Vazia = implantação monoambiente
@@ -195,12 +195,12 @@ class Orchestration(BaseModel):
     # nenhuma mudança de comportamento) — só ativa quando `PUT deploy/pipeline` grava
     # ao menos um estágio.
     deploy_pipeline: list[dict[str, Any]] = Field(default_factory=list)
-    # Orçamento com freio (§1.2/§3.2 do plano7.md, ADR-0026): `None` = sem teto,
+    # Orçamento com freio (ADR-0026): `None` = sem teto,
     # comportamento idêntico a toda orquestração anterior a este incremento — o
     # teto é opt-in. `ASO_ORCAMENTO_PADRAO_USD` preenche o default de orquestrações
     # novas em `create_orchestration`, não aqui (Pydantic não lê env em default).
     orcamento_usd: float | None = None
-    # Regra de roteamento que casou na criação/replanejamento (§33, ADR-0028) —
+    # Regra de roteamento que casou na criação/replanejamento (req §33, ADR-0028) —
     # `RoutingRuleResult.model_dump()`. `None` = nenhuma regra casou (ou nenhuma
     # regra existe), decisão seguiu 100% a heurística — comportamento de toda
     # orquestração anterior a este incremento, preservado.
@@ -217,7 +217,7 @@ class Orchestration(BaseModel):
 
 
 class DecisionInput(BaseModel):
-    """Entrada do MultiAgentDecisionEngine (§14).
+    """Entrada do MultiAgentDecisionEngine (req §14).
 
     `tipo`/`complexidade` chegam vazios por padrão (nenhuma orquestração anterior à
     ADR-0028 os preenchia) — `MultiAgentDecisionEngine` continua ignorando os dois; só
@@ -246,7 +246,7 @@ class PlannedAgent(BaseModel):
 
 
 class MultiAgentDecision(BaseModel):
-    """Saída do MultiAgentDecisionEngine (§14)."""
+    """Saída do MultiAgentDecisionEngine (req §14)."""
 
     execution_mode: ExecutionStrategy
     reason: str
@@ -258,7 +258,7 @@ class MultiAgentDecision(BaseModel):
 
 
 class ExecutionPlan(BaseModel):
-    """Plano de execução de uma orquestração (§14, domain-model)."""
+    """Plano de execução de uma orquestração (req §14, domain-model)."""
 
     id: str = Field(default_factory=lambda: gen_id("plan"))
     orchestration_id: str

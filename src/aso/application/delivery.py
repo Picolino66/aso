@@ -43,7 +43,7 @@ from aso.shared.types import CardType, ColumnKey
 def _build_card_closure(
     b: OrchestrationBundle, card: KanbanCard, pr: PullRequest
 ) -> dict[str, Any]:
-    """Ficha de encerramento do card (§23 do fluxo.md, ADR-0021) — preenchida no
+    """Ficha de encerramento do card (fluxo §23, ADR-0021) — preenchida no
     merge, o ponto em que o card chega a Done. Só registra o que o runtime já tem à
     mão: campo sem dado disponível (data de implantação, commits individuais) fica de
     fora — ficha com campo inventado é pior que ficha curta."""
@@ -76,10 +76,10 @@ def _build_card_closure(
             f"Revisão: {pr.review_status}",
         ],
         "riscos_residuais": riscos_residuais,
-        # Checklist de preparação (§10, ADR-0030) — evidência de que os itens do
-        # §10 foram marcados durante a execução, não só implicitamente.
+        # Checklist de preparação (fluxo §10, ADR-0030) — evidência de que os itens do
+        # fluxo §10 foram marcados durante a execução, não só implicitamente.
         "checklist_preparacao": card.preparation_checklist,
-        # §23 pede "effort utilizado"; custo real (§1.1, ADR-0026) responde a mesma
+        # fluxo §23 pede "effort utilizado"; custo real (ADR-0026) responde a mesma
         # pergunta em dinheiro. `card.uso` vazio (executor que nunca informou uso)
         # não aparece como zero — o campo some, ficha curta é melhor que inventada.
         **({"custo_usd": card.uso["custo_usd"]} if card.uso.get("custo_usd") else {}),
@@ -154,7 +154,7 @@ class DeliveryService:
     ) -> Any:
         return self._perguntar(orchestration_id, card_id, chamada)
 
-    # ------------------------------------------------- Pull Requests (§26, MVP-4)
+    # ------------------------------------------------- Pull Requests (req §26, MVP-4)
     def open_pr(
         self, orchestration_id: str, card_id: str, *, branch: str | None = None, title: str = ""
     ) -> PullRequest:
@@ -211,7 +211,7 @@ class DeliveryService:
         (só bloqueia) e continua livre.
 
         CI reprovada é corrigível: o card volta para `NeedsFix` com o motivo no
-        nudge da próxima tentativa (§13 do fluxo.md, ADR-0019) — distinto de `Failed`,
+        nudge da próxima tentativa (fluxo §13, ADR-0019) — distinto de `Failed`,
         reservado ao roteamento de execução que decidiu escalar para humano."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -266,7 +266,7 @@ class DeliveryService:
         nenhum dos dois, o clique que "aprovava" sem ninguém ter revisado deixa
         de existir.
 
-        Risco alto (ou impacto sensível — `exige_confirmacao_humana`, §4/§14) não fecha
+        Risco alto (ou impacto sensível — `exige_confirmacao_humana`, fluxo §4/§14) não fecha
         com o veredito do agente sozinho, mesmo aprovado: a confirmação humana precisa
         ser uma decisão registrada (justificativa), não um clique (ADR-0019, pendência
         da ADR-0017 — sem isto, o gate de risco segurava em `pending` e qualquer
@@ -317,7 +317,7 @@ class DeliveryService:
     ) -> tuple[str | None, str]:
         """Resolve o executor revisor: explícito → etapa 'revisao' → default do
         catálogo — desde que DIFERENTE do executor que produziu o que está sendo
-        revisado (código, §14; ou documento, §6, ADR-0021).
+        revisado (código, fluxo §14; ou documento, fluxo §6, ADR-0021).
 
         Devolve `(executor, "")` quando resolvido, ou `(None, motivo)` quando não
         há revisor independente disponível — nunca aprova por omissão.
@@ -379,7 +379,7 @@ class DeliveryService:
                 workspace = self._workspace_for(b)
                 diff = workspace.branch_diff(pr.branch)
                 brief = DemandBrief.model_validate(b.orchestration.demand_brief)
-                # Insumos do §14 além do diff (ADR-0069): spec de origem, ADRs e última CI.
+                # Insumos do fluxo §14 além do diff (ADR-0069): spec de origem, ADRs e última CI.
                 fontes = AgentTaskService._fontes_do_contexto(b, card)
                 verdito = self._perguntar_registrando(
                     b.orchestration.id,
@@ -411,12 +411,12 @@ class DeliveryService:
         *,
         actor: str,
     ) -> PullRequest:
-        """Traduz o veredito em `review_status` (§4.3 da ADR-0017: risco decide se a
+        """Traduz o veredito em `review_status` (wf §4.3 da ADR-0017: risco decide se a
         aprovação do agente fecha sozinha) e move o card reprovado para NeedsFix.
 
         ADR-0033: cada comentário ancorado (`verdito.comentarios`) vira um
         `ReviewComment` de primeira classe desta rodada. Rodada aprovada
-        auto-resolve os comentários obrigatórios pendentes da PR (§15: correção →
+        auto-resolve os comentários obrigatórios pendentes da PR (fluxo §15: correção →
         testes → nova revisão →(aprovado) próxima etapa — a resolução acontece pelo
         ciclo, não por um clique à parte); a resolução manual continua disponível
         via `resolve_review_comment` para o caso de override humano.
@@ -486,7 +486,7 @@ class DeliveryService:
         return pr
 
     def merge_pr(self, orchestration_id: str, pr_id: str) -> PullRequest:
-        """Merge governado: exige CI passed + review approved (§26A.6)."""
+        """Merge governado: exige CI passed + review approved (req §26A.6)."""
         # Lock por orquestração: o check-then-act (verifica status → muta → merge git)
         # precisa ser atômico para dois merges concorrentes não mesclarem em dobro.
         with self._lock_for(orchestration_id):

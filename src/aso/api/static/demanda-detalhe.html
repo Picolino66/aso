@@ -205,7 +205,10 @@
     }
 
     async function abaRecomendacao() {
-      const r = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/recommendation');
+      const [r, similares] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/recommendation'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/similar-demands?limite=5'),
+      ]);
       let html = campo('Agente', esc(r.agente || '—')) +
         campo('Modelo / plataforma', esc(r.modelo || 'sem recomendação automática — nenhuma regra de roteamento bateu para esta classificação')) +
         campo('Effort', esc(r.effort || '—')) +
@@ -215,6 +218,38 @@
         campo('Quality gates recomendados', lista(r.quality_gates)) +
         campo('Custo estimado (histórico global do executor)', esc(r.custo_estimado || 'sem histórico suficiente')) +
         campo('Tempo estimado (histórico global do executor)', esc(r.tempo_estimado || 'sem histórico suficiente'));
+      // Demandas parecidas (MEL-45, ADR-0079): evidência citável, nunca decisão automática.
+      html += '<h3>Demandas parecidas</h3>';
+      html += '<p class="muted">' + esc(similares.fonte) + ' · ' +
+        similares.candidatas_avaliadas + ' demanda(s) avaliada(s) por texto (BM25).</p>';
+      if ((similares.recomendacoes || []).length) {
+        html += '<ul class="simples">' + similares.recomendacoes.map(function (rec) {
+          const fontes = (rec.fonte || []).map(function (oid) {
+            return '<a href="/ui/demanda-detalhe?id=' + encodeURIComponent(oid) + '">' +
+              esc(String(oid).slice(0, 12)) + '</a>';
+          }).join(', ');
+          return '<li>' + esc(rec.texto) + ' <span class="muted">(' + fontes + ')</span></li>';
+        }).join('') + '</ul>';
+      }
+      html += (similares.similares || []).length
+        ? '<table><tr><th>Demanda</th><th>Executor</th><th style="text-align:right">Tentativas' +
+          '</th><th style="text-align:right">Custo (US$)</th><th>Review</th><th>Falhas</th>' +
+          '<th style="text-align:right">Score</th></tr>' +
+          similares.similares.map(function (sim) {
+            return '<tr><td><a href="/ui/demanda-detalhe?id=' +
+              encodeURIComponent(sim.orchestration_id) + '">' + esc(sim.titulo || sim.orchestration_id) +
+              '</a></td>' +
+              '<td>' + esc(sim.executor || '—') + '</td>' +
+              '<td style="text-align:right">' + (sim.tentativas == null ? '—' : sim.tentativas) +
+              '</td>' +
+              '<td style="text-align:right">' +
+              (sim.custo_usd == null ? '<span class="muted">não informado</span>'
+                                     : Number(sim.custo_usd).toFixed(4)) + '</td>' +
+              '<td>' + esc(sim.review || '—') + '</td>' +
+              '<td>' + esc((sim.falhas || []).join(', ') || '—') + '</td>' +
+              '<td style="text-align:right">' + sim.score + '</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Nenhuma demanda parecida no histórico.</p>';
       if (r.modelo && (ORCH.status === 'created' || ORCH.status === 'blocked')) {
         html += '<button id="aplicarRecomendacao" class="btn ok sm" type="button" data-modelo="' + esc(r.modelo) +
           '" data-effort="' + esc(r.effort || '') + '" style="margin-top:10px">Aplicar como override manual</button>' +
@@ -254,6 +289,12 @@
         '<div>' +
           campo('Status', temRelatorio ? '<span class="pill">' + esc(rel.status) + '</span>' : '<span class="pill">nunca rodado</span>') +
           campo('Tempo decorrido', rel && rel.duration_ms != null ? Math.round(rel.duration_ms) + ' ms' : '—') +
+          // MEL-57: o operador vê se o mapa estrutural foi reaproveitado ou refeito.
+          campo('Mapa estrutural', rel && rel.indice_commit
+            ? '<code>' + esc(String(rel.indice_commit).slice(0, 8)) + '</code> · ' +
+              (rel.indice_origem === 'novo' ? 'recalculado' : 'reaproveitado do cache (' +
+                esc(rel.indice_origem) + ')')
+            : '<span class="muted">sem índice</span>') +
         '</div>' +
       '</div>';
       html += '<button id="rodarDiscovery" class="btn ok sm" type="button" style="margin-top:6px">' +

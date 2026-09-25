@@ -1,4 +1,4 @@
-"""ExecutionPlanner (§14, TASK-05).
+"""ExecutionPlanner (req §14, TASK-05).
 
 Gera um ExecutionPlan a partir de uma solicitação e da decisão multiagente.
 """

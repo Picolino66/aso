@@ -1,4 +1,4 @@
-"""ReviewService — revisão independente de código a partir do diff (§14/§15).
+"""ReviewService — revisão independente de código a partir do diff (fluxo §14/§15).
 
 Fecha a lacuna descrita na ADR-0017: hoje `report_review` grava uma string sem
 checar quem revisou nem exigir que alguém tenha olhado o diff, e o `ReviewAgent`
@@ -14,7 +14,7 @@ sem revisor não pode "continuar funcionando" da mesma forma: o fallback deste
 serviço é **sempre** `necessita_humano`, nunca `aprovado`. Qualquer indisponibi-
 lidade do agente (timeout, JSON inválido, executor removido do catálogo, sandbox
 sem permissão) escala para revisão humana — inverter isso transformaria toda
-falha do revisor numa aprovação automática, o oposto do que o §14 pede.
+falha do revisor numa aprovação automática, o oposto do que o fluxo §14 pede.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ TIMEOUT_PADRAO = 180.0  # revisar um diff é mais caro que nomear/triar; bem aba
 # ressalva depois de ver metade do diff é pior que nenhum revisor.
 DIFF_MAX = 60_000
 
-# Os cinco desfechos do fluxo.md §14, na ordem em que ele os lista.
+# Os cinco desfechos do fluxo §14, na ordem em que ele os lista.
 VEREDITO_APROVADO = "aprovado"
 VEREDITO_APROVADO_COM_SUGESTOES = "aprovado_com_sugestoes"
 VEREDITO_ALTERACOES_OBRIGATORIAS = "alteracoes_obrigatorias"
@@ -70,12 +70,12 @@ _SEVERIDADES_VALIDAS = frozenset({"obrigatoria", "sugestao"})
 _GRAVIDADES_VALIDAS = frozenset({"baixa", "media", "alta", "critica"})
 
 # Impactos da ficha da demanda que exigem confirmação humana mesmo com veredito
-# aprovado (§4 do fluxo.md aplicado ao code review).
+# aprovado (fluxo §4 aplicado ao code review).
 _IMPACTOS_QUE_EXIGEM_HUMANO = frozenset({"security", "database", "deploy"})
 
-# Os QUATRO desfechos do §6 (revisão documental) — não são os cinco do §14: não há
+# Os QUATRO desfechos do fluxo §6 (revisão documental) — não são os cinco do fluxo §14: não há
 # "alteracoes_obrigatorias" aqui, e não reaproveitamos o enum do code review por
-# preguiça (ADR-0021, plano4.md §4.4).
+# preguiça (ADR-0021).
 VEREDITO_DOC_APROVADO = "aprovado"
 VEREDITO_DOC_APROVADO_COM_OBSERVACOES = "aprovado_com_observacoes"
 VEREDITO_DOC_REPROVADO = "reprovado"
@@ -92,11 +92,11 @@ _VEREDITOS_DOC_VALIDOS = frozenset(
 
 _DOC_REVIEW_SYSTEM = (
     "Você revisa documentos de um runtime de engenharia autônoma antes da "
-    "implementação (§6 do fluxo.md) — o documento pode ser uma especificação técnica "
+    "implementação (fluxo §6) — o documento pode ser uma especificação técnica "
     "ou um relatório de discovery.\n"
     "Tudo em português do Brasil; use só os vereditos que o schema aceita (NÃO existe "
     "'alteracoes_obrigatorias' aqui — isso é do code review).\n"
-    "Avalie os nove eixos do §6: consistência, completude, viabilidade, segurança, "
+    "Avalie os nove eixos do fluxo §6: consistência, completude, viabilidade, segurança, "
     "compatibilidade com o projeto, clareza dos critérios de aceite, presença de "
     "plano de testes, presença de plano de rollback e ausência de contradições — "
     "registre em `pontos_verificados` quais você checou.\n"
@@ -116,17 +116,17 @@ _ACESSO_COM_REPOSITORIO = (
 
 _REVIEW_SYSTEM = (
     "Você revisa código de forma independente num runtime de engenharia autônoma "
-    "(§14 do fluxo.md). {acesso}"
+    "(fluxo §14). {acesso}"
     "Tudo em português do Brasil; use só os valores que o schema aceita. A severidade de "
     "um COMENTÁRIO é uma escala de GRAVIDADE, diferente da severidade das ações; "
     "`obrigatorio` é o campo que decide se bloqueia a aprovação, não a severidade.\n"
-    "Avalie os doze eixos do §14: correção, aderência aos requisitos, qualidade, "
+    "Avalie os doze eixos do fluxo §14: correção, aderência aos requisitos, qualidade, "
     "clareza, manutenibilidade, segurança, tratamento de erros, performance, padrões, "
     "cobertura de testes, risco de regressão e mudanças fora de escopo — registre em "
     "`pontos_verificados` quais você checou.\n"
     "Cada crítica vira uma AÇÃO OBJETIVA E ACIONÁVEL (ex.: 'Adicionar teste para o "
     "cenário de token expirado'), nunca um comentário genérico ('melhorar os testes') "
-    "— é o §15.\n"
+    "— é o fluxo §15.\n"
     "Além disso, ancore cada crítica relevante em `comentarios`, apontando o "
     "`arquivo`/`linha` exatos do diff a que ela se refere — é a mesma crítica de "
     "`acoes`, com o local exato.\n"
@@ -135,7 +135,7 @@ _REVIEW_SYSTEM = (
 
 
 class ReviewAction(BaseModel):
-    """Comentário do revisor já convertido em ação objetiva (§15)."""
+    """Comentário do revisor já convertido em ação objetiva (fluxo §15)."""
 
     descricao: str
     categoria: str = "correcao"
@@ -195,7 +195,7 @@ class RespostaRevisaoDocumental(BaseModel):
 
 
 class ReviewVerdict(BaseModel):
-    """Resultado de uma revisão independente de código (§14/§15).
+    """Resultado de uma revisão independente de código (fluxo §14/§15).
 
     O default de `veredito` é `necessita_humano`: uma instância "vazia" desta
     classe (sem agente rodado) já é, por construção, o estado mais conservador.
@@ -215,8 +215,8 @@ class ReviewVerdict(BaseModel):
 
 
 class DocReviewVerdict(BaseModel):
-    """Resultado de uma revisão documental (§6) — mesma forma de `ReviewVerdict`, com
-    o vocabulário de veredito próprio do §6 (quatro desfechos, não cinco)."""
+    """Resultado de uma revisão documental (fluxo §6) — mesma forma de `ReviewVerdict`, com
+    o vocabulário de veredito próprio do fluxo §6 (quatro desfechos, não cinco)."""
 
     veredito: str = VEREDITO_DOC_NECESSITA_HUMANO
     resumo: str = ""
@@ -229,7 +229,7 @@ class DocReviewVerdict(BaseModel):
 
 
 def exige_confirmacao_humana(brief: DemandBrief) -> bool:
-    """§4 do fluxo.md aplicado ao code review: risco alto ou impacto sensível não
+    """fluxo §4 aplicado ao code review: risco alto ou impacto sensível não
     fecha a revisão sozinho, mesmo com o agente aprovando."""
     return brief.risco in (RiskLevel.HIGH, RiskLevel.CRITICAL) or bool(
         set(brief.impactos) & _IMPACTOS_QUE_EXIGEM_HUMANO
@@ -354,7 +354,7 @@ class ReviewService:
         tipo: str,
         brief: DemandBrief,
     ) -> DocReviewVerdict:
-        """Revisão documental (§6) — antes da implementação, não do código.
+        """Revisão documental (fluxo §6) — antes da implementação, não do código.
 
         Dois dos nove eixos são fatos, não opinião, e reprovam **sem gastar um
         agente**: presença de plano de testes e de plano de rollback (só se aplicam a
@@ -397,7 +397,7 @@ class ReviewService:
 
 
 def _campos_obrigatorios_faltando(documento: BaseModel, tipo: str) -> list[str]:
-    """Checagem determinística (§6): campo vazio é fato, não opinião. Só se aplica a
+    """Checagem determinística (fluxo §6): campo vazio é fato, não opinião. Só se aplica a
     `SpecDocument` — `getattr` com default evita acoplar este módulo ao `spec.py`."""
     faltando: list[str] = []
     if tipo == SPEC_KEY:
@@ -418,7 +418,7 @@ def _pedido_documento(documento: BaseModel, tipo: str, brief: DemandBrief) -> st
 
 
 def _sanear_doc(bruto: dict[str, object]) -> DocReviewVerdict | None:
-    """Mesmo saneamento de `_sanear`, com o vocabulário de veredito do §6."""
+    """Mesmo saneamento de `_sanear`, com o vocabulário de veredito do fluxo §6."""
     veredito_bruto = bruto.get("veredito")
     resumo = str(bruto.get("resumo") or "").strip()
     acoes_brutas = bruto.get("acoes")

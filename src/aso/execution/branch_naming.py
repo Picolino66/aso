@@ -1,4 +1,4 @@
-"""Nomes de branch derivados do card (§26A.6, ADR-0014).
+"""Nomes de branch derivados do card (req §26A.6, ADR-0014).
 
 Antes, o nome da branch era `role-executor-uuid` — `BackendDevelopmentAgent-claude-
 sonnet-medium-c6950ea8…` — porque o provider CLI não recebia nada do card além do
@@ -93,7 +93,7 @@ def branch_stem(card_type: CardType | str | None, title: str) -> str:
 
     Fica separada de `unique_branch` de propósito: a **identidade** da branch vem do
     card (uma por card), mas a **unicidade** é um problema do worktree — `retry` e
-    candidatos concorrentes (§26A.6) criam branches para o mesmo card ao mesmo tempo,
+    candidatos concorrentes (req §26A.6) criam branches para o mesmo card ao mesmo tempo,
     e `git worktree add` falha se a branch já existe.
     """
     return f"{prefixo_para(card_type)}/{slugify(title)}"

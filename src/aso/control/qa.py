@@ -1,6 +1,6 @@
-"""QA humano (§16/§17 do fluxo.md) — ADR-0025.
+"""QA humano (fluxo §16/§17) — ADR-0025.
 
-O `fluxo.md` §16 pede um passo em que alguém (QA, humano, produto, negócio)
+O `fluxo.md` fluxo §16 pede um passo em que alguém (QA, humano, produto, negócio)
 verifica o que a automação não cobre: experiência do usuário, fluxos visuais,
 regras complexas, comportamento em ambiente real, integrações externas,
 aceitação de negócio. Nenhum código existia para isto — busca por `teste_manual`/
@@ -37,10 +37,10 @@ _TIPOS_QUE_EXIGEM_QA = frozenset({CardType.EPIC, CardType.FEATURE})
 
 
 class QaCheck(BaseModel):
-    """Verificação manual do §16 — o que a automação não cobre.
+    """Verificação manual do fluxo §16 — o que a automação não cobre.
 
     `codigo`/`titulo`/`pre_condicoes` vieram do plano de teste manual do wf
-    §22.1 (Tela 20, ADR-0049) — `codigo` é gerado (`gen_id`), nunca um código
+    wf §22.1 (Tela 20, ADR-0049) — `codigo` é gerado (`gen_id`), nunca um código
     sequencial fictício tipo "QA-001" do exemplo do wireframe (mesma
     disciplina de não fabricar identificador humano-sequencial já aplicada a
     `ADR.id`/`Incident.id`).
@@ -55,7 +55,7 @@ class QaCheck(BaseModel):
     resultado_esperado: str = ""
     resultado_obtido: str = ""
     evidencias: list[str] = Field(default_factory=list)
-    # baixa | media | alta | critica — vira a `priority` do bug quando falha (§17).
+    # baixa | media | alta | critica — vira a `priority` do bug quando falha (fluxo §17).
     gravidade: str = "media"
     status: str = STATUS_PENDENTE
     responsavel: str = ""  # ator autenticado
@@ -64,7 +64,7 @@ class QaCheck(BaseModel):
 
 
 def exige_qa_manual(brief: DemandBrief, card: KanbanCard) -> bool:
-    """§16: QA manual para o que a automação não alcança.
+    """fluxo §16: QA manual para o que a automação não alcança.
 
     Fora desta regra, QA continua **opcional** — o operador pode registrar uma
     verificação a qualquer momento mesmo sem a regra exigir; isto só decide o que

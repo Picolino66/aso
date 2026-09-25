@@ -133,7 +133,7 @@ def _prompt_execucao(env: dict[str, Any]) -> str:
         linhas += [f"  - {x}" for x in criterios]
     correcoes = _lista(card.get("correcoes"))
     if correcoes:
-        # Re-execução depois de revisão reprovada (§15, ADR-0017).
+        # Re-execução depois de revisão reprovada (fluxo §15, ADR-0017).
         linhas.append("Correções obrigatórias apontadas pela revisão independente:")
         linhas += [f"  - {x}" for x in correcoes]
     contexto = _lista(card.get("contexto_adicional"))
@@ -142,7 +142,7 @@ def _prompt_execucao(env: dict[str, Any]) -> str:
         linhas.append("Contexto adicional do operador (siga estas instruções):")
         linhas += [f"  - {x}" for x in contexto]
     if env.get("nudge"):
-        # Dica de correção do supervisor após uma tentativa falha (§15).
+        # Dica de correção do supervisor após uma tentativa falha (fluxo §15).
         linhas.append(f"Atenção — a tentativa anterior falhou: {env['nudge']}")
     bloco_contexto = _renderizar_contexto(env.get("contexto"))
     if bloco_contexto:

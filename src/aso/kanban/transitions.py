@@ -1,8 +1,7 @@
 """Máquina de estados do card (Tela 11, wf §35, ADR-0047).
 
 `specs/kanban.md` (TASK-04/ADR-0002) já previa "movimentos inválidos são
-rejeitados" — nunca implementado até aqui. Este módulo paga essa dívida, não é
-escopo novo inventado pelo FID-20.
+rejeitados"; este módulo é onde a regra passou a existir de fato.
 
 Só valida o caminho MANUAL de movimentação (drag-and-drop / `PUT` do endpoint
 HTTP, via `OrchestrationService.move_card_validado`) — a automação interna do

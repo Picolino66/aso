@@ -1,4 +1,4 @@
-"""EventBroker — pub/sub in-process para streaming SSE (§30, atualização ao vivo).
+"""EventBroker — pub/sub in-process para streaming SSE (req §30, atualização ao vivo).
 
 Cada assinante (conexão SSE) recebe uma fila; a camada HTTP publica um "tick" por
 orquestração após cada mutação, sinalizando ao console que deve re-buscar o estado.

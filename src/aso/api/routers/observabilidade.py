@@ -26,7 +26,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/learning")
     def get_learning_report(orchestration_id: str) -> Any:
-        """Relatório de aprendizado da demanda (§24) — retrabalho, falhas por
+        """Relatório de aprendizado da demanda (fluxo §24) — retrabalho, falhas por
         etapa, desempenho por executor, intervenções humanas. Informativo."""
         deps.guard(orchestration_id)
         return svc.get_learning_report(orchestration_id)
@@ -44,7 +44,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         data_de: str | None = Query(default=None),
         data_ate: str | None = Query(default=None),
     ) -> Any:
-        """Mesmo relatório, consolidado entre orquestrações (§24) — recorte por
+        """Mesmo relatório, consolidado entre orquestrações (fluxo §24) — recorte por
         projeto e período (Tela 29, wf §31, ADR-0052)."""
         return svc.get_learning_report_global(
             project_id=projeto, data_de=data_de, data_ate=data_ate

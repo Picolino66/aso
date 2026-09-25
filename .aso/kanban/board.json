@@ -5408,6 +5408,118 @@
         "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration: s\u00f3 consultas) \u00b7 pytest 1799 passed / 7 skipped / 94.81%",
         "Docker/Postgres: /health 200, smoke OK; GET /v1/approvals?status=pending, approve, execution-metrics (origem=agent_runs, avg_ms a partir do numeric do Postgres) e /v1/learning (global e com recorte) conferidos no container"
       ]
+    },
+    {
+      "id": "MEL-55",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Consolidar a UI legada e as p\u00e1ginas novas (ADR-0078)",
+      "description": "O console tinha duas gera\u00e7\u00f5es se sobrepondo: 4 p\u00e1ginas legadas (macro, nova, detalhe, console t\u00e9cnico) e 16 se\u00e7\u00f5es com sidebar, das quais 4 eram placeholder. Fun\u00e7\u00f5es centrais (cat\u00e1logo de executores, snapshots/patches/conflitos/SLO/worktrees, sala de controle com next-step e atribui\u00e7\u00e3o por etapa, projetos, pr\u00e9-an\u00e1lise de pasta) existiam s\u00f3 nas legadas, e cada p\u00e1gina repetia os helpers de API. Agora h\u00e1 uma gera\u00e7\u00e3o s\u00f3.",
+      "acceptance_criteria": [
+        "Nenhuma funcionalidade exclusiva de p\u00e1gina legada (invent\u00e1rio marcado como migrado)",
+        "Rotas legadas redirecionam; a sidebar n\u00e3o tem placeholders",
+        "Testes de HTML atualizados para as p\u00e1ginas finais",
+        "Smoke do Docker adaptado"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "Invent\u00e1rio por rota de API exclusiva (tabela na ADR-0078): index.html 33 itens, detalhe.html 12, macro.html 3, nova.html 1 \u2014 cada um com destino registrado",
+        "static/aso-api.js: ASOApi.api/token/esc + mensagens de 401/403/404/409 + polling do 202 da fila (ADR-0067) resolvido automaticamente; jobs.js virou shim que delega; as 21 p\u00e1ginas passaram a usar o m\u00f3dulo (nenhuma c\u00f3pia local de fetch/token/esc)",
+        "/ui/esteira?id= \u00e9 a sala de controle (conte\u00fado de detalhe.html dentro do shell com sidebar): esteira F1\u2192F7 com agente por etapa, next-step, pend\u00eancias, painel ao vivo (agent-log), spec/gate/implanta\u00e7\u00e3o e autopilot; sem ?id= mostra seletor de demanda",
+        "/ui/modelos = cat\u00e1logo de executores (ADR-0076) com streaming, permiss\u00e3o de escrita e candidato como campos; /ui/incidentes = lista cross-demanda pela rota nova GET /v1/incidents (consulta no reposit\u00f3rio, SQL + mem\u00f3ria); /ui/configuracoes = hub (atalhos + projetos com criar/arquivar/restaurar/hist\u00f3rico/navegador de pastas + estado do runtime)",
+        "demanda-detalhe ganhou a aba Governan\u00e7a (patches, conflitos + resolver, snapshots + diff + restaurar se\u00e7\u00e3o com dry-run, or\u00e7amento de erro + avaliar + hist\u00f3rico, worktrees + prune) e tempo/custo por card na aba Execu\u00e7\u00f5es (execution-timeline); demanda-nova ganhou a pr\u00e9-an\u00e1lise da pasta (fs/analyze/stream)",
+        "Rotas legadas respondem 307 preservando a query (/ui/ \u2192 dashboard, /ui/nova \u2192 demanda-nova, /ui/detalhe \u2192 esteira, /ui/console \u2192 demanda-detalhe); os 4 arquivos foram removidos",
+        "tests/integration/test_consolidacao_ui.py (22): m\u00f3dulo compartilhado, cada se\u00e7\u00e3o deixando de ser placeholder, rota global de incidentes, aba Governan\u00e7a, redirecionamentos com query, aus\u00eancia dos arquivos legados, nenhum link interno para rota legada, toda p\u00e1gina montando a sidebar. Ajustados: test_dashboard_api, test_extra_endpoints (agora exige redirecionamento + sidebar), test_workspace_preanalysis (pr\u00e9-an\u00e1lise em demanda-nova, colunas via /kanban), test_demanda_detalhe_html, test_next_step_api, test_regras_roteamento_html",
+        "node --check em todos os scripts inline das 21 p\u00e1ginas",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration) \u00b7 pytest 1821 passed / 7 skipped / 94.75%",
+        "Docker/Postgres: /health 200 e smoke OK com as checagens novas (segue os 307 e valida as 4 se\u00e7\u00f5es que deixaram de ser placeholder); no container conferidos 200 em dashboard/esteira/modelos/incidentes/configuracoes/demanda-detalhe/aso-api.js e os 4 redirecionamentos. Corrigido no smoke: `curl | grep -q` quebrava com pipefail (SIGPIPE) \u2014 a checagem passou a ler a p\u00e1gina inteira e casar com `case`"
+      ]
+    },
+    {
+      "id": "MEL-06",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Qualificar refer\u00eancias de se\u00e7\u00e3o e remover refer\u00eancias mortas",
+      "description": "`src/` tinha 860 refer\u00eancias `\u00a7n` sem dizer o documento \u2014 a mesma numera\u00e7\u00e3o existe em requerimentos.md, fluxo.md e wiframe-fluxo.md com assuntos diferentes (\u00a713 = padr\u00f5es multiagente no requisito e tratamento de falhas no fluxo) \u2014 e 63 refer\u00eancias a plano4\u2013plano7, arquivos que nunca entraram no reposit\u00f3rio.",
+      "acceptance_criteria": [
+        "Zero ocorr\u00eancias de \u00a7 n\u00e3o qualificado em src/ (verific\u00e1vel por regex)",
+        "Zero ocorr\u00eancias de plano[0-9]",
+        "Nenhuma mudan\u00e7a de comportamento (su\u00edte verde sem altera\u00e7\u00e3o de testes)"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "Conven\u00e7\u00e3o: `req \u00a7n` (requerimentos.md), `fluxo \u00a7n` (fluxo.md), `wf \u00a7n` (wiframe-fluxo.md), `ADR-NNNN`, `MEL-NN \u00a7n`; documentada em CLAUDE.md e AGENTS.md",
+        "Qualifica\u00e7\u00e3o em 3 passadas (scripts de apoio no scratchpad, fora do repo): (1) prosa que j\u00e1 dizia o documento + se\u00e7\u00e3o > 24 (fluxo.md tem 24) \u2192 req + subse\u00e7\u00e3o existente em um s\u00f3 documento; (2) tabela curada por n\u00famero, assunto a assunto (fluxo \u00d7 requerimentos); (3) decis\u00e3o por arquivo/assunto para o resto \u2014 630 refer\u00eancias qualificadas",
+        "planoN.md: 15 refer\u00eancias passaram a apontar a ADR que registrou a decis\u00e3o (ADR-0017, ADR-0021, ADR-0022, ADR-0024, ADR-0026, ADR-0027, ADR-0052) e 12 frases foram recuperadas onde a remo\u00e7\u00e3o deixou par\u00eantese vazio; 2 refer\u00eancias amb\u00edguas na origem ficaram s\u00f3 com a ADR",
+        "Prefixo repetido colapsado (`fluxo \u00a75/\u00a76`, n\u00e3o `fluxo \u00a75/fluxo \u00a76`) e 7 linhas reescritas para caber em 100 colunas",
+        "Item 4 da task (docstrings narrativas): hist\u00f3rico j\u00e1 registrado em ADR saiu de `agent_log.py` e `transitions.py`; o mapa wireframe\u2192ColumnKey de `transitions.py` FICOU \u2014 n\u00e3o est\u00e1 em nenhuma ADR, remov\u00ea-lo perderia informa\u00e7\u00e3o",
+        "Achado corrigido: a docstring do AgentLogBus justificava ficar fora do EventLog com 'o reposit\u00f3rio reescreve todas as tabelas filhas', falso desde a ADR-0068 (grava\u00e7\u00e3o incremental)",
+        "tests/unit/test_convencao_de_referencias.py (5): \u00a7 sem documento, plano*.md, documentos existem, prefixo repetido e SE\u00c7\u00c3O CITADA EXISTE no documento (qualificar sem conferir s\u00f3 trocaria ambiguidade por erro)",
+        "Crit\u00e9rio 3 verificado: a su\u00edte rodou verde SEM alterar teste algum (1820 passed); s\u00f3 o contrato OpenAPI foi regenerado, porque as docstrings das rotas viram descri\u00e7\u00e3o do schema",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK \u00b7 pytest 1826 passed / 7 skipped / 94.75%. Docker n\u00e3o exigido (mudan\u00e7a textual)"
+      ]
+    },
+    {
+      "id": "MEL-45",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "low",
+      "title": "Recomenda\u00e7\u00f5es por similaridade de demandas (ADR-0079)",
+      "description": "O relat\u00f3rio de aprendizado agrega por faixas de complexidade/risco e o painel de recomenda\u00e7\u00e3o decide por regra ou heur\u00edstica; nenhum dos dois respondia 'demandas parecidas com ESTA falharam onde, com qual executor e a que custo?'. Entra ranqueamento por BM25 sobre o texto da demanda e da ficha, com o desfecho das parecidas como evid\u00eancia cit\u00e1vel.",
+      "acceptance_criteria": [
+        "Demanda nova com texto parecido a demandas anteriores recebe as recomenda\u00e7\u00f5es com a fonte citada",
+        "Sem hist\u00f3rico suficiente, o painel diz isso em vez de inventar recomenda\u00e7\u00e3o",
+        "Funciona em SQLite (testes) e Postgres (valida\u00e7\u00e3o no Docker)"
+      ],
+      "dependencies": [
+        "MEL-30"
+      ],
+      "evidence": [
+        "control/similaridade.py (puro): tokenizador pt-BR com paradas + jarg\u00e3o do runtime, BM25 Okapi (k1=1.5, b=0.75) com IDF, `ranquear` determin\u00edstico (empate pela demanda mais recente) e `texto_da_demanda` que usa s\u00f3 campos de conte\u00fado \u2014 tipo/risco/complexidade/dominios ficam fora porque s\u00e3o vocabul\u00e1rio fechado e ranqueariam por r\u00f3tulo",
+        "Porta `textos_de_demandas(limite, project_id, excluir)` nos 3 adapters (SQL, mem\u00f3ria) lendo s\u00f3 as colunas de texto; `InsightService.demandas_similares` em duas fases: ranqueia a janela (LIMITE_DE_CANDIDATAS=500) e busca o desfecho s\u00f3 das vencedoras por `amostras_de_aprendizado`",
+        "Cada recomenda\u00e7\u00e3o (executor, falha recorrente, custo, tentativas) cita os IDs das demandas de onde veio; abaixo de 2 demandas com execu\u00e7\u00e3o registrada, `recomendacoes` volta vazia e `fonte` diz 'hist\u00f3rico insuficiente' \u2014 uma parecida \u00e9 coincid\u00eancia, n\u00e3o padr\u00e3o",
+        "Custo ausente \u00e9 None, nunca zero (ADR-0026); o painel mostra 'n\u00e3o informado'",
+        "Rota GET /v1/orchestrations/{id}/similar-demands (limite, do_projeto) \u2014 s\u00f3 leitura; aba Recomenda\u00e7\u00e3o da demanda mostra a tabela (executor, tentativas, custo, review, falhas, score) e as frases com link para cada demanda citada",
+        "tests/integration/test_demandas_similares.py (18): ranqueamento puro (ordem, determinismo, coincid\u00eancia fraca recusada), fonte citada, hist\u00f3rico insuficiente, custo ausente, recorte por projeto, rota (incl. `limite` como janela de evid\u00eancia), painel e PARIDADE mem\u00f3ria \u00d7 SQLite \u00d7 Postgres do `textos_de_demandas` e da similaridade",
+        "Crit\u00e9rio 3: rodado com ASO_TEST_POSTGRES_URL apontando para o Postgres do container \u2014 18 passed, nada skipado; `similar-demands` conferida no container (score e termos em comum) e smoke OK",
+        "Medi\u00e7\u00e3o que virou decis\u00e3o: no container, `dominios` colocava 'backend' nos termos em comum de demandas sem rela\u00e7\u00e3o \u2014 o campo saiu do texto comparado (registrado na ADR-0079)",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration) \u00b7 pytest 1842 passed / 9 skipped / 94.79%"
+      ]
+    },
+    {
+      "id": "MEL-57",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "low",
+      "title": "Cache de discovery e \u00edndice por commit (adendo da ADR-0077)",
+      "description": "Discovery com leitura do reposit\u00f3rio (MEL-40) e o \u00edndice estrutural (MEL-44) custam tempo; demandas diferentes no mesmo commit repetiam a investiga\u00e7\u00e3o estrutural. O cache por (reposit\u00f3rio, commit) j\u00e1 existia desde a MEL-44 \u2014 faltavam governan\u00e7a (limpeza), medi\u00e7\u00e3o do ganho e visibilidade de quando um resultado veio do cache.",
+      "acceptance_criteria": [
+        "Segunda demanda no mesmo commit n\u00e3o recalcula o \u00edndice e reduz o tempo do discovery (medi\u00e7\u00e3o registrada)",
+        "Mudan\u00e7a de commit invalida o cache",
+        "O relat\u00f3rio indica quais partes vieram do cache"
+      ],
+      "dependencies": [
+        "MEL-44",
+        "MEL-40"
+      ],
+      "evidence": [
+        "Medi\u00e7\u00e3o em clone do pr\u00f3prio reposit\u00f3rio do ASO (634 arquivos, JSON de 386 KB): construir 1.070 ms \u2192 ler o arquivo do commit 28 ms (~38x) \u2192 reaproveitar no processo 16 ms; registrada no adendo da ADR-0077 e em docs/operations.md",
+        "`IndiceDoRepositorio.origem` (novo|disco|memoria) preenchido em cada caminho de leitura e exposto no `resumo()`",
+        "DiscoveryReport ganhou `indice_commit`/`indice_origem`; o log do relat\u00f3rio diz 'Mapa estrutural do commit X (origem)'; o evento DiscoveryRun e o envelope do AgentRun (ADR-0065, via novo `contexto_extra` de `perguntar_ao_agente`) registram o mesmo; a aba Discovery do console mostra 'recalculado' vs 'reaproveitado do cache'",
+        "`limpar_indices(raiz, manter=commit)` chamada ao gravar: limite por quantidade (ASO_INDICE_MAX_ARQUIVOS, padr\u00e3o 10 \u2014 os mais recentes ficam) e por idade (ASO_INDICE_MAX_IDADE_DIAS, padr\u00e3o 30); o \u00edndice do commit corrente nunca \u00e9 apagado",
+        "tests/integration/test_cache_por_commit.py (9): contagem de constru\u00e7\u00f5es provando que a segunda leitura no mesmo commit n\u00e3o reconstr\u00f3i (mem\u00f3ria e disco), invalida\u00e7\u00e3o por commit novo, \u00e1rvore suja sem cache, limite por quantidade, limpeza por idade preservando o atual, pasta sem \u00edndice, origem no relat\u00f3rio/evento/AgentRun e no painel",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration) \u00b7 pytest 1851 passed / 9 skipped / 94.77%. Docker n\u00e3o exigido: o cache \u00e9 arquivo derivado no reposit\u00f3rio-alvo, coberto por integra\u00e7\u00e3o com git real"
+      ]
     }
   ]
 }

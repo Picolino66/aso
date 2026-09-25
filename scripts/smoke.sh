@@ -41,13 +41,26 @@ curl -fsS "$BASE/health" | grep -q '"status":"ok"'
 
 echo "2) console (sidebar única) + catálogo multi-repo"
 # ADR-0078: as 4 rotas legadas redirecionam (307) para as seções; `-L` segue o redirecionamento.
-curl -fsSL "$BASE/ui/" | grep -q "active: 'dashboard'"
-curl -fsSL "$BASE/ui/nova" | grep -q 'Analisar pasta'
-curl -fsSL "$BASE/ui/detalhe" | grep -q 'Esteira F1'
-curl -fsS "$BASE/ui/modelos" | grep -q 'catálogo de executores'
-curl -fsS "$BASE/ui/incidentes" | grep -q 'Incidentes de'
-curl -fsS "$BASE/ui/configuracoes" | grep -q 'Projetos (repositórios de trabalho)'
-curl -fsS "$BASE/v1/incidents" | grep -q '\[' # lista cross-demanda responde JSON
+# A página inteira é lida antes da checagem: `curl … | grep -q` morre com "Failure writing
+# output" (erro 23) porque o grep fecha o pipe no primeiro acerto, e `printf … | grep -q` quebra
+# com `pipefail` pelo mesmo motivo (SIGPIPE no printf). Casamento por `case`, sem pipe.
+contem() { # contem <url> <texto> [-L]
+  local corpo
+  corpo="$(curl -fsS ${3:-} "$1")" || { echo "   falhou baixar $1" >&2; return 1; }
+  case "$corpo" in
+    *"$2"*) return 0 ;;
+    *) echo "   sem '$2' em $1" >&2; return 1 ;;
+  esac
+}
+contem "$BASE/ui/" "active: 'dashboard'" -L
+contem "$BASE/ui/nova" 'Analisar pasta' -L
+contem "$BASE/ui/detalhe" 'Esteira F1' -L
+contem "$BASE/ui/console" "'Governança'" -L
+contem "$BASE/ui/esteira" 'Esteira F1' 
+contem "$BASE/ui/modelos" 'catálogo de executores'
+contem "$BASE/ui/incidentes" 'Incidentes de'
+contem "$BASE/ui/configuracoes" 'Projetos (repositórios de trabalho)'
+curl -fsS "$BASE/v1/incidents" -o /dev/null  # lista cross-demanda responde 200
 PID=$(curl -fsS -X POST "$BASE/v1/projects" \
   -H 'content-type: application/json' \
   -d '{"name":"Projeto smoke","description":"Docker/Postgres","target_path":"/tmp"}' \

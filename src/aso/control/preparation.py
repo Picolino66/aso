@@ -1,6 +1,6 @@
-"""Checklist de preparação para implementação (§10 do fluxo.md, wf §16) — ADR-0030.
+"""Checklist de preparação para implementação (fluxo §10, wf §16) — ADR-0030.
 
-`fluxo.md` §10 lista 8 itens que o agente responsável por um card cumpre antes de
+`fluxo.md` fluxo §10 lista 8 itens que o agente responsável por um card cumpre antes de
 alterar código. Nenhum deles era auditável — cumpridos implicitamente, sem registro.
 Este módulo dá forma a esse checklist e o marca automaticamente nos pontos em que o
 runtime já garante, de fato, cada item — nunca inventa uma confirmação que não
@@ -31,7 +31,7 @@ ITEM_BRANCH_CRIADA = "Branch criada"
 ITEM_PLANO_REGISTRADO = "Plano de execução registrado"
 ITEM_CARD_DESBLOQUEADO = "Card desbloqueado"
 
-# Ordem do §10 — a mesma ordem em que a UI (wf §16.1) deve listar o checklist.
+# Ordem do wf §10 — a mesma ordem em que a UI (wf §16.1) deve listar o checklist.
 ITENS_CHECKLIST_PREPARACAO: tuple[str, ...] = (
     ITEM_ESPECIFICACAO_LIDA,
     ITEM_CRITERIOS_ANALISADOS,
@@ -45,7 +45,7 @@ ITENS_CHECKLIST_PREPARACAO: tuple[str, ...] = (
 
 
 class PreparationChecklistError(ValueError):
-    """Item fora do vocabulário fechado do §10."""
+    """Item fora do vocabulário fechado do fluxo §10."""
 
 
 class PreparationChecklistItem(BaseModel):
@@ -69,7 +69,8 @@ def marcar_item(
     """
     if item not in ITENS_CHECKLIST_PREPARACAO:
         raise PreparationChecklistError(
-            f"Item {item!r} fora do checklist do §10 (esperado um de {ITENS_CHECKLIST_PREPARACAO})."
+            f"Item {item!r} fora do checklist do fluxo §10 "
+            f"(esperado um de {ITENS_CHECKLIST_PREPARACAO})."
         )
     novo = PreparationChecklistItem(item=item, concluido=concluido, autor=autor)
     resto = [c for c in checklist if c.get("item") != item]
@@ -77,6 +78,6 @@ def marcar_item(
 
 
 def checklist_completo(checklist: list[dict[str, object]]) -> bool:
-    """Todos os 8 itens do §10 presentes e marcados como concluídos."""
+    """Todos os 8 itens do fluxo §10 presentes e marcados como concluídos."""
     concluidos = {c.get("item") for c in checklist if c.get("concluido")}
     return set(ITENS_CHECKLIST_PREPARACAO) <= concluidos

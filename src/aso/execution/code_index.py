@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import subprocess
 import time
@@ -33,6 +34,17 @@ from aso.shared.cache import TTLCache
 
 VERSAO_DO_SCHEMA = 1
 PASTA_DO_INDICE = ".aso/index"
+
+# De onde veio o índice desta chamada (MEL-57): o relatório e o registro da execução dizem isso,
+# em vez de o operador ter de adivinhar se a investigação foi refeita.
+ORIGEM_NOVO = "novo"
+ORIGEM_DISCO = "disco"
+ORIGEM_MEMORIA = "memoria"
+
+# Governança do cache em disco (MEL-57): o índice é derivado e recalculável, então guardar
+# indefinidamente um arquivo por commit só ocuparia espaço no repositório do usuário.
+_MAX_ARQUIVOS_PADRAO = 10
+_MAX_IDADE_DIAS_PADRAO = 30
 
 LINGUAGEM_PYTHON = "python"
 LINGUAGEM_TS = "typescript"
@@ -68,7 +80,7 @@ _EXTENSOES = {
 # Só estas são analisadas de verdade; o resto entra como arquivo + linguagem.
 _ANALISADAS = (LINGUAGEM_PYTHON, LINGUAGEM_TS, LINGUAGEM_JS)
 
-# Arquivos que NUNCA entram no índice (§5 da MEL-44): segredo, credencial, binário.
+# Arquivos que NUNCA entram no índice (MEL-44 §5 da MEL-44): segredo, credencial, binário.
 _NOMES_DE_SEGREDO = re.compile(
     r"(^\.env($|\.)|(^|[._-])secret|(^|[._-])credential|^id_[rd]sa|\.(pem|key|p12|pfx|jks|keystore"
     r"|crt|cer|der)$|(^|[._-])senha|(^|[._-])password)",
@@ -177,6 +189,8 @@ class IndiceDoRepositorio(BaseModel):
     gerado_em: str = ""
     duracao_ms: int = 0
     precisao: dict[str, str] = Field(default_factory=dict)
+    # Preenchido a cada leitura (não é conteúdo do índice): novo | disco | memoria.
+    origem: str = ORIGEM_NOVO
     modulos: list[str] = Field(default_factory=list)
     arquivos: dict[str, ArquivoIndexado] = Field(default_factory=dict)
 
@@ -241,6 +255,7 @@ class IndiceDoRepositorio(BaseModel):
             "por_linguagem": por_linguagem,
             "duracao_ms": self.duracao_ms,
             "sujo": self.sujo,
+            "origem": self.origem,
         }
 
 
@@ -545,6 +560,49 @@ def caminho_do_indice(raiz: str | Path, commit: str) -> Path:
     return Path(raiz) / PASTA_DO_INDICE / f"{commit or 'sem-commit'}.json"
 
 
+def _inteiro_do_ambiente(nome: str, padrao: int) -> int:
+    try:
+        return max(1, int(os.environ.get(nome, padrao)))
+    except ValueError:
+        return padrao
+
+
+def limpar_indices(raiz: str | Path, *, manter: str = "") -> list[str]:
+    """Apaga índices velhos de `.aso/index` (MEL-57); devolve os commits removidos.
+
+    Dois limites, ambos configuráveis: quantidade (`ASO_INDICE_MAX_ARQUIVOS`, padrão 10 — os mais
+    recentes ficam) e idade (`ASO_INDICE_MAX_IDADE_DIAS`, padrão 30). `manter` nunca é apagado (o
+    índice que a chamada corrente acabou de gravar). Apagar é seguro: o próximo uso reconstrói."""
+    pasta = Path(raiz) / PASTA_DO_INDICE
+    if not pasta.is_dir():
+        return []
+    maximo = _inteiro_do_ambiente("ASO_INDICE_MAX_ARQUIVOS", _MAX_ARQUIVOS_PADRAO)
+    idade_maxima = _inteiro_do_ambiente("ASO_INDICE_MAX_IDADE_DIAS", _MAX_IDADE_DIAS_PADRAO)
+    limite_de_tempo = time.time() - idade_maxima * 86_400
+    try:
+        arquivos = sorted(
+            (a for a in pasta.glob("*.json") if a.is_file()),
+            key=lambda a: a.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return []
+    removidos: list[str] = []
+    for posicao, arquivo in enumerate(arquivos):
+        if arquivo.stem == manter:
+            continue
+        velho = arquivo.stat().st_mtime < limite_de_tempo
+        excedente = posicao >= maximo
+        if not (velho or excedente):
+            continue
+        try:
+            arquivo.unlink()
+            removidos.append(arquivo.stem)
+        except OSError:
+            continue
+    return removidos
+
+
 def indice_do_repositorio(
     raiz: str | Path, *, forcar: bool = False
 ) -> tuple[IndiceDoRepositorio, bool]:
@@ -559,7 +617,7 @@ def indice_do_repositorio(
         try:
             salvo = IndiceDoRepositorio.model_validate_json(destino.read_text(encoding="utf-8"))
             if salvo.versao_do_schema == VERSAO_DO_SCHEMA and salvo.commit == commit:
-                return salvo, True
+                return salvo.model_copy(update={"origem": ORIGEM_DISCO}), True
         except (OSError, ValueError):
             pass  # índice corrompido ou de outro schema: recalcula e sobrescreve
     indice = construir_indice(base, commit=commit, sujo=sujo)
@@ -569,6 +627,7 @@ def indice_do_repositorio(
             destino.write_text(
                 json.dumps(indice.model_dump(mode="json"), ensure_ascii=False), encoding="utf-8"
             )
+            limpar_indices(base, manter=commit)
         except OSError:
             pass  # repositório somente leitura: o índice ainda serve nesta execução
     return indice, False
@@ -593,7 +652,7 @@ def indice_para_uso(raiz: str | Path) -> IndiceDoRepositorio | None:
     chave = f"{base.resolve()}|{commit}|{int(sujo)}"
     guardado = _EM_MEMORIA.get(chave)
     if isinstance(guardado, IndiceDoRepositorio):
-        return guardado
+        return guardado.model_copy(update={"origem": ORIGEM_MEMORIA})
     try:
         indice, _ = indice_do_repositorio(base)
     except OSError:

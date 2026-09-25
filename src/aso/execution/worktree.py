@@ -1,4 +1,4 @@
-"""WorktreeManager — worktrees git isolados por card/agente (§26A.6).
+"""WorktreeManager — worktrees git isolados por card/agente (req §26A.6).
 
 Cada agente CLI que altera código roda em um worktree/branch isolado; o diff é
 coletado antes de qualquer merge. Nunca opera na branch principal.
@@ -120,7 +120,7 @@ class WorktreeManager:
 
     def commit_count(self, branch: str) -> int:
         """Nº de commits da branch candidata que HEAD ainda não tem (Tela 18, wf
-        §20.1, ADR-0049) — mesma comparação de `branch_diff`/`changed_files`."""
+        wf §20.1, ADR-0049) — mesma comparação de `branch_diff`/`changed_files`."""
         saida = self._git("rev-list", "--count", "HEAD.." + branch).stdout
         return int(saida.strip() or "0")
 
@@ -165,8 +165,8 @@ class WorktreeManager:
             )
 
     def list_worktrees(self) -> list[dict[str, str]]:
-        """Worktrees registrados sob `.aso/worktrees/` deste repositório (§3.3 do
-        plano7.md, ADR-0027) — via `git worktree list --porcelain`, a mesma fonte de
+        """Worktrees registrados sob `.aso/worktrees/` deste repositório (wf §3.3 do
+        , ADR-0027) — via `git worktree list --porcelain`, a mesma fonte de
         verdade que `scripts/reset.sh` usa, não uma varredura de diretório (que veria
         pasta órfã sem entrada git, ou entrada git sem pasta)."""
         raiz = str((self.base / ".aso" / "worktrees").resolve())

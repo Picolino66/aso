@@ -1,4 +1,4 @@
-"""`CandidateRaceService` — corrida de candidatos por card (§26A.6, ADR-0066).
+"""`CandidateRaceService` — corrida de candidatos por card (req §26A.6, ADR-0066).
 
 MEL-32, passo 4b: extraída junto da execução; usa o claim, os freios e a montagem de tarefa
 do `ExecutionService` e persiste as corridas no bundle.
@@ -55,7 +55,7 @@ class CandidateRaceService:
     def race_card(
         self, orchestration_id: str, card_id: str, providers: list[ExecutionProvider]
     ) -> dict[str, object]:
-        """Roda múltiplos agentes CLI em paralelo por card e compara os diffs (§26A.6).
+        """Roda múltiplos agentes CLI em paralelo por card e compara os diffs (req §26A.6).
 
         Reserva o lease do card durante a corrida (ADR-0058) sem mudar a coluna: a
         corrida compara candidatos, não é a execução do card — mas não pode disputar o
@@ -80,7 +80,7 @@ class CandidateRaceService:
                 self._persist(b)
         comparison = CandidateRunner.compare(candidates)
         with self._lock_for(orchestration_id):
-            # Persiste a corrida como entidade rastreável (histórico auditável §26A.6/§21).
+            # Persiste a corrida como entidade rastreável (histórico auditável req §26A.6/§21).
             run = CandidateRun(
                 orchestration_id=orchestration_id,
                 card_id=card_id,
@@ -98,7 +98,7 @@ class CandidateRaceService:
                     "recommended": comparison["recommended_branch"],
                 },
             )
-            # Candidato perdido nunca é silencioso (plano6 §0/ADR-0024): um evento por
+            # Candidato perdido nunca é silencioso (ADR-0024): um evento por
             # falha, rastreável mesmo depois que o ring de corridas descartar `run`.
             falhas = comparison["falhas"]
             for falha in falhas:
@@ -111,7 +111,7 @@ class CandidateRaceService:
         return comparison
 
     def _prune_races(self, b: OrchestrationBundle, card_id: str) -> None:
-        """Mantém apenas as N corridas mais recentes por card (retenção §26A.6)."""
+        """Mantém apenas as N corridas mais recentes por card (retenção req §26A.6)."""
         same = [r for r in b.candidate_runs if r.card_id == card_id]
         if len(same) <= self._max_races_per_card:
             return

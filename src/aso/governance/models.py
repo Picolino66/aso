@@ -1,6 +1,6 @@
 """Modelos de domínio da governança (Pydantic v2).
 
-Materializa as entidades §17–§24 do requisito. Todas com `id` e timestamps.
+Materializa as entidades req §17–§24 do requisito. Todas com `id` e timestamps.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from aso.shared.types import (
 
 
 class ContextPatch(BaseModel):
-    """Proposta de alteração no contexto (§18). Produzida por agentes/skills."""
+    """Proposta de alteração no contexto (req §18). Produzida por agentes/skills."""
 
     id: str = Field(default_factory=lambda: gen_id("patch"))
     orchestration_id: str
@@ -41,7 +41,7 @@ class ContextPatch(BaseModel):
 
 
 class Conflict(BaseModel):
-    """Conflito detectado pelo ContextBus/ConflictDetector (§20)."""
+    """Conflito detectado pelo ContextBus/ConflictDetector (req §20)."""
 
     id: str = Field(default_factory=lambda: gen_id("conflict"))
     orchestration_id: str
@@ -67,7 +67,7 @@ class GateCriterionResult(BaseModel):
 
 
 class QualityGateResult(BaseModel):
-    """Resultado de um quality gate (§22)."""
+    """Resultado de um quality gate (req §22)."""
 
     id: str = Field(default_factory=lambda: gen_id("gate"))
     orchestration_id: str
@@ -82,7 +82,7 @@ class QualityGateResult(BaseModel):
 
 
 class Snapshot(BaseModel):
-    """Versão congelada do contexto após uma fase aprovada (§23)."""
+    """Versão congelada do contexto após uma fase aprovada (req §23)."""
 
     id: str = Field(default_factory=lambda: gen_id("snapshot"))
     orchestration_id: str
@@ -98,14 +98,14 @@ class Snapshot(BaseModel):
 
 
 class HumanApproval(BaseModel):
-    """Solicitação de aprovação humana para ação crítica (§24)."""
+    """Solicitação de aprovação humana para ação crítica (req §24)."""
 
     id: str = Field(default_factory=lambda: gen_id("approval"))
     orchestration_id: str
     card_id: str | None = None
     requested_by_agent: str = "OrchestratorAgent"
     action: str
-    # Origem real da solicitação (dashboard §3.3, ADR-0037) — não os 4 rótulos
+    # Origem real da solicitação (dashboard wf §3.3, ADR-0037) — não os 4 rótulos
     # fictícios do wireframe (Discovery/Arquitetura/Deploy/Aceite final, que não
     # existem no runtime): os 3 pontos de código que criam aprovação automática
     # ("estrategia", "patch", "fase_gate"), ou "manual" quando criada via API
@@ -120,7 +120,7 @@ class HumanApproval(BaseModel):
 
 
 class PullRequest(BaseModel):
-    """Pull Request derivado do worktree de um card (§26, MVP-4)."""
+    """Pull Request derivado do worktree de um card (req §26, MVP-4)."""
 
     id: str = Field(default_factory=lambda: gen_id("pr"))
     orchestration_id: str
@@ -165,7 +165,7 @@ class ReviewComment(BaseModel):
     categoria: str = "correcao"
     # baixa | media | alta | critica — mesmo vocabulário de QaCheck.gravidade/
     # Incident.gravidade. Distinto de `obrigatorio`: severidade é gravidade, não
-    # "bloqueia ou não" (o wireframe pede os dois como campos separados, §20.3).
+    # "bloqueia ou não" (o wireframe pede os dois como campos separados, wf §20.3).
     severidade: str = "media"
     descricao: str
     sugestao: str = ""
@@ -181,7 +181,7 @@ class ReviewComment(BaseModel):
 
 
 class CandidateRun(BaseModel):
-    """Resultado rastreável de uma corrida de candidatos CLI por card (§26A.6).
+    """Resultado rastreável de uma corrida de candidatos CLI por card (req §26A.6).
 
     Registra os candidatos avaliados (executor, branch, diff, arquivos, erro) e o
     branch recomendado pela heurística, formando um histórico auditável de corridas.
@@ -196,7 +196,7 @@ class CandidateRun(BaseModel):
 
 
 class IncidentTimelineEntry(BaseModel):
-    """Um evento da timeline de um incidente (§21, wf §27) — `Incident` é a primeira
+    """Um evento da timeline de um incidente (wf §21, §27) — `Incident` é a primeira
     entidade do projeto com timeline embutida em vez de "várias instâncias formam o
     histórico" (padrão de `PullRequest`/`CandidateRun`): faz sentido aqui porque um
     incidente é UM objeto de vida longa que muda de estado, não um evento imutável."""
@@ -208,10 +208,10 @@ class IncidentTimelineEntry(BaseModel):
 
 
 class Incident(BaseModel):
-    """Incidente de primeira classe (§21 do fluxo.md, wf §27/§38) — ADR-0032.
+    """Incidente de primeira classe (fluxo §21, wf §27/§38) — ADR-0032.
 
     Hoje só existia `KanbanCard(type=Incident)`, criado por `rollback_deploy` —
-    continua existindo (a tarefa de análise de causa raiz do §21), e `card_id`
+    continua existindo (a tarefa de análise de causa raiz do fluxo §21), e `card_id`
     aponta para ele. `deploy_ambiente`/`deploy_estagio`/`deploy_versao` são um
     SNAPSHOT do `DeployRun` revertido, não uma FK real: `DeployRun` não tem `id`
     próprio (é um dict versionado no ring `deploy_runs`), então o vínculo é por
@@ -225,7 +225,7 @@ class Incident(BaseModel):
     titulo: str
     motivo: str = ""
     # baixa | media | alta | critica — mesmo vocabulário de `QaCheck.gravidade`
-    # (ADR-0025) e do exemplo do wireframe (§27.2: "Gravidade: Crítica").
+    # (ADR-0025) e do exemplo do wireframe (req §27.2: "Gravidade: Crítica").
     gravidade: str = "media"
     # aberto | investigando | resolvido
     status: str = "aberto"
@@ -243,7 +243,7 @@ class BugReport(BaseModel):
     """Registro estruturado de bug (Tela 21, wf §23) — ADR-0049.
 
     Companion do `KanbanCard(type=Bug)` — mesmo papel que `Incident` tem para
-    `KanbanCard(type=Incident)` (§21): o card já existia (criado
+    `KanbanCard(type=Incident)` (req §21): o card já existia (criado
     automaticamente por `_criar_bug_de_qa` desde a ADR-0025, ou manualmente
     aqui) e continua sendo o objeto rastreável no Kanban; `BugReport` só
     guarda os campos estruturados do wf §23.1 que nem `KanbanCard` nem
@@ -252,7 +252,7 @@ class BugReport(BaseModel):
 
     id: str = Field(default_factory=lambda: gen_id("bug"))
     orchestration_id: str
-    # Card do §23.1 ("Card original") — o que tinha o problema, NÃO o bug em si.
+    # Card do wf §23.1 ("Card original") — o que tinha o problema, NÃO o bug em si.
     card_original_id: str
     # Card `type=Bug` criado para este relato — o objeto rastreável no Kanban,
     # mesmo papel que `Incident.card_id` tem para `KanbanCard(type=Incident)`.
@@ -300,7 +300,7 @@ class SloEvaluation(BaseModel):
 
 
 class ADR(BaseModel):
-    """Architecture Decision Record (§21)."""
+    """Architecture Decision Record (req §21)."""
 
     id: str
     orchestration_id: str

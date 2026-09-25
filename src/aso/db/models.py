@@ -1,4 +1,4 @@
-"""Modelos SQLAlchemy normalizados (§29, ADR-0006).
+"""Modelos SQLAlchemy normalizados (req §29, ADR-0006).
 
 Normalização estrita: coleções de valor viram tabelas de junção (`board_columns`,
 `card_links`, `adr_links`, `planned_agents`, `adr_options`, `gate_criteria`) e a
@@ -72,7 +72,7 @@ class ProjectEventRow(Base):
 
 
 class RoutingRuleRow(Base):
-    """Regra de roteamento declarada pelo operador (§33, ADR-0028).
+    """Regra de roteamento declarada pelo operador (req §33, ADR-0028).
 
     Global, não escopada por `orchestration_id` — mesmo precedente de `ProjectRow`:
     é configuração do runtime, não estado de uma orquestração específica.
@@ -143,11 +143,11 @@ class OrchestrationRow(Base):
     # Ficha estruturada da demanda (ADR-0016); mesmo motivo de agent_assignments: mapa
     # pequeno, sempre lido junto da orquestração, então JSONB em vez de tabela filha.
     demand_brief: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
-    # Ring de até 5 versões do discovery (§3/§4, ADR-0020; versionado pela ADR-0021
-    # §4.2) — lista vazia = discovery nunca rodado (não regride o gate de F1). Mesmo
+    # Ring de até 5 versões do discovery (fluxo §3/§4, ADR-0020; versionado pela ADR-0021
+    # wf §4.2) — lista vazia = discovery nunca rodado (não regride o gate de F1). Mesmo
     # motivo de demand_brief: mapa pequeno, sempre lido junto da orquestração.
     discovery_reports: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Ring de até 5 versões da especificação da solução (§5/§6, ADR-0021) — lista
+    # Ring de até 5 versões da especificação da solução (fluxo §5/§6, ADR-0021) — lista
     # vazia = especificação nunca gerada.
     spec_documents: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
     # Documentos da Tela 08 (wf §10, ADR-0046) — um ring por tipo, mesmo motivo de
@@ -156,10 +156,10 @@ class OrchestrationRow(Base):
     # Comentários ancorados em documentos (wf §10.3/§11.3, ADR-0046) — lista plana.
     documento_comentarios: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
     validation_command: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Bateria nomeada do §12 (ADR-0022) — lista vazia = só o `validation_command`
+    # Bateria nomeada do fluxo §12 (ADR-0022) — lista vazia = só o `validation_command`
     # legado (compatibilidade é requisito: `checks_efetivos` resolve os dois).
     validation_checks: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Implantação governada (§18-22, ADR-0023) — comando configurável, sem
+    # Implantação governada (fluxo §18-22, ADR-0023) — comando configurável, sem
     # provisionamento real (mesma disciplina de validation_command/checks).
     deploy_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     deploy_environment: Mapped[str] = mapped_column(String, default="producao")
@@ -167,12 +167,12 @@ class OrchestrationRow(Base):
     deploy_rollback_command: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Ring de até 5 tentativas de implantação — lista vazia = nunca implantou.
     deploy_runs: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Pipeline de estágios (§19, ADR-0029) — lista vazia = implantação monoambiente
+    # Pipeline de estágios (fluxo §19, ADR-0029) — lista vazia = implantação monoambiente
     # legada (deploy_environment/deploy_command continuam valendo sozinhos).
     deploy_pipeline: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Orçamento com freio (§1.2/§3.2, ADR-0026) — NULL = sem teto (opt-in).
+    # Orçamento com freio (wf §1.2/§3.2, ADR-0026) — NULL = sem teto (opt-in).
     orcamento_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # Regra de roteamento que casou (§33, ADR-0028) — NULL = nenhuma regra casou
+    # Regra de roteamento que casou (req §33, ADR-0028) — NULL = nenhuma regra casou
     # (ou nenhuma existe), decisão seguiu 100% a heurística.
     routing_rule_applied: Mapped[dict[str, Any] | None] = mapped_column(_JSONB, nullable=True)
     workspace_prepared: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -251,7 +251,7 @@ class BoardRow(Base):
 
 
 class BoardColumnRow(Base):
-    """Coluna de um board (§29 board_columns)."""
+    """Coluna de um board (req §29 board_columns)."""
 
     __tablename__ = "board_columns"
 
@@ -285,31 +285,31 @@ class CardRow(Base):
     worktree: Mapped[str | None] = mapped_column(String, nullable=True)
     branch: Mapped[str | None] = mapped_column(String, nullable=True)
     block_reason: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Ring das últimas 5 falhas (§13 do fluxo.md, ADR-0019) — lista de FailureRecord
+    # Ring das últimas 5 falhas (fluxo §13, ADR-0019) — lista de FailureRecord
     # serializados. JSONB no Postgres: a linha inteira é reescrita a cada `save` (mesmo
     # raciocínio das ADR-0014/0016/0017), então o ring fica pequeno de propósito.
     failures: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Ring das últimas 10 verificações de QA manual (§16/§17, ADR-0025).
+    # Ring das últimas 10 verificações de QA manual (fluxo §16/§17, ADR-0025).
     qa_checks: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
-    # Hierarquia épico → história → subtarefa (§7, ADR-0025) — NULL = card sem pai
+    # Hierarquia épico → história → subtarefa (fluxo §7, ADR-0025) — NULL = card sem pai
     # (todo card anterior a esta ADR, e a maioria depois dela: hierarquia é opcional).
     # Sem FK: `add_card`/profundidade/ciclo já validam contra o estado em memória, e
     # uma FK auto-referenciada em `kanban_cards` complicaria a ordem de INSERT em
     # lote sem benefício — a mesma razão de `assignee`/`executor` não terem FK aqui.
     parent_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Ficha de encerramento (§23, ADR-0021) — vazio = card ainda não encerrado.
+    # Ficha de encerramento (fluxo §23, ADR-0021) — vazio = card ainda não encerrado.
     closure: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
-    # Consumo real acumulado do agente (§1.1, ADR-0026) — vazio = nunca informado.
+    # Consumo real acumulado do agente (ADR-0026) — vazio = nunca informado.
     uso: Mapped[dict[str, Any]] = mapped_column(_JSONB, default=dict)
-    # Checklist de preparação (§10, ADR-0030) — estado, no máximo 8 itens.
+    # Checklist de preparação (fluxo §10, ADR-0030) — estado, no máximo 8 itens.
     preparation_checklist: Mapped[list[dict[str, Any]]] = mapped_column(_JSONB, default=list)
     # Tarefa de acompanhamento auto-criada no primeiro bloqueio por dependência
-    # (§10, ADR-0030). NULL = nunca bloqueou ou já foi desbloqueado. Sem FK pelo
+    # (fluxo §10, ADR-0030). NULL = nunca bloqueou ou já foi desbloqueado. Sem FK pelo
     # mesmo motivo de `parent_id`: card auto-referenciado, ordem de INSERT em lote.
     dependency_task_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Contador autoritativo de tentativas (§36.4, ADR-0031) — nunca truncado.
+    # Contador autoritativo de tentativas (req §36.4, ADR-0031) — nunca truncado.
     tentativa_atual: Mapped[int] = mapped_column(Integer, default=0)
-    # Contador de falhas consecutivas (§13, ADR-0019) — zera a cada sucesso; é o
+    # Contador de falhas consecutivas (fluxo §13, ADR-0019) — zera a cada sucesso; é o
     # que `decidir()` usa para escalar. Distinto de `tentativa_atual` (soma sucesso).
     tentativa_falha_atual: Mapped[int] = mapped_column(Integer, default=0)
     # NULL = usa o limite global do processo (ASO_MAX_ESCALONAMENTOS).
@@ -368,7 +368,7 @@ class CardEventRow(Base):
     from_status: Mapped[str | None] = mapped_column(String, nullable=True)
     to_status: Mapped[str | None] = mapped_column(String, nullable=True)
     actor: Mapped[str] = mapped_column(String, default="system")
-    # Auditoria de movimentação (§8 do fluxo.md, ADR-0019): motivo, resultado e
+    # Auditoria de movimentação (fluxo §8, ADR-0019): motivo, resultado e
     # próxima ação a cada movimentação — não só data e ator.
     reason: Mapped[str] = mapped_column(Text, default="")
     result: Mapped[str] = mapped_column(Text, default="")
@@ -526,7 +526,7 @@ class HumanApprovalRow(Base):
 
 
 class ContextPatchRow(Base):
-    """ContextPatch submetido ao ContextBus (trilha de auditoria, §18)."""
+    """ContextPatch submetido ao ContextBus (trilha de auditoria, req §18)."""
 
     __tablename__ = "context_patches"
     __table_args__ = (Index("ix_patches_orch_status", "orchestration_id", "status"),)
@@ -613,7 +613,7 @@ class CandidateRunRow(Base):
 
 
 class IncidentRow(Base):
-    """Incidente de primeira classe (§21, wf §27/§38) — ADR-0032."""
+    """Incidente de primeira classe (wf §21, §27/§38) — ADR-0032."""
 
     __tablename__ = "incidents"
     __table_args__ = (Index("ix_incidents_orch_status", "orchestration_id", "status"),)

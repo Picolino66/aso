@@ -1,4 +1,4 @@
-"""SqlAlchemyOrchestrationRepository — adapter relacional NORMALIZADO (§29, ADR-0006).
+"""SqlAlchemyOrchestrationRepository — adapter relacional NORMALIZADO (req §29, ADR-0006).
 
 Coleções de valor são persistidas em tabelas de junção (card_links, adr_links,
 board_columns, planned_agents). Escrita transacional (delete-and-reinsert dos filhos
@@ -605,7 +605,7 @@ class SqlAlchemyOrchestrationRepository:
         created_from: str | None = None,
         created_to: str | None = None,
     ) -> tuple[list[Orchestration], int]:
-        """Filtros baratos (Tela 02 §4.2, ADR-0038) — todos sobre colunas reais e
+        """Filtros baratos (Tela 02 wf §4.2, ADR-0038) — todos sobre colunas reais e
         indexadas (`project_id`, `status`, `created_at`) ou um `LIKE` simples
         (`user_request`). Os filtros que exigem ler `demand_brief` (JSON sem
         índice) ou aprovação pendente ficam no serviço, sobre o resultado desta
@@ -640,7 +640,7 @@ class SqlAlchemyOrchestrationRepository:
             return [Orchestration(**_cols(r)) for r in rows], int(total)
 
     def orchestration_ids_with_pending_approval(self) -> set[str]:
-        """Filtro "aprovação humana" (Tela 02 §4.2, ADR-0038) — uma query direta
+        """Filtro "aprovação humana" (Tela 02 wf §4.2, ADR-0038) — uma query direta
         na tabela indexada (`ix_approvals_orch_status`), sem hidratar nenhum
         bundle. Deliberadamente NÃO reaproveita `list_all_approvals` (que
         hidrata o bundle de toda orquestração do sistema a cada chamada — bom
@@ -902,8 +902,43 @@ class SqlAlchemyOrchestrationRepository:
                 tempos[card_id] = tempos.get(card_id, 0.0) + float(ms)
         return [por_id[oid] for oid in ids]
 
+    def textos_de_demandas(
+        self, *, limite: int, project_id: str | None = None, excluir: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Texto das demandas mais recentes, para o ranqueamento por similaridade (MEL-45).
+
+        Só as colunas do texto e do estado: o ranqueamento roda em processo (ADR-0079) e não tem
+        por que hidratar agregado nenhum. `limite` é a janela — quem chama decide o tamanho."""
+        with self._session_factory() as session:
+            stmt = select(
+                OrchestrationRow.id,
+                OrchestrationRow.user_request,
+                OrchestrationRow.demand_brief,
+                OrchestrationRow.created_at,
+                OrchestrationRow.status,
+                OrchestrationRow.project_id,
+            )
+            if project_id is not None:
+                stmt = stmt.where(OrchestrationRow.project_id == project_id)
+            if excluir is not None:
+                stmt = stmt.where(OrchestrationRow.id != excluir)
+            linhas = session.execute(
+                stmt.order_by(OrchestrationRow.created_at.desc()).limit(limite)
+            ).all()
+        return [
+            {
+                "id": linha[0],
+                "user_request": linha[1] or "",
+                "demand_brief": dict(linha[2] or {}),
+                "created_at": linha[3] or "",
+                "status": linha[4] or "",
+                "project_id": linha[5],
+            }
+            for linha in linhas
+        ]
+
     def recent_events(self, *, limit: int) -> list[dict[str, Any]]:
-        """Atividade recente GLOBAL (Dashboard §3.3, ADR-0037) — uma única query
+        """Atividade recente GLOBAL (Dashboard wf §3.3, ADR-0037) — uma única query
         `ORDER BY created_at DESC LIMIT N` sem filtro de orquestração, ao contrário
         de `events_page`. `created_at` é ISO 8601 (`now_iso`), ordena
         lexicograficamente igual a cronologicamente."""
@@ -1115,7 +1150,7 @@ class SqlAlchemyProjectRepository:
 
 
 class SqlAlchemyRoutingRuleRepository:
-    """Adapter relacional das regras de roteamento (§33, ADR-0028)."""
+    """Adapter relacional das regras de roteamento (req §33, ADR-0028)."""
 
     def __init__(self, url: str = "sqlite:///aso.db", *, create_schema: bool = True) -> None:
         self.engine = _engine(url)

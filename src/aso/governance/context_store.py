@@ -1,4 +1,4 @@
-"""OrchestratorContext versionado (§17).
+"""OrchestratorContext versionado (req §17).
 
 Estado canônico com versão incremental, histórico append-only, hash de conteúdo
 e controle de seções congeladas por snapshot. É mutado exclusivamente via
@@ -95,7 +95,7 @@ class OrchestratorContextStore:
             else:  # PatchType.PROPOSE
                 raise ValueError(
                     "Patch 'propose' não pode ser aplicado diretamente ao contexto: "
-                    "requer promoção/aprovação (§8.3/§8.6)."
+                    "requer promoção/aprovação (req §8.3/§8.6)."
                 )
 
             self.version += 1
@@ -121,7 +121,7 @@ class OrchestratorContextStore:
         self.version += 1
 
     def restore_section(self, section: str, value: Any) -> int:
-        """Restaura APENAS uma seção do contexto (restauração seletiva §23).
+        """Restaura APENAS uma seção do contexto (restauração seletiva req §23).
 
         Registra no histórico (auditável) e incrementa a versão. Escrita atômica.
         """

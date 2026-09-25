@@ -1,4 +1,4 @@
-"""Aprendizado da esteira (§24 do fluxo.md) — ADR-0025.
+"""Aprendizado da esteira (fluxo §24) — ADR-0025.
 
 Puro: recebe dados já coletados e produz um relatório agregado. Não importa
 `control` (regra de módulo: `observability` importa só `shared`) — quem coleta
@@ -9,11 +9,11 @@ e de `agent_log` (ADR-0015).
 Até este incremento, `metrics.py`/`slo_report` eram só observacionais: nada
 agregava por executor e nada realimentava decisão. Agora há insumo de verdade
 — `card.failures` com categoria (ADR-0022), `card.executor` (ADR-0017),
-rodadas de revisão (ADR-0017) — o que faltava quando o §24 foi adiado nos
+rodadas de revisão (ADR-0017) — o que faltava quando o fluxo §24 foi adiado nos
 planos anteriores.
 
 **Limite deliberado**: o relatório NÃO realimenta decisão automaticamente. O
-§24 diz que as informações "podem ser utilizadas" para melhorar decisões
+fluxo §24 diz que as informações "podem ser utilizadas" para melhorar decisões
 futuras — permissivo, não imperativo. Fechar o laço agora significaria um
 runtime que muda de perfil de executor sozinho com base em amostra pequena e
 enviesada (as falhas observadas dependem só das demandas que apareceram).
@@ -36,7 +36,7 @@ class CardSnapshot:
     executor: str
     failures: list[dict[str, Any]] = field(default_factory=list)
     tempo_ms: float = 0.0
-    # Consumo real (§1.1, ADR-0026) — `custo_usd` acumulado do card e se ele
+    # Consumo real (ADR-0026) — `custo_usd` acumulado do card e se ele
     # informou uso em toda execução (`indisponivel` se nenhuma informou).
     custo_usd: float = 0.0
     uso_indisponivel: bool = True
@@ -73,7 +73,7 @@ class PullRequestSnapshot:
 
 @dataclass(frozen=True)
 class DesempenhoPorExecutor:
-    """Uma linha do §24: "quais modelos tiveram melhor desempenho"."""
+    """Uma linha do fluxo §24: "quais modelos tiveram melhor desempenho"."""
 
     executor: str
     execucoes: int
@@ -82,7 +82,7 @@ class DesempenhoPorExecutor:
     tempo_medio_ms: float
     rodadas_de_revisao_media: float
     erros_recorrentes: dict[str, int]  # categoria -> contagem
-    # Custo real (§1.1/§1.3, ADR-0026) — nunca compare custo bruto entre executores
+    # Custo real (ADR-0026) — nunca compare custo bruto entre executores
     # sem dividir por entrega: um executor caro que acerta de primeira pode sair
     # mais barato que um barato que precisa de três tentativas.
     custo_total_usd: float = 0.0
@@ -146,7 +146,7 @@ def snapshots_da_amostra(
             tempo_ms=amostra.tempo_ms_por_card.get(str(c.get("id", "")), 0.0),
             custo_usd=float((c.get("uso") or {}).get("custo_usd", 0.0)),
             # Nenhuma execução informou uso ainda (inclui card nunca executado, 0 >= 0) —
-            # nunca "custou zero" por omissão (§1.1, ADR-0026).
+            # nunca "custou zero" por omissão (ADR-0026).
             uso_indisponivel=int((c.get("uso") or {}).get("execucoes_sem_custo", 0))
             >= int((c.get("uso") or {}).get("execucoes", 0)),
             entregue=c.get("status") == _STATUS_ENTREGUE,
@@ -192,7 +192,7 @@ def indicadores_da_amostra(
         ),
         "rollbacks": sum(1 for d in amostra.deploy_runs if d.get("status") == status_revertido),
         "deploys": len(amostra.deploy_runs),
-        # `tentativa_atual` é o contador AUTORITATIVO e sem limite de ring (§36.4, ADR-0031).
+        # `tentativa_atual` é o contador AUTORITATIVO e sem limite de ring (req §36.4, ADR-0031).
         "sucesso_primeiro_ciclo": sum(
             1
             for c in amostra.cards
@@ -336,7 +336,7 @@ def consolidar(
 
 
 def _recomendar(desempenho: list[DesempenhoPorExecutor]) -> str:
-    """Texto informativo para o operador — nunca uma decisão automática (§24)."""
+    """Texto informativo para o operador — nunca uma decisão automática (fluxo §24)."""
     com_execucao = [d for d in desempenho if d.execucoes]
     if not com_execucao:
         return ""
@@ -346,7 +346,7 @@ def _recomendar(desempenho: list[DesempenhoPorExecutor]) -> str:
     return (
         f"'{pior.executor}' teve {pior.falhas} falha(s) em {pior.execucoes} execução(ões) "
         "— considere revisar o perfil/effort antes da próxima demanda semelhante. "
-        "Recomendação informativa: a escolha de executor continua manual (§9)."
+        "Recomendação informativa: a escolha de executor continua manual (fluxo §9)."
     )
 
 
@@ -397,7 +397,7 @@ _RECOMENDACOES_DESABILITADAS: frozenset[str] = frozenset(
 
 # Categorias de falha (`FailureRecord.categoria`, `control/validation.py`) que
 # indicam lacuna de teste automatizado — "testes" é a categoria real da
-# bateria (ADR-0022); "qa" é a categoria do §16/§17 (ADR-0025).
+# bateria (ADR-0022); "qa" é a categoria do fluxo §16/§17 (ADR-0025).
 _CATEGORIAS_DE_TESTE: frozenset[str] = frozenset({"testes", "qa"})
 
 # Limiares fixos e documentados — regra determinística, não inferência de LLM
@@ -417,7 +417,7 @@ def recomendacoes_estruturadas(relatorio: RelatorioDeAprendizado) -> list[dict[s
     6 com regra real e determinística sobre o relatório já consolidado, 2
     desabilitadas (ver `_RECOMENDACOES_DESABILITADAS`). Nunca decisão
     automática — só sugestão com justificativa para o operador ler (mesmo
-    limite deliberado de `_recomendar`, §24)."""
+    limite deliberado de `_recomendar`, fluxo §24)."""
     justificativas: dict[str, str] = {}
 
     if relatorio.erros_recorrentes:

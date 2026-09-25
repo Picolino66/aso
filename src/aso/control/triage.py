@@ -1,4 +1,4 @@
-"""TriageService — transforma o texto livre da demanda numa ficha estruturada (§1/§2).
+"""TriageService — transforma o texto livre da demanda numa ficha estruturada (fluxo §1/§2).
 
 Hoje `MultiAgentDecisionEngine` decide sempre sobre a mesma constante
 (`domains=["backend"]`, `risk_level=LOW`) porque nada preenche `decision_input` na
@@ -29,7 +29,7 @@ from aso.shared.types import RiskLevel
 
 TIMEOUT_PADRAO = 45.0  # acima dos 30s do naming (texto maior); bem abaixo do timeout de execução
 
-# Vocabulário fechado, copiado do decision_engine (§14) — não redefinir com valores
+# Vocabulário fechado, copiado do decision_engine (req §14) — não redefinir com valores
 # próprios, ou a ficha perde efeito sobre a decisão: um domínio/impacto fora daqui
 # faria o motor montar equipe errada ou nunca elevar risco/aprovação.
 _DOMINIOS_VALIDOS = frozenset(_DOMAIN_AGENT)
@@ -76,7 +76,7 @@ class RespostaTriagem(BaseModel):
 
 
 class DemandBrief(BaseModel):
-    """Ficha estruturada da demanda (§1/§2 do fluxo.md).
+    """Ficha estruturada da demanda (fluxo §1/§2).
 
     Existe para alimentar o `MultiAgentDecisionEngine`, que hoje decide sobre uma
     constante. Os campos `dominios` e `impactos` usam deliberadamente o vocabulário de

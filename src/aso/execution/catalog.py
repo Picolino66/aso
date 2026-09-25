@@ -71,7 +71,7 @@ class ExecutorProfile(BaseModel):
     # as flags por família de CLI em `cli_command`.
     streaming: bool = False  # NDJSON evento por evento para o painel ao vivo (ADR-0015)
     permissao_escrita: str = ""  # "" (não gerenciada) | nenhuma | edicoes | total
-    candidato: bool = False  # participa da corrida de candidatos sem lista explícita (§26A.6)
+    candidato: bool = False  # participa da corrida de candidatos sem lista explícita (req §26A.6)
 
     @model_validator(mode="after")
     def _normalizar_flags(self) -> ExecutorProfile:

@@ -30,13 +30,13 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/discovery")
     def get_discovery(orchestration_id: str) -> Any:
-        """Relatório de discovery atual (§3 do fluxo.md, ADR-0020)."""
+        """Relatório de discovery atual (fluxo §3, ADR-0020)."""
         deps.guard(orchestration_id)
         return svc.get_discovery_report(orchestration_id)
 
     @router.get("/v1/orchestrations/{orchestration_id}/discovery/history")
     def get_discovery_history(orchestration_id: str) -> Any:
-        """Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5."""
+        """Histórico de versões do discovery (wf §4.2, ADR-0021) — ring de até 5."""
         deps.guard(orchestration_id)
         return svc.get_discovery_history(orchestration_id)
 
@@ -48,7 +48,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/discovery/run")
     def run_discovery(orchestration_id: str, body: DiscoveryRunBody, request: Request) -> Any:
-        """Roda o discovery e aplica a regra de aprovação automática/humana (§4)."""
+        """Roda o discovery e aplica a regra de aprovação automática/humana (fluxo §4)."""
         if deps.fila is not None:
             deps.guard(orchestration_id)
             return deps.enfileirar(
@@ -74,19 +74,19 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/spec")
     def get_spec(orchestration_id: str) -> Any:
-        """Especificação corrente (§5 do fluxo.md, ADR-0021)."""
+        """Especificação corrente (fluxo §5, ADR-0021)."""
         deps.guard(orchestration_id)
         return svc.get_spec(orchestration_id)
 
     @router.get("/v1/orchestrations/{orchestration_id}/spec/history")
     def get_spec_history(orchestration_id: str) -> Any:
-        """Histórico de versões da especificação (§4.2, ADR-0021) — ring de até 5."""
+        """Histórico de versões da especificação (wf §4.2, ADR-0021) — ring de até 5."""
         deps.guard(orchestration_id)
         return svc.get_spec_history(orchestration_id)
 
     @router.post("/v1/orchestrations/{orchestration_id}/spec/run")
     def run_spec(orchestration_id: str, body: SpecRunBody, request: Request) -> Any:
-        """Gera/regenera a especificação — exige discovery aprovado (§5)."""
+        """Gera/regenera a especificação — exige discovery aprovado (fluxo §5)."""
         if deps.fila is not None:
             deps.guard(orchestration_id)
             return deps.enfileirar(
@@ -99,7 +99,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/spec/review")
     def run_spec_review(orchestration_id: str, body: SpecReviewBody, request: Request) -> Any:
-        """Roda a revisão documental (§6) sobre a especificação corrente."""
+        """Roda a revisão documental (fluxo §6) sobre a especificação corrente."""
         if deps.fila is not None:
             deps.guard(orchestration_id)
             return deps.enfileirar(
@@ -114,7 +114,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/spec/approve")
     def approve_spec(orchestration_id: str, body: SpecApproveBody, request: Request) -> Any:
-        """Decide a especificação quando o ciclo do §6 escalou (ação crítica — admin)."""
+        """Decide a especificação quando o ciclo do fluxo §6 escalou (ação crítica — admin)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.approve_spec(
@@ -175,7 +175,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     def review_documento(
         orchestration_id: str, tipo: str, body: DocumentoReviewBody, request: Request
     ) -> Any:
-        """Checklist do revisor (wf §11) — os quatro desfechos do §11.2."""
+        """Checklist do revisor (wf §11) — os quatro desfechos do wf §11.2."""
         return deps.documento_op(
             orchestration_id,
             lambda: svc.review_documento(

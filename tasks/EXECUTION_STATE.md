@@ -8,10 +8,10 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Última atualização: 2026-09-25
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
-* Task atual: MEL-55 (validando)
-* Última task concluída: MEL-52
-* Próxima task candidata: MEL-55 · MEL-06
-* Estado: implementing
+* Task atual: nenhuma
+* Última task concluída: MEL-57
+* Próxima task candidata: MEL-56 (P3, só se necessário) · MEL-04 (bloqueada: decisão do operador)
+* Estado: idle
 
 ## Tasks concluídas
 
@@ -558,48 +558,107 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
     `uso_origem` por evento já materializada e não estava nos critérios; migrar para `agent_runs`
     é candidato a task própria se virar gargalo.
 
+* MEL-55 — consolidar a UI legada e as páginas novas (ADR-0078, supersede a decisão da ADR-0036
+  de manter as legadas fora da sidebar).
+  * Inventário: `index.html` 33 rotas exclusivas, `detalhe.html` 12, `macro.html` 3, `nova.html` 1
+    (tabela com o destino de cada uma na ADR-0078).
+  * Implementado: `static/aso-api.js` (`ASOApi.api/token/esc`, mensagens 401/403/404/409, polling
+    do 202 — `jobs.js` virou shim) usado pelas 21 páginas; `/ui/esteira?id=` é a sala de controle
+    (conteúdo de `detalhe.html` no shell, seletor de demanda sem `?id=`); `/ui/modelos` = catálogo
+    de executores (ADR-0076); `/ui/incidentes` = cross-demanda com `GET /v1/incidents` (consulta no
+    repositório, SQL + memória); `/ui/configuracoes` = hub (atalhos, projetos com criar/arquivar/
+    restaurar/histórico/navegador de pastas, estado do runtime); aba **Governança** em
+    `demanda-detalhe` (patches, conflitos, snapshots + diff + restaurar seção com dry-run, SLO +
+    avaliar + histórico, worktrees + prune) e tempo/custo por card na aba Execuções; pré-análise da
+    pasta em `demanda-nova`; rotas legadas em 307 preservando a query; 4 arquivos removidos.
+  * Testes: `tests/integration/test_consolidacao_ui.py` (22), incluindo invariantes que varrem os
+    arquivos (nenhum placeholder, nenhuma página sem sidebar, nenhum link para rota legada) e
+    `node --check` manual em todos os scripts inline. Ajustados 6 testes que fixavam a UI antiga.
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check OK
+    (sem migration) · pytest 1821 passed / 7 skipped / 94.75% · Docker/Postgres: /health 200,
+    smoke OK (com as checagens novas), 200 nas seções e 307 nas 4 rotas legadas conferidos no
+    container.
+  * Achado corrigido no caminho: `curl … | grep -q` no smoke quebrava com `pipefail` (SIGPIPE) —
+    a checagem passou a ler a resposta inteira e casar com `case`.
+  * Decisão: a sala de controle virou seção própria (`esteira`) em vez de uma 15ª aba de
+    `demanda-detalhe` — é página de ação com estado próprio (SSE, painel ao vivo, matriz de
+    etapas), e empilhá-la numa aba de leitura misturaria dois modos de uso.
+
+* MEL-06 — referências de seção qualificadas e referências mortas removidas (sem ADR).
+  * Convenção (em CLAUDE.md/AGENTS.md): `req §n`, `fluxo §n`, `wf §n`, `ADR-NNNN`, `MEL-NN §n`;
+    numa lista o prefixo não se repete (`fluxo §5/§6`).
+  * Implementado em 3 passadas (scripts de apoio no scratchpad, fora do repo): prosa que já dizia
+    o documento + seção > 24 → `req` + subseção exclusiva de um documento; tabela curada por
+    número (fluxo × requerimentos, assunto a assunto); decisão por arquivo/assunto no resto.
+    630 referências qualificadas; 15 referências a `planoN` viraram a ADR que registrou a decisão
+    (0017, 0021, 0022, 0024, 0026, 0027, 0052), 2 ambíguas na origem ficaram só com a ADR e 12
+    frases foram recuperadas onde a remoção deixou parêntese vazio.
+  * Docstrings (item 4): saiu o histórico já registrado em ADR de `agent_log.py` e
+    `transitions.py`; o mapa wireframe→ColumnKey de `transitions.py` FICOU — não está em ADR
+    nenhuma, removê-lo perderia informação.
+  * Achado corrigido: a docstring do `AgentLogBus` justificava ficar fora do EventLog com "o
+    repositório reescreve todas as tabelas filhas" — falso desde a ADR-0068.
+  * Testes: `tests/unit/test_convencao_de_referencias.py` (5), incluindo "a seção citada existe
+    no documento" (qualificar sem conferir trocaria ambiguidade por erro).
+  * Validação: critério 3 conferido rodando a suíte **sem alterar teste algum** (1820 passed; só o
+    contrato OpenAPI foi regenerado, porque docstring de rota virou descrição do schema) · ruff
+    check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check OK · pytest
+    1826 passed / 7 skipped / 94.75%. Docker não exigido (mudança textual).
+
+* MEL-45 — recomendações por similaridade de demandas (ADR-0079).
+  * Implementado: `control/similaridade.py` (puro — tokenizador pt-BR, BM25 Okapi k1=1.5/b=0.75,
+    `ranquear` determinístico com desempate pela mais recente, `texto_da_demanda` só com campos de
+    conteúdo); porta `textos_de_demandas(limite, project_id, excluir)` (SQL + memória);
+    `InsightService.demandas_similares` em duas fases (ranqueia a janela de 500, busca desfecho só
+    das vencedoras por `amostras_de_aprendizado`); rota `GET …/similar-demands`; aba Recomendação
+    com a tabela e as frases linkando cada demanda citada.
+  * Regras honestas: < 2 demandas com execução → nenhuma recomendação e `fonte` explicando; custo
+    ausente é `None` (ADR-0026); `limite` é a janela de evidência (testado).
+  * Decisão (ADR-0079): BM25 em processo, não `tsvector`/FTS5 — uma implementação para os dois
+    bancos, teste afirmando a ORDEM, e o coletor pode virar índice do banco sem mexer em quem
+    chama. Sem embeddings: recomendação precisa de evidência citável.
+  * Medição que virou decisão: no container, `dominios` (vocabulário fechado) colocava "backend"
+    nos termos em comum de demandas sem relação — o campo saiu do texto comparado.
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check OK
+    (sem migration) · pytest 1842 passed / 9 skipped / 94.79% · Postgres real
+    (`ASO_TEST_POSTGRES_URL` no container): 18 passed, nada skipado; `similar-demands` conferida no
+    container e smoke OK.
+
+* MEL-57 — cache de discovery e índice por commit (adendo na ADR-0077).
+  * Achado: o cache por `(repo, commit)` já existia (MEL-44); faltavam governança, medição e
+    visibilidade — foi isso que a task entregou.
+  * Implementado: `IndiceDoRepositorio.origem` (`novo|disco|memoria`) em todo caminho de leitura e
+    no `resumo()`; `DiscoveryReport.indice_commit`/`indice_origem` + linha no log; evento
+    `DiscoveryRun` e envelope do `AgentRun` (novo `contexto_extra` em `perguntar_ao_agente`);
+    aba Discovery mostra "recalculado" vs "reaproveitado do cache"; `limpar_indices` por
+    quantidade (`ASO_INDICE_MAX_ARQUIVOS`, 10) e idade (`ASO_INDICE_MAX_IDADE_DIAS`, 30),
+    preservando o commit corrente.
+  * Medição (critério 1), clone do próprio ASO (634 arquivos): 1.070 ms construir → 28 ms do disco
+    (~38×) → 16 ms no processo; teste conta construções para provar que não reconstrói.
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check OK
+    (sem migration) · pytest 1851 passed / 9 skipped / 94.77%. Docker não exigido (arquivo derivado
+    no repositório-alvo, coberto por integração com git real).
+
 ## Task em andamento
 
-* ID: MEL-55 — consolidar a UI legada e as páginas novas (ADR-0078, supersede a decisão da
-  ADR-0036 de manter as páginas legadas intocadas)
-* Inventário (feito, por rota de API exclusiva de cada página legada):
-  * `index.html` (console técnico) — 33 exclusivas: catálogo de executores (CRUD + sync),
-    snapshots (lista, diff, restore-section + preview), patches, conflitos (+resolve), SLO
-    (`slo`, `slo-history`, `slo/evaluate`), worktrees (+prune), `execution-timeline`, `audit` por
-    demanda, `autopilot`, `run-phase`, `quality-gates/run`, `cards/{}/run|race|move|open-pr|qa`,
-    `pulls/{}/ci|merge|review`, `docs-drift`/`docs-heal`, `fs/dirs`, `fs/analyze/stream`.
-  * `detalhe.html` (sala de controle) — 12 exclusivas: `next-step`, `agents/{etapa}`
-    (atribuição por etapa), `autopilot`, `quality-gates/run`, `spec/run|review|approve`,
-    `validation-checks/suggest`, `deploy` + `deploy/config`, `docs-heal`, `/v1/phases`.
-  * `macro.html` — 3: `fs/dirs`, `projects/{}/events`, `projects/{}/restore`.
-  * `nova.html` — 1: `fs/analyze/stream`.
-* Plano em 4 etapas (cada uma com bateria): (1) módulo JS compartilhado (`aso-api.js`: fetch com
-  token, erros 403/409, polling de job 202) + as 4 seções placeholder com conteúdo real
-  (`modelos` = catálogo de executores, `configuracoes` = hub de ajustes + projetos,
-  `incidentes` = lista cross-demanda, `esteira` = sala de controle por demanda);
-  (2) migrar para `demanda-detalhe` o que só existia no console (snapshots/diff/restore, patches,
-  conflitos, SLO, worktrees, execution-timeline); (3) migrar a sala de controle de `detalhe.html`
-  para `/ui/esteira?id=` (next-step, atribuição por etapa, autopilot, gate, spec) e o picker de
-  pasta/análise para `demanda-nova`; (4) rotas legadas redirecionam, arquivos removidos, testes de
-  HTML e smoke atualizados, ADR-0078.
-* Etapa 1 OK: `static/aso-api.js` (token/api/esc/mensagens 403-409 + polling de job; `jobs.js`
-  virou shim que delega), `/ui/modelos` = catálogo de executores real (campos da ADR-0076),
-  `/ui/incidentes` = lista cross-demanda com nova rota `GET /v1/incidents` (consulta no
-  repositório, SQL + memória), `/ui/configuracoes` = hub (atalhos + projetos com criar/arquivar/
-  restaurar/histórico, migrados de `macro.html` + estado do runtime).
-* Etapa 2 OK: `demanda-detalhe` ganhou a aba **Governança** (patches, conflitos + resolver,
-  snapshots + diff + restaurar seção com dry-run, orçamento de erro + avaliar + histórico,
-  worktrees + prune) e a aba Execuções passou a mostrar tempo/custo por card
-  (`execution-timeline`); a página migrou para o módulo compartilhado.
-* Testes: `tests/integration/test_consolidacao_ui.py` (14).
-* Etapa 3 OK: `/ui/esteira?id=` é a sala de controle (conteúdo de `detalhe.html` dentro do shell,
-  com seletor de demanda sem `?id=`); pré-análise da pasta migrada para `demanda-nova`; navegador
-  de pastas migrado para `configuracoes`.
-* Etapa 4 OK: `/ui/`, `/ui/nova`, `/ui/detalhe` e `/ui/console` respondem 307 preservando a query;
-  os 4 arquivos legados removidos; todas as 21 páginas usam `aso-api.js` e montam a sidebar;
-  links internos repontados; smoke atualizado (segue redirecionamento + checa as 4 seções);
-  ADR-0078; docs (mapa-paginas reescrito, README, design-system, plano-fidelidade, index).
-* Estado: validando (bateria completa em execução)
+* nenhuma. Backlog `MEL-*` esgotado, com duas exceções registradas abaixo (MEL-56 sem gatilho,
+  MEL-04 bloqueada); segue o trabalho pelas descobertas (DISCOVERED-NN).
+
+## MEL-56 — gatilho avaliado, task NÃO iniciada
+
+A task proíbe começar sem evidência de necessidade ("fila com espera persistente mesmo com
+workers ajustados, ou requisito de alta disponibilidade") e pede a medição registrada.
+
+* Medição (2026-09-25, container Docker/Postgres, `ASO_WORKERS=2`, `ASO_EXECUCAO_ASSINCRONA=1`):
+  8 execuções de card disparadas simultaneamente → **todas concluíram** (`done`), espera na fila
+  (criado → iniciado) mín. 0,009 s, média 0,115 s, máx. **0,217 s**. Nenhum job ficou `queued`
+  esperando worker livre de forma persistente.
+* Conclusão: **gatilho não disparou**. Não há evidência de contenção da fila nem requisito de alta
+  disponibilidade declarado pelo operador. Iniciar a MEL-56 agora significaria trocar
+  `threading.RLock`, `EventBroker`, `AgentLogBus` e a fila por coordenação entre processos —
+  complexidade grande sem problema medido, exatamente o que a task pede para evitar.
+* O que reavaliar antes de iniciar: espera na fila acima de alguns segundos com `ASO_WORKERS`
+  ajustado, ou exigência explícita de duas réplicas da API. A medição acima é o método a repetir.
 
 ## Bloqueios
 
@@ -620,13 +679,13 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 
 ## Próximas tasks elegíveis
 
-1. MEL-55 (consolidar UI) · MEL-06 (refs de docs)
+1. MEL-56 (multiprocesso — só se necessário; ver observações) · MEL-04 (bloqueada)
 2. MEL-04 (aguarda decisão do operador) → MEL-07
 
 ## Classificação do backlog (verificada em 2026-09-15 contra código @164c6ab)
 
 * DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34,
-  MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50, MEL-53, MEL-54, MEL-44, MEL-52
+  MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50, MEL-53, MEL-54, MEL-44, MEL-52, MEL-55, MEL-06, MEL-45, MEL-57
 * IN_PROGRESS: —
 * READY: MEL-03, MEL-04, MEL-06, MEL-40, MEL-44, MEL-42, MEL-43, MEL-54,
   MEL-30, MEL-35, MEL-36, MEL-51, MEL-55

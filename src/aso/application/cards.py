@@ -136,7 +136,7 @@ class CardService:
             self._persist(b)
             return b.orchestration
 
-    # ------------------------------------------------- cards: mover/atribuir (§28.2)
+    # ------------------------------------------------- cards: mover/atribuir (req §28.2)
     def move_card(self, orchestration_id: str, card_id: str, to_column: str) -> KanbanCard:
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -167,8 +167,8 @@ class CardService:
 
     def kanban_board(self, orchestration_id: str) -> dict[str, object]:
         """Tela 11 (wf §13, ADR-0047): as 16 colunas reais, cada uma com o rótulo do
-        wireframe quando existe (§13.1 tem só 14 nomes) e os cards com os 11 campos
-        do §13.3 já resolvidos (agente/modelo/effort cruzados, aprovação humana
+        wireframe quando existe (wf §13.1 tem só 14 nomes) e os cards com os 11 campos
+        do wf §13.3 já resolvidos (agente/modelo/effort cruzados, aprovação humana
         pendente já filtrada por card) — evita N+1 no cliente."""
         b = self._bundle(orchestration_id)
         cards = b.board_service.cards_of(b.board.id)
@@ -225,7 +225,7 @@ class CardService:
             return card
 
     def cancel_card(self, orchestration_id: str, card_id: str, reason: str = "") -> KanbanCard:
-        """Cancela um card individualmente (§8 do fluxo.md) — distinto de `cancel`,
+        """Cancela um card individualmente (fluxo §8) — distinto de `cancel`,
         que é o kill-switch da orquestração inteira."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -276,7 +276,7 @@ class CardService:
         return cards
 
     def get_card_failures(self, orchestration_id: str, card_id: str) -> list[dict[str, object]]:
-        """Histórico de falhas do card (§13, ADR-0019) — ring das últimas 5."""
+        """Histórico de falhas do card (fluxo §13, ADR-0019) — ring das últimas 5."""
         b = self._bundle(orchestration_id)
         card = b.board_service.get_card(card_id)
         if card is None:
@@ -284,7 +284,7 @@ class CardService:
         return list(card.failures)
 
     def get_card_closure(self, orchestration_id: str, card_id: str) -> dict[str, object]:
-        """Ficha de encerramento do card (§23, ADR-0021) — vazio = card ainda não
+        """Ficha de encerramento do card (fluxo §23, ADR-0021) — vazio = card ainda não
         encerrado (preenchida em `merge_pr`)."""
         b = self._bundle(orchestration_id)
         card = b.board_service.get_card(card_id)

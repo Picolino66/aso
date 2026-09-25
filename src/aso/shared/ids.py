@@ -1,6 +1,6 @@
 """Geração de identificadores e timestamps.
 
-Regra (§39): toda entidade relevante tem `id` (UUID) e timestamps ISO8601 UTC.
+Regra (req §39): toda entidade relevante tem `id` (UUID) e timestamps ISO8601 UTC.
 """
 
 from __future__ import annotations

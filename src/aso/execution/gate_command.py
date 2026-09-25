@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import subprocess
 
-# 400 não cabia um stack trace nem a linha do teste que falhou (ADR-0019, §13 do
+# 400 não cabia um stack trace nem a linha do teste que falhou (ADR-0019, fluxo §13 do
 # fluxo.md pede comando, teste, mensagem e stack trace no registro de falha).
 SAIDA_MAX = 4000
 
@@ -18,9 +18,9 @@ def run_gate_command(command: list[str], cwd: str, *, timeout: float = 300.0) ->
     """Executa `command` em `cwd`; ok = exit code 0. Nunca levanta — retorna o motivo.
 
     `stdout`/`stderr` são cortados CADA UM no seu próprio limite antes de juntar
-    (§2.5/§4.8 do plano4.md): coladas primeiro e cortadas depois, uma saída longa de
+    (ADR-0022): coladas primeiro e cortadas depois, uma saída longa de
     `stdout` empurrava o stack trace de `stderr` para fora da janela — exatamente o
-    que o §13 do fluxo.md precisa preservar.
+    que o fluxo §13 precisa preservar.
     """
     try:
         proc = subprocess.run(

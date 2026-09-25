@@ -48,13 +48,13 @@ from aso.shared.types import CardType, ColumnKey, GateStatus, RiskLevel
 
 def _estagio_configurado(pipeline: list[dict[str, Any]], chave: str) -> dict[str, Any] | None:
     """Busca a configuração bruta (dict) de um estágio pelo `chave` no pipeline
-    (§19, ADR-0029) — usado por `validate_deploy`/`rollback_deploy` para resolver a
+    (fluxo §19, ADR-0029) — usado por `validate_deploy`/`rollback_deploy` para resolver a
     precedência "estágio → padrão da orquestração" sem reconstruir `Environment`."""
     return next((e for e in pipeline if e.get("chave") == chave), None)
 
 
 # Inverso de `_GRAVIDADE_PARA_PRIORIDADE` — deriva a gravidade de um `Incident`
-# (§21, ADR-0032) do risco já triado da demanda, em vez de perguntar de novo ou
+# (req §21, ADR-0032) do risco já triado da demanda, em vez de perguntar de novo ou
 # inventar um valor fixo. Sem ficha triada, `RiskLevel.LOW` (default do modelo)
 # cai em "media" — mesmo comportamento conservador de `QaCheck.gravidade`.
 _RISCO_PARA_GRAVIDADE: dict[RiskLevel, str] = {
@@ -80,7 +80,7 @@ class ReleaseService:
     def _lock_for(self, orchestration_id: str) -> threading.RLock:
         return self._bundle_store.lock_for(orchestration_id)
 
-    # ------------------------------------------ implantação governada (§18-22)
+    # ------------------------------------------ implantação governada (fluxo §18-22)
     def set_deploy_config(
         self,
         orchestration_id: str,
@@ -140,7 +140,7 @@ class ReleaseService:
     def set_deploy_pipeline(
         self, orchestration_id: str, pipeline: list[Environment], *, actor: str = "system"
     ) -> Orchestration:
-        """Configura o pipeline de estágios (§19, ADR-0029) — cada `comando`/
+        """Configura o pipeline de estágios (fluxo §19, ADR-0029) — cada `comando`/
         `rollback_command`/health check informado passa por `validate_gate_command`,
         mesmo guard de `set_deploy_config`. Lista vazia volta ao monoambiente legado.
         """
@@ -207,13 +207,13 @@ class ReleaseService:
         branch: str = "",
         actor: str = "system",
     ) -> DeployRun:
-        """§18 (checklist) + §19 (execução). Sempre roda o comando configurado —
-        a decisão humana (§18/§22) é sobre ACEITAR o resultado, não sobre
+        """fluxo §18 (checklist) + fluxo §19 (execução). Sempre roda o comando configurado —
+        a decisão humana (fluxo §18/§22) é sobre ACEITAR o resultado, não sobre
         autorizar a tentativa (mesmo raciocínio de `DiscoveryService.investigar`).
 
         Com pipeline configurado (`deploy_pipeline` não vazio), `estagio` escolhe
         QUAL estágio roda — omitido, resolve para o primeiro pendente (avanço
-        governado, §19: um estágio só roda depois do anterior concluir). Sem
+        governado, fluxo §19: um estágio só roda depois do anterior concluir). Sem
         pipeline (lista vazia, o padrão), `estagio` é ignorado e o comportamento é
         idêntico ao de antes da ADR-0029 — implantação monoambiente.
         """
@@ -224,7 +224,7 @@ class ReleaseService:
                 raise ValueError("Orquestração sem pasta de trabalho (target_path).")
             if not b.gate_results or b.gate_results[-1].status != GateStatus.PASSED:
                 raise ValueError(
-                    "Quality gate mais recente não passou — rode-o antes de implantar (§18)."
+                    "Quality gate mais recente não passou — rode-o antes de implantar (fluxo §18)."
                 )
 
             alvo: Environment | None = None
@@ -242,7 +242,7 @@ class ReleaseService:
                 if not pode_avancar_estagio(alvo, pipeline, b.orchestration.deploy_runs):
                     raise ValueError(
                         f"Estágio '{alvo.chave}' ainda não pode rodar — "
-                        "o estágio anterior não foi concluído (§19)."
+                        "o estágio anterior não foi concluído (fluxo §19)."
                     )
                 comando_efetivo = alvo.comando or b.orchestration.deploy_command
             if not comando_efetivo:
@@ -311,7 +311,7 @@ class ReleaseService:
         return [DeployRun.model_validate(d) for d in b.orchestration.deploy_runs]
 
     def validate_deploy(self, orchestration_id: str, *, actor: str = "system") -> DeployRun:
-        """§20: roda as verificações pós-implantação sobre a última tentativa."""
+        """fluxo §20: roda as verificações pós-implantação sobre a última tentativa."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
             if not b.orchestration.deploy_runs:
@@ -338,7 +338,7 @@ class ReleaseService:
                 deploy.proxima_acao_falha = proxima_acao_deploy(diagnostico)
             brief = DemandBrief.model_validate(b.orchestration.demand_brief)
             # Uma validação reprovada pode reverter um aceite já automático — a
-            # decisão humana reabre exatamente como no §22.
+            # decisão humana reabre exatamente como no fluxo §22.
             if deploy.aceite_status == ACEITE_APROVADO and exige_aceite_humano(deploy, brief):
                 deploy.aceite_status = ACEITE_AGUARDANDO_HUMANO
                 deploy.origem_decisao = ""
@@ -362,7 +362,7 @@ class ReleaseService:
         tipo_aceite: str = "",
         actor: str = "system",
     ) -> DeployRun:
-        """§22: aceite final humano, só quando o ciclo automático escalou.
+        """fluxo §22: aceite final humano, só quando o ciclo automático escalou.
 
         `tipo_aceite` (Tela 26, wf §28.2, ADR-0050) é opcional — sub-tipo do
         aceite humano (produto/técnico/negócio); vazio = aceite humano
@@ -395,7 +395,7 @@ class ReleaseService:
     def rollback_deploy(
         self, orchestration_id: str, *, reason: str, estrategia: str = "", actor: str = "system"
     ) -> DeployRun:
-        """§21: reverte a última implantação e abre uma tarefa de análise de
+        """fluxo §21: reverte a última implantação e abre uma tarefa de análise de
         causa raiz (CardType.INCIDENT) — o runtime não reverte infraestrutura
         real; roda `deploy_rollback_command` quando configurado (best-effort).
 
@@ -438,7 +438,7 @@ class ReleaseService:
                 title=f"Causa raiz: rollback de implantação ({deploy.ambiente})",
                 description=descricao,
                 status=ColumnKey.BACKLOG,
-                linked_requirements=["§21"],
+                linked_requirements=["fluxo §21"],
             )
             b.board_service.add_card(card)
             incident = self._criar_incidente(b, card, deploy, reason)
@@ -459,7 +459,7 @@ class ReleaseService:
     def _criar_incidente(
         self, b: OrchestrationBundle, card: KanbanCard, deploy: DeployRun, reason: str
     ) -> Incident:
-        """§21, ADR-0032: um `Incident` de primeira classe vinculado à tarefa de
+        """fluxo §21, ADR-0032: um `Incident` de primeira classe vinculado à tarefa de
         causa raiz (`card`, já `CardType.INCIDENT`) e ao deploy revertido — por
         snapshot (`DeployRun` não tem `id` próprio), não por FK real."""
         brief = DemandBrief.model_validate(b.orchestration.demand_brief)
@@ -548,7 +548,7 @@ class ReleaseService:
     def investigate_incident(
         self, orchestration_id: str, incident_id: str, *, detalhe: str = "", actor: str = "system"
     ) -> Incident:
-        """§21: marca o incidente como em investigação — transição intermediária
+        """fluxo §21: marca o incidente como em investigação — transição intermediária
         antes da causa raiz ser identificada (`resolve_incident`)."""
         with self._lock_for(orchestration_id):
             b = self._bundle(orchestration_id)
@@ -570,7 +570,7 @@ class ReleaseService:
     def resolve_incident(
         self, orchestration_id: str, incident_id: str, *, causa_raiz: str, actor: str = "system"
     ) -> Incident:
-        """§21: fecha o incidente com a causa raiz identificada — só a decisão em
+        """fluxo §21: fecha o incidente com a causa raiz identificada — só a decisão em
         si; o card de causa raiz (`incident.card_id`) segue seu próprio ciclo de
         vida no kanban, independente."""
         if not causa_raiz.strip():

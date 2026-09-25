@@ -61,7 +61,7 @@ def _verificacao_de_comando(comando: str, repo: str) -> Callable[[], tuple[bool,
     """Fábrica de uma verificação da bateria para `gate_definitions` (ADR-0060).
 
     Fecha `comando`/`repo` por parâmetro da fábrica, não por variável de laço: evita a
-    armadilha clássica de closure em `for` (§4.2/§5 do plano5.md)."""
+    armadilha clássica de closure em `for`."""
 
     def verificar() -> tuple[bool, str]:
         return run_gate_command(shlex.split(comando), repo)
@@ -345,8 +345,8 @@ class WorkflowService:
             if target_phase == Phase.F1 and b.orchestration.discovery_reports:
                 discovery_status = str(b.orchestration.discovery_reports[-1].get("status", ""))
             deploy: tuple[bool, str] | None = None
-            # Implantação (§18-22, ADR-0023): só entra quando uma tentativa de implantação
-            # de fato existe; com pipeline (§19, ADR-0029) exige TODOS os estágios.
+            # Implantação (fluxo §18-22, ADR-0023): só entra quando uma tentativa de implantação
+            # de fato existe; com pipeline (fluxo §19, ADR-0029) exige TODOS os estágios.
             if target_phase == Phase.F6 and b.orchestration.deploy_runs:
                 if b.orchestration.deploy_pipeline:
                     pipeline_atual = [Environment(**e) for e in b.orchestration.deploy_pipeline]
@@ -358,7 +358,7 @@ class WorkflowService:
                 else:
                     aceite = str(b.orchestration.deploy_runs[-1].get("aceite_status", ""))
                     deploy = (aceite == ACEITE_APROVADO, aceite)
-            # Bateria nomeada do §12 (ADR-0022) nas fases de código; sem bateria, o
+            # Bateria nomeada do fluxo §12 (ADR-0022) nas fases de código; sem bateria, o
             # `validation_command` legado (ou `ASO_GATE_TEST_COMMAND`) vira "testes".
             repo = b.orchestration.target_path or os.environ.get("ASO_TARGET_REPO")
             checks = checks_efetivos(b.orchestration)
@@ -472,7 +472,7 @@ class WorkflowService:
         autopilot: bool = False,
     ) -> dict[str, object]:
         """Executa uma fase ponta a ponta: roda os cards Ready da fase, roda o gate,
-        gera snapshot (se aprovado) e abre uma aprovação humana de avanço de fase (§8.6).
+        gera snapshot (se aprovado) e abre uma aprovação humana de avanço de fase (req §8.6).
 
         `executor`/`effort` escolhem o agente e o esforço desta etapa; a escolha é
         guardada na aprovação para o auto-avanço (M4) manter a mesma configuração.
@@ -501,7 +501,7 @@ class WorkflowService:
             b = self._bundle(orchestration_id)
             if b.orchestration.status == "cancelled":  # kill-switch (M6)
                 raise ValueError("Orquestração cancelada: execução bloqueada.")
-            # F5 não começa sem especificação aprovada em full-pipeline (§5/§6, ADR-0021)
+            # F5 não começa sem especificação aprovada em full-pipeline (fluxo §5/§6, ADR-0021)
             # — só quando o fluxo de discovery foi de fato usado (mesma regra de
             # não-regressão do critério de gate da ADR-0020 §6): orquestrações que
             # nunca chamam /discovery/run (a maioria da suíte pré-existente, e todo
@@ -515,7 +515,7 @@ class WorkflowService:
                 spec_atual = versao_atual(b.orchestration.spec_documents, SpecDocument)
                 if spec_atual.status not in SPEC_STATUS_APROVADOS:
                     raise ValueError(
-                        "F5 não começa sem especificação aprovada (§5/§6 do fluxo.md) — "
+                        "F5 não começa sem especificação aprovada (fluxo §5/§6) — "
                         f"status atual: '{spec_atual.status or 'nunca gerada'}'."
                     )
             card_ids = [

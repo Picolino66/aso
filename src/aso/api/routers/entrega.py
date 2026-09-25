@@ -75,7 +75,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")
     def get_review(orchestration_id: str, pr_id: str) -> Any:
-        """Veredito completo da última revisão independente (§14)."""
+        """Veredito completo da última revisão independente (fluxo §14)."""
         return deps.card_op(orchestration_id, lambda: svc.get_review(orchestration_id, pr_id))
 
     @router.post("/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review")

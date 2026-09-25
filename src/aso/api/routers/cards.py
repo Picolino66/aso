@@ -53,7 +53,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     @router.get("/v1/orchestrations/{orchestration_id}/kanban")
     def get_kanban_board(orchestration_id: str) -> Any:
         """Tela 11 (Kanban operacional, wf §13/§35, ADR-0047): as 16 colunas reais
-        (rótulo do wireframe quando existe), cards com os 11 campos do §13.3 já
+        (rótulo do wireframe quando existe), cards com os 11 campos do wf §13.3 já
         resolvidos, e o grafo de transições válidas."""
         deps.guard(orchestration_id)
         return svc.kanban_board(orchestration_id)
@@ -88,12 +88,12 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa")
     def get_qa_checks(orchestration_id: str, card_id: str) -> Any:
-        """Histórico de verificações manuais de QA do card (§16, ring de 10)."""
+        """Histórico de verificações manuais de QA do card (fluxo §16, ring de 10)."""
         return deps.card_op(orchestration_id, lambda: svc.get_qa_checks(orchestration_id, card_id))
 
     @router.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/checklist")
     def get_preparation_checklist(orchestration_id: str, card_id: str) -> Any:
-        """Checklist de preparação para implementação (§10, ADR-0030) — só leitura."""
+        """Checklist de preparação para implementação (fluxo §10, ADR-0030) — só leitura."""
         return deps.card_op(
             orchestration_id, lambda: svc.get_preparation_checklist(orchestration_id, card_id)
         )
@@ -102,7 +102,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     def register_qa_check(
         orchestration_id: str, card_id: str, body: QaCheckBody, request: Request
     ) -> Any:
-        """Registra uma verificação manual de QA (§16)."""
+        """Registra uma verificação manual de QA (fluxo §16)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.register_qa_check(
@@ -127,7 +127,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     def fail_qa_check(
         orchestration_id: str, card_id: str, index: int, body: QaFailBody, request: Request
     ) -> Any:
-        """Reprova uma verificação de QA já registrada — cria o bug vinculado (§17)."""
+        """Reprova uma verificação de QA já registrada — cria o bug vinculado (fluxo §17)."""
         return deps.card_op(
             orchestration_id,
             lambda: svc.fail_qa_check(
@@ -168,7 +168,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
             orchestration_id, lambda: svc.get_card_events(orchestration_id, card_id)
         )
 
-    # --- Pull Requests (§26, MVP-4) ---
+    # --- Pull Requests (req §26, MVP-4) ---
     @router.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/open-pr", status_code=201)
     def open_pr(orchestration_id: str, card_id: str, body: OpenPrBody) -> Any:
         return deps.card_op(
@@ -180,7 +180,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
     def race_card(
         orchestration_id: str, card_id: str, request: Request, body: RaceBody | None = None
     ) -> Any:
-        """Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs.
+        """Roda os agentes CLI candidatos (req §26A.6) em paralelo e compara os diffs.
 
         Candidatos são perfis do catálogo (ADR-0076): os nomes em `executores` ou, sem
         lista, os perfis marcados `candidato`. Rodam na pasta desta orquestração."""
@@ -212,7 +212,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/candidate-runs")
     def list_candidate_runs(orchestration_id: str, card_id: str | None = None) -> Any:
-        """Histórico rastreável de corridas de candidatos (§26A.6)."""
+        """Histórico rastreável de corridas de candidatos (req §26A.6)."""
         deps.guard(orchestration_id)
         return svc.list_candidate_runs(orchestration_id, card_id)
 
@@ -244,21 +244,21 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.post("/v1/orchestrations/{orchestration_id}/cards/{card_id}/cancel")
     def cancel_card(orchestration_id: str, card_id: str, body: BlockBody) -> Any:
-        """Cancela um card individualmente (§8 do fluxo.md, coluna `Cancelled`)."""
+        """Cancela um card individualmente (fluxo §8, coluna `Cancelled`)."""
         return deps.card_op(
             orchestration_id, lambda: svc.cancel_card(orchestration_id, card_id, body.reason)
         )
 
     @router.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/failures")
     def get_card_failures(orchestration_id: str, card_id: str) -> Any:
-        """Histórico de falhas do card (§13 do fluxo.md, ADR-0019)."""
+        """Histórico de falhas do card (fluxo §13, ADR-0019)."""
         return deps.card_op(
             orchestration_id, lambda: svc.get_card_failures(orchestration_id, card_id)
         )
 
     @router.get("/v1/orchestrations/{orchestration_id}/cards/{card_id}/closure")
     def get_card_closure(orchestration_id: str, card_id: str) -> Any:
-        """Ficha de encerramento do card (§23 do fluxo.md, ADR-0021)."""
+        """Ficha de encerramento do card (fluxo §23, ADR-0021)."""
         return deps.card_op(
             orchestration_id, lambda: svc.get_card_closure(orchestration_id, card_id)
         )

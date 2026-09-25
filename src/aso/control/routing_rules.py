@@ -1,6 +1,6 @@
-"""Regras de roteamento SE/ENTÃO (wiframe-fluxo.md §33, fluxo.md §9) — ADR-0028.
+"""Regras de roteamento SE/ENTÃO (wiframe-fluxo.md wf §33, fluxo.md wf §9) — ADR-0028.
 
-Hoje o `MultiAgentDecisionEngine` (§14) decide agente/effort/aprovação só por
+Hoje o `MultiAgentDecisionEngine` (req §14) decide agente/effort/aprovação só por
 heurística compilada — o operador não tem como declarar uma política como
 "SE tipo=Segurança E risco≥Alto ENTÃO Opus, effort máximo, revisão humana". Este
 módulo fecha essa lacuna com uma camada que é avaliada **antes** da heurística, não
@@ -63,7 +63,7 @@ class RoutingRuleError(ValueError):
 
 
 class RoutingCondition(BaseModel):
-    """Um termo do "SE" — `campo` `operador` `valor` (wiframe §33.2)."""
+    """Um termo do "SE" — `campo` `operador` `valor` (wiframe wf §33.2)."""
 
     campo: str
     operador: str
@@ -87,7 +87,7 @@ class RoutingAction(BaseModel):
 
 
 class RoutingRule(BaseModel):
-    """Uma regra de roteamento declarada pelo operador (§33 do wireframe)."""
+    """Uma regra de roteamento declarada pelo operador (req §33 do wireframe)."""
 
     id: str = Field(default_factory=lambda: gen_id("route"))
     nome: str
@@ -193,7 +193,7 @@ def avaliar_regras(
 
 
 def contexto_de_decision_input(din: DecisionInput) -> dict[str, object]:
-    """Contexto de avaliação a partir do que já alimenta o motor de decisão (§14)."""
+    """Contexto de avaliação a partir do que já alimenta o motor de decisão (req §14)."""
     return {
         CAMPO_TIPO: din.tipo,
         CAMPO_RISCO: din.risk_level.value,

@@ -339,6 +339,7 @@ class OrchestrationService:
     get_learning_report_global = Delegado("_insights", InsightService.get_learning_report_global)
     _estimar_custo_e_tempo = Delegado("_insights", InsightService._estimar_custo_e_tempo)
     preview_recommendation = Delegado("_insights", InsightService.preview_recommendation)
+    demandas_similares = Delegado("_insights", InsightService.demandas_similares)
     get_agent_real_roles = Delegado("_insights", InsightService.get_agent_real_roles)
     get_agent_reserved_roles = Delegado("_insights", InsightService.get_agent_reserved_roles)
     next_step = Delegado("_insights", InsightService.next_step)
@@ -402,26 +403,26 @@ class OrchestrationService:
         # Batiza branches/commits a partir do card (ADR-0014); sem agente nomeador
         # configurado, resolve tudo de forma determinística e sem custo.
         self._naming = naming or NamingService(catalog)
-        # Interpreta a demanda em ficha estruturada (§1/§2 do fluxo.md); sem agente de
+        # Interpreta a demanda em ficha estruturada (fluxo §1/§2); sem agente de
         # triagem configurado, cai na heurística determinística (nunca falha).
         self._triage = triage or TriageService(catalog)
-        # Revisão independente de código a partir do diff (§14, ADR-0017); sem agente
+        # Revisão independente de código a partir do diff (fluxo §14, ADR-0017); sem agente
         # revisor configurado (ou com falha), o fallback é SEMPRE `necessita_humano` —
         # nunca `aprovado` (diferente de naming/triage, não existe revisão determinística).
         self._review = review or ReviewService(catalog)
-        # Relatório de discovery (§3/§4 do fluxo.md, ADR-0020); sem agente configurado
+        # Relatório de discovery (fluxo §3/§4, ADR-0020); sem agente configurado
         # (ou com falha), cai na heurística determinística a partir do workspace e da
         # ficha já triada — nunca falha (mesma garantia de naming/triage).
         self._discovery = discovery or DiscoveryService(catalog)
-        # Especificação da solução (§5, ADR-0021); exige discovery aprovado — sem ele,
-        # `run_spec` recusa (§5: "Com o discovery aprovado").
+        # Especificação da solução (fluxo §5, ADR-0021); exige discovery aprovado — sem ele,
+        # `run_spec` recusa (fluxo §5: "Com o discovery aprovado").
         self._spec = spec or SpecService(catalog)
         # Saída ao vivo dos agentes CLI (ADR-0015): ring em memória, lido por polling.
         self._log_bus = log_bus or AgentLogBus()
         self._executor_store = executor_store  # persiste perfis (sem secrets)
         self._repo: OrchestrationRepository = repository or InMemoryOrchestrationRepository()
         self._projects = ProjectService(project_repository or InMemoryProjectRepository())
-        # Regras de roteamento (§33, ADR-0028): declaradas pelo operador, avaliadas
+        # Regras de roteamento (req §33, ADR-0028): declaradas pelo operador, avaliadas
         # antes da heurística do MultiAgentDecisionEngine — fallback, nunca substituição.
         self._routing_rules = RoutingRuleService(
             routing_rule_repository or InMemoryRoutingRuleRepository()

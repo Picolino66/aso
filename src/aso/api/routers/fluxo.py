@@ -124,7 +124,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         deps.guard(orchestration_id)
         return svc.list_snapshots(orchestration_id)
 
-    # --- gates, conflitos e ciclo de vida (§28) ---
+    # --- gates, conflitos e ciclo de vida (req §28) ---
     @router.get("/v1/orchestrations/{orchestration_id}/quality-gates")
     def list_gates(orchestration_id: str) -> Any:
         deps.guard(orchestration_id)
@@ -167,7 +167,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section/preview")
     def preview_restore_section(orchestration_id: str, version: str, section: str) -> Any:
-        """Dry-run: mostra o impacto da restauração seletiva sem aplicar (§23)."""
+        """Dry-run: mostra o impacto da restauração seletiva sem aplicar (req §23)."""
         deps.guard(orchestration_id)
         try:
             return svc.preview_restore_section(orchestration_id, version, section)
@@ -179,7 +179,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         status_code=202,
     )
     def restore_section(orchestration_id: str, version: str, body: RestoreSectionBody) -> Any:
-        """Restauração seletiva de uma seção a partir de um snapshot (§23; admin)."""
+        """Restauração seletiva de uma seção a partir de um snapshot (req §23; admin)."""
         deps.guard(orchestration_id)
         try:
             return svc.restore_section(orchestration_id, version, body.section)
@@ -209,7 +209,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
-    # --- approvals (§28.7) ---
+    # --- approvals (req §28.7) ---
     @router.post("/v1/orchestrations/{orchestration_id}/approvals", status_code=201)
     def create_approval(orchestration_id: str, body: ApprovalBody) -> Any:
         deps.guard(orchestration_id)
@@ -256,7 +256,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
 
-    # --- context patches e auditoria (§18, §33) ---
+    # --- context patches e auditoria (req §18, §33) ---
     @router.get("/v1/orchestrations/{orchestration_id}/patches")
     def list_patches(orchestration_id: str, status: str | None = None) -> Any:
         deps.guard(orchestration_id)

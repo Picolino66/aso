@@ -1,4 +1,4 @@
-"""SnapshotEngine (§23).
+"""SnapshotEngine (req §23).
 
 Gera snapshots imutáveis após um quality gate aprovado, congela as seções do
 contexto correspondentes e permite restaurar um estado anterior.

@@ -1,4 +1,4 @@
-"""Modelos do Agent Plane (§15, §26A)."""
+"""Modelos do Agent Plane (req §15, §26A)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class AgentDefinitionError(ValueError):
 class AgentDefinition(BaseModel):
     """Definição PERSISTENTE e editável de um agente (Tela 30, wf §32, ADR-0053).
 
-    Diferente de `RoutingRule` (§33, ADR-0028 — configuração declarativa que só
+    Diferente de `RoutingRule` (req §33, ADR-0028 — configuração declarativa que só
     influencia uma decisão), este catálogo é a FONTE DE VERDADE das permissões
     reais: `permissoes` alimenta as `context_sections` de `role` via
     `AgentRegistry.seed_from_catalog`, que por
@@ -81,7 +81,7 @@ class AgentOutput(BaseModel):
     """Saída estruturada de uma execução de agente.
 
     O agente NÃO altera o contexto: ele propõe `patches` que serão submetidos ao
-    ContextBus (§8.3).
+    ContextBus (req §8.3).
     """
 
     id: str = Field(default_factory=lambda: gen_id("output"))

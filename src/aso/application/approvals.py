@@ -108,11 +108,11 @@ class ApprovalService:
             raise KeyError(f"Aprovação inexistente: {approval_id}")
         bundle, approval = found
         # Lock por orquestração: decidir + aplicar o patch pendente é check-then-act;
-        # duas decisões concorrentes não podem aplicar o mesmo patch em dobro (§24).
+        # duas decisões concorrentes não podem aplicar o mesmo patch em dobro (req §24).
         with self._lock_for(bundle.orchestration.id):
             approval.status = "approved" if approved else "rejected"
             approval.approved_by = approved_by
-            # Se a aprovação está vinculada a um patch pendente, aplica-o agora (§24).
+            # Se a aprovação está vinculada a um patch pendente, aplica-o agora (req §24).
             patch_id = approval.payload.get("patch_id") if approved else None
             if patch_id:
                 patch = next(
@@ -176,7 +176,7 @@ class ApprovalService:
                 return bundle, approval
         return None
 
-    # ------------------------------------------------- ciclo de vida (§28.1)
+    # ------------------------------------------------- ciclo de vida (req §28.1)
     def rollback(self, orchestration_id: str, to_snapshot: str) -> Orchestration:
         """Alias de `restaurar_ledger` mantido por uma versão (ADR-0061)."""
         return self.restaurar_ledger(orchestration_id, to_snapshot)
@@ -223,7 +223,7 @@ class ApprovalService:
     def preview_restore_section(
         self, orchestration_id: str, snapshot_version: str, section: str
     ) -> dict[str, object]:
-        """Dry-run da restauração seletiva: mostra o que mudaria, sem aplicar (§23).
+        """Dry-run da restauração seletiva: mostra o que mudaria, sem aplicar (req §23).
 
         Compara a seção atual do contexto com a do snapshot e devolve o delta semântico,
         para revisão humana antes de confirmar a ação crítica. Somente leitura.
@@ -247,7 +247,7 @@ class ApprovalService:
     def restore_section(
         self, orchestration_id: str, snapshot_version: str, section: str
     ) -> dict[str, object]:
-        """Restauração seletiva de UMA seção a partir de um snapshot (§23, ação crítica).
+        """Restauração seletiva de UMA seção a partir de um snapshot (req §23, ação crítica).
 
         Espelha o protocolo de rollback (bypass do bus + ADR de rastreabilidade), mas
         restringe o efeito a uma única seção. Endpoint exige papel admin.
@@ -264,7 +264,7 @@ class ApprovalService:
                 title=f"Restauração seletiva: {section} ← {snapshot_version}",
                 decision=f"Seção '{section}' restaurada a partir do snapshot {snapshot_version}.",
                 phase=b.orchestration.current_phase,
-                context="Restauração seletiva de seção (protocolo de contexto §23).",
+                context="Restauração seletiva de seção (protocolo de contexto req §23).",
             )
             b.event_log.append(
                 "SectionRestored",

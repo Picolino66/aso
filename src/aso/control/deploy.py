@@ -1,4 +1,4 @@
-"""Implantação governada (§18–§22 do fluxo.md) — ADR-0023.
+"""Implantação governada (fluxo §18–§22) — ADR-0023.
 
 **Não confundir com [`docs/deploy.md`](../../../docs/deploy.md)**, que documenta
 como implantar o ASO Runtime em si (a imagem Docker da API). Este módulo é sobre
@@ -46,7 +46,7 @@ ACEITE_APROVADO = "aprovado"
 ACEITE_AGUARDANDO_HUMANO = "aguardando_aprovacao"
 ACEITE_REPROVADO = "reprovado"
 
-# ------------------------------------------------------------- pipeline (§19, ADR-0029)
+# ------------------------------------------------------------- pipeline (fluxo §19, ADR-0029)
 
 ESTAGIO_DESENVOLVIMENTO = "desenvolvimento"
 ESTAGIO_TESTES = "testes"
@@ -67,7 +67,7 @@ PIPELINE_PADRAO: list[Environment] = [
 
 
 class DeployRun(BaseModel):
-    """Registro de uma tentativa de implantação (§18-22 do fluxo.md).
+    """Registro de uma tentativa de implantação (fluxo §18-22 do fluxo.md).
 
     Ring de até 5 por orquestração (`control/documentos.py`), mesmo padrão de
     `DiscoveryReport`/`SpecDocument` (ADR-0021 §4.2) — reexecutar depois de uma
@@ -76,7 +76,7 @@ class DeployRun(BaseModel):
 
     ambiente: str = "producao"
     # Informado pelo operador no corpo do POST; o runtime não inventa git log —
-    # mesma disciplina do §23 (ficha de encerramento): só o que se tem à mão.
+    # mesma disciplina do fluxo §23 (ficha de encerramento): só o que se tem à mão.
     versao_app: str = ""
     commit: str = ""
     branch: str = ""
@@ -87,14 +87,14 @@ class DeployRun(BaseModel):
     resultado: str = ""
     duracao_segundos: float = 0.0
     validacao_status: str = VALIDACAO_PENDENTE
-    # [{nome, ok, evidencia, bloqueante}] por health check (§20).
+    # [{nome, ok, evidencia, bloqueante}] por health check (fluxo §20).
     validacao_resultados: list[dict[str, object]] = Field(default_factory=list)
     aceite_status: str = ACEITE_AGUARDANDO_HUMANO
     aceite_comentario: str = ""
     origem_decisao: str = ""  # "automatico" | "humano" | ""
     rollback_motivo: str = ""
     versao: int = 1  # posição no ring (control/documentos.py)
-    # Estágio do pipeline a que esta tentativa pertence (§19, ADR-0029) — vazio =
+    # Estágio do pipeline a que esta tentativa pertence (fluxo §19, ADR-0029) — vazio =
     # implantação monoambiente legada, comportamento idêntico a antes desta ADR.
     estagio: str = ""
     # Preenchidos só quando `status == STATUS_FALHOU` e a orquestração tem pipeline
@@ -115,7 +115,7 @@ class DeployRun(BaseModel):
 
 
 def executar_deploy(comando: str, repo: str, *, timeout: float = 300.0) -> tuple[bool, str, float]:
-    """Roda o comando de implantação (§19). Nunca lança — `run_gate_command` já
+    """Roda o comando de implantação (fluxo §19). Nunca lança — `run_gate_command` já
     captura qualquer falha de subprocess e devolve o motivo como evidência."""
     inicio = time.monotonic()
     ok, detalhe = run_gate_command(shlex.split(comando), repo, timeout=timeout)
@@ -126,7 +126,7 @@ def executar_deploy(comando: str, repo: str, *, timeout: float = 300.0) -> tuple
 def validar_pos_deploy(
     health_checks: list[ValidationCheck], repo: str
 ) -> tuple[bool, list[dict[str, object]]]:
-    """Roda cada verificação pós-implantação (§20: health check, smoke test,
+    """Roda cada verificação pós-implantação (fluxo §20: health check, smoke test,
     teste de rota, verificação de logs/métricas...) reaproveitando o mesmo
     `ValidationCheck` da bateria (ADR-0022) — a forma "nome + comando +
     categoria + bloqueante" já é exatamente a de um health check.
@@ -147,7 +147,7 @@ def validar_pos_deploy(
 
 
 def exige_aceite_humano(deploy: DeployRun, brief: DemandBrief) -> bool:
-    """§18/§22 do fluxo.md: quando o aceite final precisa ser humano.
+    """fluxo §18/§22: quando o aceite final precisa ser humano.
 
     Mesmo raciocínio de `exige_aprovacao_discovery` (ADR-0020): reaproveita o
     vocabulário de impactos sensíveis do motor de decisão, não inventa um novo.
@@ -162,7 +162,7 @@ def exige_aceite_humano(deploy: DeployRun, brief: DemandBrief) -> bool:
     )
 
 
-# ---------------------------------------------------------------- pipeline (§19)
+# ---------------------------------------------------------------- pipeline (fluxo §19)
 
 
 def _ultima_execucao(chave: str, deploy_runs: list[dict[str, object]]) -> dict[str, object] | None:
@@ -197,7 +197,7 @@ def proximo_estagio_pendente(
 def pode_avancar_estagio(
     estagio: Environment, pipeline: list[Environment], deploy_runs: list[dict[str, object]]
 ) -> bool:
-    """§19: avanço governado — um estágio só roda depois do imediatamente anterior
+    """fluxo §19: avanço governado — um estágio só roda depois do imediatamente anterior
     (por `ordem`) concluir. O primeiro estágio nunca tem predecessor a checar."""
     anteriores = [e for e in pipeline if e.ordem < estagio.ordem]
     if not anteriores:
@@ -238,7 +238,7 @@ def pipeline_aprovado(pipeline: list[Environment], deploy_runs: list[dict[str, o
     return bool(pipeline) and all(_estagio_concluido(e, deploy_runs) for e in pipeline)
 
 
-# ------------------------------------------------ classificação de falha (§19, ADR-0019)
+# ------------------------------------------------ classificação de falha (fluxo §19, ADR-0019)
 
 DIAG_BUILD = "build"
 DIAG_CONFIGURACAO = "configuracao"
@@ -280,11 +280,11 @@ _PROXIMA_ACAO_DEPLOY: dict[str, str] = {
 def classificar_falha_deploy(
     *, origem: str, estagio_chave: str, comando: str = "", saida: str = ""
 ) -> str:
-    """Classifica a falha de implantação nos cinco diagnósticos do §19.
+    """Classifica a falha de implantação nos cinco diagnósticos do fluxo §19.
 
     A distinção pós-deploy/crítica é por FATO, não heurística: `origem="validacao"`
     (health check reprovado depois que o deploy já sucedeu) em `producao` é sempre
-    `critica` — o §19 isola produção como o único caso que aciona rollback; a mesma
+    `critica` — o fluxo §19 isola produção como o único caso que aciona rollback; a mesma
     falha em qualquer outro estágio é só "volta para correção". `origem="deploy"` (o
     próprio comando de implantação falhou, antes de qualquer validação rodar) é
     classificada por palavra-chave entre build/configuração/migration — mesma
@@ -309,7 +309,7 @@ def proxima_acao_deploy(diagnostico: str) -> str:
     return _PROXIMA_ACAO_DEPLOY.get(diagnostico, _PROXIMA_ACAO_DEPLOY[DIAG_DEPLOY_DESCONHECIDO])
 
 
-# ---------------------------------------------- aprovação de implantação (§18, wf §24, ADR-0050)
+# ---------------------------------------------- aprovação de implantação (wf §18, §24, ADR-0050)
 
 ITEM_PR_APROVADO = "Pull request aprovado"
 ITEM_TESTES_APROVADOS = "Testes aprovados"
@@ -370,7 +370,7 @@ def avaliacao_de_risco_implantacao(
     }
 
 
-# --------------------------------------------- validação pós-implantação (§20, wf §26, ADR-0050)
+# --------------------------------------------- validação pós-implantação (wf §20, §26, ADR-0050)
 
 SAUDE_SAUDAVEL = "saudavel"
 SAUDE_SAUDAVEL_COM_ALERTAS = "saudavel_com_alertas"
@@ -393,7 +393,7 @@ _DECISAO_POR_SAUDE: dict[str, str] = {
 
 def saude_pos_deploy(deploy: DeployRun) -> str:
     """4 níveis do wf §26.2, derivados de FATO — `validacao_resultados` já
-    distingue item bloqueante de não-bloqueante (§20); "saudável com alertas"
+    distingue item bloqueante de não-bloqueante (fluxo §20); "saudável com alertas"
     é quando só um item não-bloqueante falhou, nunca heurística."""
     if deploy.status == STATUS_FALHOU:
         # Bug real (code-review ultra): o comando de implantação em si falhou —
@@ -421,7 +421,7 @@ def decisao_sugerida_pos_deploy(saude: str, *, rollback_configurado: bool) -> st
     return _DECISAO_POR_SAUDE[saude]
 
 
-# -------------------------------------------------------- rollback (§21, wf §27, ADR-0050)
+# -------------------------------------------------------- rollback (wf §21, §27, ADR-0050)
 
 ESTRATEGIA_VOLTAR_VERSAO = "voltar_versao"
 ESTRATEGIA_REVERTER_CONFIGURACAO = "reverter_configuracao"

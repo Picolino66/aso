@@ -1,1 +1,1 @@
-"""Control Plane — orquestração, planejamento e decisão multiagente (§10, §14)."""
+"""Control Plane — orquestração, planejamento e decisão multiagente (req §10, §14)."""

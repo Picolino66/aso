@@ -1,8 +1,8 @@
-"""Hierarquia épico → história → subtarefa (§7 do fluxo.md, ADR-0025).
+"""Hierarquia épico → história → subtarefa (fluxo §7, ADR-0025).
 
 Funções puras sobre um mapa `{id: KanbanCard}` — sem I/O — para serem testadas
 isoladamente e reaproveitadas por `BoardService.add_card`/`move_card`. Pendência
-nomeada três vezes (plano4 §2.4, plano5 §2.4, ADR-0022): até aqui `KanbanCard`
+nomeada e adiada duas vezes antes de virar decisão (ADR-0022): até aqui `KanbanCard`
 não tinha `parent_id` e nenhum caminho produzia card que não fosse `TASK`.
 """
 
@@ -16,7 +16,7 @@ from aso.shared.types import ColumnKey
 # Epic → Feature → Task → Task (Tela 10, wf §12, ADR-0040): a 4ª volta de Task
 # é o que a UI rotula "Subtarefa" — não é um CardType novo, é o mesmo TASK com
 # `parent_id` apontando para outro TASK. Sem limite, um agente (ou um LLM
-# alucinando estrutura) cria uma árvore infinita e a UI trava (plano6 §3.3).
+# alucinando estrutura) cria uma árvore infinita e a UI trava .
 PROFUNDIDADE_MAXIMA = 4
 
 

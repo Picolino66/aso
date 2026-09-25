@@ -1,4 +1,4 @@
-"""`perguntar_ao_agente` — dispatch comum aos serviços de agente (§2.6/§4.1 do plano4.md).
+"""`perguntar_ao_agente` — dispatch comum aos serviços de agente (ADR-0059).
 
 Extraído porque naming/triage/review/discovery repetiam, cada um, o mesmo bloco:
 bifurcar `kind == "llm"` / `kind == "cli"`, rodar o CLI numa pasta temporária
@@ -109,6 +109,7 @@ def perguntar_ao_agente(
     timeout: float,
     repositorio: AcessoAoRepositorio | None = None,
     modelo_resposta: type[BaseModel] | None = None,
+    contexto_extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Pergunta em JSON a um executor do catálogo — LLM ou CLI em pasta temporária.
 
@@ -121,6 +122,10 @@ def perguntar_ao_agente(
     envelope e saída estruturada nativa) e a resposta é validada: fora do schema, o agente
     recebe **uma** tentativa de correção com os campos que falharam; se falhar de novo,
     `RespostaInvalida` (cai no fallback do serviço, como qualquer erro de agente).
+
+    `contexto_extra` entra no envelope do `AgentRun` (ADR-0065) — usado para registrar de onde
+    veio o mapa estrutural da pergunta (MEL-57: `indice_commit`/`indice_origem`), para a auditoria
+    distinguir investigação refeita de investigação reaproveitada.
     """
     pedido_atual = pedido
     for tentativa in range(TENTATIVAS_DE_CORRECAO + 1):
@@ -133,6 +138,7 @@ def perguntar_ao_agente(
             timeout=timeout,
             repositorio=repositorio,
             modelo_resposta=modelo_resposta,
+            contexto_extra=contexto_extra,
         )
         if modelo_resposta is None:
             return resposta
@@ -155,6 +161,7 @@ def _perguntar_uma_vez(
     timeout: float,
     repositorio: AcessoAoRepositorio | None,
     modelo_resposta: type[BaseModel] | None,
+    contexto_extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
     esquema = esquema_de(modelo_resposta) if modelo_resposta is not None else None
     system_com_formato = (
@@ -177,6 +184,7 @@ def _perguntar_uma_vez(
                 kind, system=system, request=pedido, output_schema=esquema
             ).model_dump(),
             "acesso_repo": leitura,
+            **(contexto_extra or {}),
         },
         request_id=contexto.request_id if contexto else "",
     )

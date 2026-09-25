@@ -1,4 +1,4 @@
-"""Orçamento com freio (§1.2/§3.2 do plano7.md) — ADR-0026.
+"""Orçamento com freio de execução — ADR-0026.
 
 Sem custo real capturado (ADR-0026, `shared/agent_usage.py`), o roteamento de falha
 (ADR-0019) escalava effort/executor sem teto de gasto — o comportamento é correto e

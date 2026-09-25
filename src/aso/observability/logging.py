@@ -1,11 +1,14 @@
-"""Logging estruturado (JSON) com correlation-id via contextvars (§33)."""
+"""Logging estruturado (JSON) com correlation-id via contextvars (req §33)."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import MutableMapping
 from typing import Any
 
 import structlog
+
+from aso.shared.segredos import mascarar_valor
 
 _configured = False
 
@@ -30,6 +33,17 @@ class _QuietAccessFilter(logging.Filter):
         return True
 
 
+def _redigir_segredos(
+    _logger: object, _nome: str, evento: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Processador do structlog que apaga segredo de qualquer campo (ADR-0080, regra 9).
+
+    Achado pelo teste de governança da MEL-58: a mensagem de erro do agente ("Executor CLI
+    terminou com exit=3: Authorization: Bearer sk-…") chegava ao log do processo com o segredo
+    intacto. Log de produção é coletado e guardado — vale a mesma regra do estado governado."""
+    return {chave: mascarar_valor(valor) for chave, valor in evento.items()}
+
+
 def configure_logging() -> None:
     """Configura o structlog (JSON) e filtra o ruído do access log do uvicorn."""
     global _configured
@@ -38,6 +52,7 @@ def configure_logging() -> None:
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            _redigir_segredos,
             structlog.processors.add_log_level,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.JSONRenderer(),

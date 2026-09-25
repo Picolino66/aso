@@ -1,7 +1,7 @@
-"""ExecutionProvider e provider simulado (§26, §43, TASK-08).
+"""ExecutionProvider e provider simulado (req §26, §43, TASK-08).
 
 Define a porta `ExecutionProvider` (abstrata) e o `LocalMockExecutionProvider`
-(§43: implementar mock antes de provider real). O `AgentExecutor` roda um agente
+(req §43: implementar mock antes de provider real). O `AgentExecutor` roda um agente
 através de um provider e retorna uma `AgentOutput` estruturada com patches propostos.
 """
 

@@ -223,6 +223,29 @@ class InMemoryOrchestrationRepository:
             )
         return amostras
 
+    def textos_de_demandas(
+        self, *, limite: int, project_id: str | None = None, excluir: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Mesmo contrato do adapter SQL (MEL-45)."""
+        estados = [
+            e
+            for e in self._all_states()
+            if (project_id is None or e.orchestration.project_id == project_id)
+            and (excluir is None or e.orchestration.id != excluir)
+        ]
+        estados.sort(key=lambda e: e.orchestration.created_at, reverse=True)
+        return [
+            {
+                "id": e.orchestration.id,
+                "user_request": e.orchestration.user_request or "",
+                "demand_brief": dict(e.orchestration.demand_brief or {}),
+                "created_at": e.orchestration.created_at or "",
+                "status": e.orchestration.status or "",
+                "project_id": e.orchestration.project_id,
+            }
+            for e in estados[:limite]
+        ]
+
     def recent_events(self, *, limit: int) -> list[dict[str, Any]]:
         """Mesmo contrato de `SqlAlchemyOrchestrationRepository.recent_events`."""
         todos = [
@@ -361,7 +384,7 @@ class InMemoryProjectRepository:
 
 
 class InMemoryRoutingRuleRepository:
-    """Adapter volátil e thread-safe das regras de roteamento (§33, ADR-0028)."""
+    """Adapter volátil e thread-safe das regras de roteamento (req §33, ADR-0028)."""
 
     def __init__(self) -> None:
         self._rules: dict[str, str] = {}

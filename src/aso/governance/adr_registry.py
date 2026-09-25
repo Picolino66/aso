@@ -1,4 +1,4 @@
-"""ADRRegistry (§21).
+"""ADRRegistry (req §21).
 
 Cria e lista ADRs com numeração sequencial (ADR-0001, ADR-0002, ...).
 ADRs nunca são deletadas — apenas marcadas como SUPERSEDED/DEPRECATED.

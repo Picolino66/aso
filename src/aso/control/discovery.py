@@ -1,4 +1,4 @@
-"""DiscoveryService — relatório de discovery e regra de aprovação (§3/§4, ADR-0020).
+"""DiscoveryService — relatório de discovery e regra de aprovação (fluxo §3/§4, ADR-0020).
 
 Espelha `aso.control.triage` na estrutura e na filosofia de fallback: **discovery
 nunca pode travar por falta de agente configurado.** Sem agente (ou com falha), um
@@ -6,7 +6,7 @@ relatório determinístico é montado a partir do `WorkspaceReport` (scan estrut
 existente, `execution/workspace.py`) e da `DemandBrief` já triada (ADR-0016) — nunca
 levanta exceção.
 
-A regra de aprovação automática vs. humana (§4) espelha `exige_confirmacao_humana`
+A regra de aprovação automática vs. humana (fluxo §4) espelha `exige_confirmacao_humana`
 de `aso.control.review` (ADR-0017): reaproveita o vocabulário de impactos sensíveis
 de `decision_engine.py`, não inventa um novo.
 """
@@ -44,7 +44,7 @@ _CONFIANCAS_VALIDAS = frozenset({"alta", "media", "baixa"})
 
 _DISCOVERY_SYSTEM = (
     "Você é o agente de discovery de um runtime de engenharia autônoma — analisa o "
-    "contexto de uma demanda antes de qualquer implementação (§3 do fluxo).\n"
+    "contexto de uma demanda antes de qualquer implementação (fluxo §3 do fluxo).\n"
     "Tudo em português do Brasil. `confianca` é baixa "
     "quando a recomendação depende de informação que você não tem certeza. Se não "
     "houver alternativas reais, deixe a lista vazia — não invente."
@@ -86,7 +86,7 @@ class RespostaDiscovery(BaseModel):
 
 
 class DiscoveryReport(BaseModel):
-    """O que o §3 manda produzir + o estado de aprovação do §4."""
+    """O que o fluxo §3 manda produzir + o estado de aprovação do fluxo §4."""
 
     situacao_atual: str = ""
     problema: str = ""
@@ -102,11 +102,15 @@ class DiscoveryReport(BaseModel):
     acesso_repo: bool = False
     evidencias: list[EvidenciaDoDiscovery] = Field(default_factory=list)
     componentes_descartados: list[str] = Field(default_factory=list)
+    # MEL-57: qual commit orientou/validou este relatório e se o mapa estrutural veio do cache
+    # (`disco`/`memoria`) ou foi recalculado (`novo`). Vazio = rodou sem índice.
+    indice_commit: str = ""
+    indice_origem: str = ""
     status: str = STATUS_RASCUNHO
     revisao_comentarios: str = ""
     origem: str = "heuristica"  # nome do executor, ou "heuristica"
     fallback_reason: str = ""
-    # Versão dentro do ring (§4.2 do plano4.md, ADR-0021) — 1-based, monotônica.
+    # Versão dentro do ring (ADR-0021) — 1-based, monotônica.
     versao: int = 1
     at: str = Field(default_factory=now_iso)
     # Painel de execução (Tela 06, wf §8.2, ADR-0045) — `None`/vazio quando o
@@ -122,7 +126,7 @@ class DiscoveryReport(BaseModel):
 
 
 def exige_aprovacao_discovery(report: DiscoveryReport, brief: DemandBrief) -> bool:
-    """§4 do fluxo.md: quando a aprovação do discovery precisa ser humana.
+    """fluxo §4: quando a aprovação do discovery precisa ser humana.
 
     Cobre "altera arquitetura"/"mais de uma solução viável"/"afeta segurança,
     privacidade ou permissões"/"risco de perda de dados" via `_SENSITIVE_IMPACTS`
@@ -143,7 +147,7 @@ def avaliar_criterios_aprovacao(report: DiscoveryReport, brief: DemandBrief) -> 
     "Sem impacto financeiro significativo", "Padrões já aprovados") ficam
     marcados `verificado: False` (sem dado real para julgar), nunca um `atendido`
     fabricado. `motivos_escalada` é sempre derivado de condição real — inclui
-    também impactos sensíveis (§14/ADR-0028) sem linha própria no checklist de 7
+    também impactos sensíveis (req §14/ADR-0028) sem linha própria no checklist de 7
     (ex.: segurança, contrato, deploy), para não esconder o motivo real da
     escalada só porque o wireframe não previu uma linha específica para ele.
     """
@@ -222,6 +226,12 @@ class DiscoveryService:
             f"effort: {assignment.effort or 'padrão'}; "
             f"leitura do repositório: {'sim' if leitura else 'não'}."
         ]
+        if indice is not None:
+            # MEL-57: o operador vê se a parte estrutural foi reaproveitada ou refeita.
+            log.append(
+                f"{inicio} Mapa estrutural do commit {indice.commit[:8] or '(sem commit)'} "
+                f"({indice.origem}): {len(indice.arquivos)} arquivos indexados."
+            )
         try:
             bruto = self._perguntar(
                 assignment,
@@ -270,6 +280,10 @@ class DiscoveryService:
                 f"{fim} Componentes inexistentes descartados: "
                 f"{', '.join(relatorio.componentes_descartados)}."
             )
+        if indice is not None:
+            relatorio = relatorio.model_copy(
+                update={"indice_commit": indice.commit, "indice_origem": indice.origem}
+            )
         log.append(f"{fim} Concluído — confiança: {relatorio.confianca}.")
         return relatorio.model_copy(
             update={
@@ -306,6 +320,12 @@ class DiscoveryService:
             timeout=self._timeout,
             repositorio=repositorio,
             modelo_resposta=RespostaDiscovery,
+            # MEL-57: a auditoria distingue investigação refeita de reaproveitada.
+            contexto_extra=(
+                {"indice_commit": indice.commit, "indice_origem": indice.origem}
+                if indice is not None
+                else None
+            ),
         )
 
 

@@ -1,4 +1,4 @@
-"""Autenticação por API key + RBAC (§34).
+"""Autenticação por API key + RBAC (req §34).
 
 Tokens são configurados via `ASO_API_KEYS` (JSON: {token: {actor, role}}).
 Sem tokens, o **modo dev** (principal `dev`/`admin` anônimo) só é aceito quando pedido
@@ -99,7 +99,7 @@ def required_role(method: str, path: str) -> str:
     # Configuração de executores (criar/editar/remover perfis) é ação administrativa.
     if method != "GET" and "/executors" in path:
         return "admin"
-    # Regras de roteamento (§33, ADR-0028): escrita muda a política de decisão de
+    # Regras de roteamento (req §33, ADR-0028): escrita muda a política de decisão de
     # toda orquestração futura — mesmo nível crítico de /executors.
     if method != "GET" and "/routing-rules" in path:
         return "admin"

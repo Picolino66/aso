@@ -158,6 +158,7 @@ POST   /v1/orchestrations/{id}/cards/{card}/qa/{i}/fail  # reprova; cria o bug d
 GET    /v1/orchestrations/{id}/cards/{card}/checklist    # checklist de preparação (§10, ADR-0030); só leitura
 GET    /v1/orchestrations/{id}/learning              # relatório de aprendizado da demanda (§24)
 GET    /v1/learning                                  # mesmo relatório, consolidado entre todas
+GET    /v1/orchestrations/{id}/similar-demands       # demandas parecidas + desfecho (ADR-0079)
 PUT    /v1/orchestrations/{id}/budget                # eleva/remove o teto de gasto; admin (ADR-0026)
 GET    /v1/orchestrations/{id}/worktrees             # worktrees em disco, com `orfao` marcado (ADR-0027)
 POST   /v1/orchestrations/{id}/worktrees/prune       # remove só os órfãos; admin (ADR-0027)
@@ -358,7 +359,16 @@ opcional. `GET /v1/orchestrations/{id}/learning` (e `GET /v1/learning`,
 consolidado entre todas) devolve o relatório de aprendizado do §24: retrabalho,
 falhas por etapa, desempenho por executor, taxa de aprovação, erros
 recorrentes — **informativo, não altera nenhuma decisão automaticamente**
-(a escolha de executor/modelo continua manual, §9). Desde a
+(a escolha de executor/modelo continua manual, fluxo §9).
+`GET /v1/orchestrations/{id}/similar-demands` responde a pergunta que o
+relatório agregado não responde — "demandas parecidas com **esta** falharam
+onde, com qual executor e a que custo?" — ranqueando por BM25 o texto da
+demanda e da ficha ([ADR-0079](adrs/ADR-0079-similaridade-de-demandas-por-bm25.md)).
+Cada recomendação cita os **ids** das demandas de onde o número veio; abaixo de
+duas demandas parecidas com execução registrada, `recomendacoes` volta vazia e
+`fonte` diz "histórico insuficiente" (uma parecida é coincidência, não padrão).
+`limite` é a janela de evidência e `do_projeto=true` restringe ao projeto da
+demanda. Desde a
 [ADR-0026](adrs/ADR-0026-custo-real-e-orcamento.md), o relatório também traz
 `custo_total_usd`/`custo_por_entrega`/`execucoes_sem_custo` por executor —
 capturados do envelope real do CLI (`usage`/`total_cost_usd`) quando

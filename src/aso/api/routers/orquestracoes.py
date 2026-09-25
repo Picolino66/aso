@@ -77,7 +77,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
             raise HTTPException(
                 status_code=400, detail="Informe o comando de validação do workspace."
             )
-        # Triagem (§1/§2 do fluxo.md) + criação passam por `create_with_triage`, o
+        # Triagem (fluxo §1/§2) + criação passam por `create_with_triage`, o
         # único caminho correto (Ponto 1 herdado da avaliação do Incremento A: a
         # sequência estava duplicada só aqui, e outros pontos de entrada — a CLI —
         # nasciam sem ela). Nunca levanta por conta da triagem em si — TriageService
@@ -254,7 +254,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.put("/v1/orchestrations/{orchestration_id}/budget")
     def set_budget(orchestration_id: str, body: BudgetBody, request: Request) -> Any:
-        """Eleva/remove o teto de orçamento (§1.2/§3.2, ADR-0026) — ação crítica,
+        """Eleva/remove o teto de orçamento (wf §1.2/§3.2, ADR-0026) — ação crítica,
         exige admin (`/budget` no sufixo administrativo de `api/auth.py`)."""
         return deps.card_op(
             orchestration_id,
@@ -263,7 +263,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/worktrees")
     def list_worktrees(orchestration_id: str) -> Any:
-        """Worktrees em disco desta orquestração, com `orfao` marcado (§3.3, ADR-0027)."""
+        """Worktrees em disco desta orquestração, com `orfao` marcado (wf §3.3, ADR-0027)."""
         deps.guard(orchestration_id)
         return svc.list_worktrees(orchestration_id)
 
@@ -306,7 +306,7 @@ def criar_router(deps: ApiDeps) -> APIRouter:
 
     @router.get("/v1/orchestrations/{orchestration_id}/brief")
     def get_brief(orchestration_id: str) -> Any:
-        """Ficha estruturada da demanda (§1/§2 do fluxo.md)."""
+        """Ficha estruturada da demanda (fluxo §1/§2)."""
         deps.guard(orchestration_id)
         return svc.get_demand_brief(orchestration_id)
 
@@ -336,6 +336,19 @@ def criar_router(deps: ApiDeps) -> APIRouter:
                 actor=actor_de(request),
             ),
         )
+
+    @router.get("/v1/orchestrations/{orchestration_id}/similar-demands")
+    def get_similar_demands(
+        orchestration_id: str,
+        limite: int = Query(default=5, ge=1, le=20),
+        do_projeto: bool = Query(default=False),
+    ) -> Any:
+        """Demandas parecidas e o que aconteceu com elas (MEL-45, ADR-0079).
+
+        Cada recomendação cita a fonte (ids das demandas); sem histórico suficiente, `fonte`
+        diz isso e `recomendacoes` volta vazia — o painel não inventa."""
+        deps.guard(orchestration_id)
+        return svc.demandas_similares(orchestration_id, limite=limite, do_projeto=do_projeto)
 
     @router.get("/v1/orchestrations/{orchestration_id}/recommendation")
     def get_recommendation(orchestration_id: str) -> Any:

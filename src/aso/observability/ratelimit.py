@@ -1,4 +1,4 @@
-"""Rate limiting simples (janela deslizante in-memory) por chave (§34).
+"""Rate limiting simples (janela deslizante in-memory) por chave (req §34).
 
 Configurável via `ASO_RATE_LIMIT` (requisições por janela; 0 = desabilitado).
 Em produção multiprocesso, trocar por um backend compartilhado (ex.: Redis).

@@ -88,7 +88,7 @@ def _metricas_de_contexto(task: dict[str, Any]) -> dict[str, object]:
 
 def _uso_do_output(output: AgentOutput | None) -> UsoDoAgente:
     """Lê o consumo que `CliAgentExecutionProvider` deixou em `artifacts["uso"]`
-    (§1.1, ADR-0026) — provider mock/legado sem esta chave cai no default
+    (ADR-0026) — provider mock/legado sem esta chave cai no default
     `origem="indisponivel"`, sem quebrar nenhum executor existente."""
     if output is None:
         return UsoDoAgente()
@@ -196,7 +196,7 @@ class AgentTaskService:
                 "card_description": card.description,
                 "card_type": card.type.value,
                 "acceptance_criteria": list(card.acceptance_criteria),
-                # Ações objetivas de uma revisão reprovada (§15, ADR-0017): sem isto o
+                # Ações objetivas de uma revisão reprovada (fluxo §15, ADR-0017): sem isto o
                 # agente re-executava cego, sem saber O QUE especificamente corrigir.
                 "correction_actions": list(card.correction_actions),
                 # "Adicionar contexto" (Tela 15, wf §17.2, ADR-0048) — instruções
@@ -230,7 +230,7 @@ class AgentTaskService:
             phase=card.phase.value,
             target_path=task["target_path"],
         ).model_dump()
-        # §10, ADR-0030: o runtime está prestes a entregar ao agente a especificação
+        # fluxo §10, ADR-0030: o runtime está prestes a entregar ao agente a especificação
         # (card_description), os critérios de aceite, o repositório (worktree) e o
         # comando de validação/plano de naming — os 5 itens abaixo registram essa
         # PASSAGEM DE CONTEXTO, não uma confirmação de que o agente os aplicou com

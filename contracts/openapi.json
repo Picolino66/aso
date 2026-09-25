@@ -416,7 +416,7 @@
         "type": "object"
       },
       "CardType": {
-        "description": "Tipos de card (§16.4).",
+        "description": "Tipos de card (req §16.4).",
         "enum": [
           "Epic",
           "Feature",
@@ -719,7 +719,7 @@
         "type": "object"
       },
       "DeployApproveBody": {
-        "description": "Aceite final da implantação (ADR-0023, §22) — ação crítica, exige admin.",
+        "description": "Aceite final da implantação (ADR-0023, fluxo §22) — ação crítica, exige admin.",
         "properties": {
           "approved": {
             "title": "Approved",
@@ -743,7 +743,7 @@
         "type": "object"
       },
       "DeployConfigBody": {
-        "description": "Configura a implantação (ADR-0023, §18-22); tudo opcional — só altera o\nque for enviado, mesmo padrão de `ExecutionSettingsBody`.",
+        "description": "Configura a implantação (ADR-0023, fluxo §18-22); tudo opcional — só altera o\nque for enviado, mesmo padrão de `ExecutionSettingsBody`.",
         "properties": {
           "command": {
             "anyOf": [
@@ -812,7 +812,7 @@
         "type": "object"
       },
       "DeployRollbackBody": {
-        "description": "Reverte a última implantação (ADR-0023, §21) — ação crítica, exige admin.",
+        "description": "Reverte a última implantação (ADR-0023, fluxo §21) — ação crítica, exige admin.",
         "properties": {
           "estrategia": {
             "default": "",
@@ -831,7 +831,7 @@
         "type": "object"
       },
       "DeployRunBody": {
-        "description": "Roda a implantação (POST .../deploy/run); tudo opcional.\n\n`estagio` só tem efeito com pipeline configurado (§19, ADR-0029): nomeia qual\nestágio rodar; omitido, resolve para o primeiro pendente (avanço governado).",
+        "description": "Roda a implantação (POST .../deploy/run); tudo opcional.\n\n`estagio` só tem efeito com pipeline configurado (fluxo §19, ADR-0029): nomeia qual\nestágio rodar; omitido, resolve para o primeiro pendente (avanço governado).",
         "properties": {
           "branch": {
             "default": "",
@@ -875,7 +875,7 @@
         "type": "object"
       },
       "DiscoveryDecideBody": {
-        "description": "Decide a aprovação humana do discovery (ADR-0020, §4).",
+        "description": "Decide a aprovação humana do discovery (ADR-0020, fluxo §4).",
         "properties": {
           "approved": {
             "title": "Approved",
@@ -1034,7 +1034,7 @@
         "type": "object"
       },
       "EnvironmentBody": {
-        "description": "Um estágio do pipeline de implantação (§19, wf §25, ADR-0029).",
+        "description": "Um estágio do pipeline de implantação (wf §19, §25, ADR-0029).",
         "properties": {
           "chave": {
             "title": "Chave",
@@ -1093,7 +1093,7 @@
         "type": "object"
       },
       "ExecutionMode": {
-        "description": "Modos de execução da orquestração (§12).",
+        "description": "Modos de execução da orquestração (req §12).",
         "enum": [
           "full-pipeline",
           "feature-evolution",
@@ -1244,7 +1244,7 @@
         "type": "object"
       },
       "IncidentInvestigateBody": {
-        "description": "Marca um incidente como em investigação (§21, ADR-0032).",
+        "description": "Marca um incidente como em investigação (fluxo §21, ADR-0032).",
         "properties": {
           "detalhe": {
             "default": "",
@@ -1256,7 +1256,7 @@
         "type": "object"
       },
       "IncidentResolveBody": {
-        "description": "Resolve um incidente com a causa raiz identificada (§21, ADR-0032).",
+        "description": "Resolve um incidente com a causa raiz identificada (fluxo §21, ADR-0032).",
         "properties": {
           "causa_raiz": {
             "title": "Causa Raiz",
@@ -1305,7 +1305,7 @@
         "type": "object"
       },
       "PatchType": {
-        "description": "Tipos de ContextPatch (§18).",
+        "description": "Tipos de ContextPatch (req §18).",
         "enum": [
           "add",
           "update",
@@ -1355,7 +1355,7 @@
         "type": "object"
       },
       "QaCheckBody": {
-        "description": "Registra uma verificação manual de QA (§16, plano de teste do wf §22.1,\nADR-0049).",
+        "description": "Registra uma verificação manual de QA (wf §16, plano de teste do wf §22.1,\nADR-0049).",
         "properties": {
           "ambiente": {
             "default": "",
@@ -1425,7 +1425,7 @@
         "type": "object"
       },
       "QaFailBody": {
-        "description": "Reprova uma verificação de QA já registrada (§17) — cria o bug vinculado.",
+        "description": "Reprova uma verificação de QA já registrada (fluxo §17) — cria o bug vinculado.",
         "properties": {
           "evidencias": {
             "default": [],
@@ -1456,7 +1456,7 @@
         "type": "object"
       },
       "RaceBody": {
-        "description": "Corrida de candidatos (§26A.6): perfis do catálogo; vazio = perfis `candidato`.",
+        "description": "Corrida de candidatos (req §26A.6): perfis do catálogo; vazio = perfis `candidato`.",
         "properties": {
           "executores": {
             "anyOf": [
@@ -1660,7 +1660,7 @@
         "type": "object"
       },
       "RoutingCondition": {
-        "description": "Um termo do \"SE\" — `campo` `operador` `valor` (wiframe §33.2).",
+        "description": "Um termo do \"SE\" — `campo` `operador` `valor` (wiframe wf §33.2).",
         "properties": {
           "campo": {
             "title": "Campo",
@@ -1683,7 +1683,7 @@
         "type": "object"
       },
       "RoutingRuleBody": {
-        "description": "Corpo de criação/edição de uma regra de roteamento (§33, ADR-0028).",
+        "description": "Corpo de criação/edição de uma regra de roteamento (req §33, ADR-0028).",
         "properties": {
           "acao": {
             "$ref": "#/components/schemas/RoutingAction",
@@ -1847,7 +1847,7 @@
         "type": "object"
       },
       "SpecApproveBody": {
-        "description": "Decisão humana da especificação quando o ciclo do §6 escalou (ADR-0021, §4.4).",
+        "description": "Decisão humana da especificação quando o ciclo do wf §6 escalou (ADR-0021, wf §4.4).",
         "properties": {
           "approved": {
             "title": "Approved",
@@ -1866,7 +1866,7 @@
         "type": "object"
       },
       "SpecReviewBody": {
-        "description": "Roda a revisão documental sobre a especificação corrente (ADR-0021, §6).",
+        "description": "Roda a revisão documental sobre a especificação corrente (ADR-0021, fluxo §6).",
         "properties": {
           "executor": {
             "anyOf": [
@@ -1952,7 +1952,7 @@
         "type": "object"
       },
       "ValidationCheckBody": {
-        "description": "Uma verificação nomeada da bateria do §12 (ADR-0022).",
+        "description": "Uma verificação nomeada da bateria do fluxo §12 (ADR-0022).",
         "properties": {
           "bloqueante": {
             "default": true,
@@ -3309,7 +3309,7 @@
     },
     "/v1/learning": {
       "get": {
-        "description": "Mesmo relatório, consolidado entre orquestrações (§24) — recorte por\nprojeto e período (Tela 29, wf §31, ADR-0052).",
+        "description": "Mesmo relatório, consolidado entre orquestrações (fluxo §24) — recorte por\nprojeto e período (Tela 29, wf §31, ADR-0052).",
         "operationId": "get_learning_report_global_v1_learning_get",
         "parameters": [
           {
@@ -4430,7 +4430,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/brief": {
       "get": {
-        "description": "Ficha estruturada da demanda (§1/§2 do fluxo.md).",
+        "description": "Ficha estruturada da demanda (fluxo §1/§2).",
         "operationId": "get_brief_v1_orchestrations__orchestration_id__brief_get",
         "parameters": [
           {
@@ -4518,7 +4518,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/budget": {
       "put": {
-        "description": "Eleva/remove o teto de orçamento (§1.2/§3.2, ADR-0026) — ação crítica,\nexige admin (`/budget` no sufixo administrativo de `api/auth.py`).",
+        "description": "Eleva/remove o teto de orçamento (wf §1.2/§3.2, ADR-0026) — ação crítica,\nexige admin (`/budget` no sufixo administrativo de `api/auth.py`).",
         "operationId": "set_budget_v1_orchestrations__orchestration_id__budget_put",
         "parameters": [
           {
@@ -4695,7 +4695,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/candidate-runs": {
       "get": {
-        "description": "Histórico rastreável de corridas de candidatos (§26A.6).",
+        "description": "Histórico rastreável de corridas de candidatos (req §26A.6).",
         "operationId": "list_candidate_runs_v1_orchestrations__orchestration_id__candidate_runs_get",
         "parameters": [
           {
@@ -5343,7 +5343,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/cancel": {
       "post": {
-        "description": "Cancela um card individualmente (§8 do fluxo.md, coluna `Cancelled`).",
+        "description": "Cancela um card individualmente (fluxo §8, coluna `Cancelled`).",
         "operationId": "cancel_card_v1_orchestrations__orchestration_id__cards__card_id__cancel_post",
         "parameters": [
           {
@@ -5451,7 +5451,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/checklist": {
       "get": {
-        "description": "Checklist de preparação para implementação (§10, ADR-0030) — só leitura.",
+        "description": "Checklist de preparação para implementação (fluxo §10, ADR-0030) — só leitura.",
         "operationId": "get_preparation_checklist_v1_orchestrations__orchestration_id__cards__card_id__checklist_get",
         "parameters": [
           {
@@ -5500,7 +5500,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/closure": {
       "get": {
-        "description": "Ficha de encerramento do card (§23 do fluxo.md, ADR-0021).",
+        "description": "Ficha de encerramento do card (fluxo §23, ADR-0021).",
         "operationId": "get_card_closure_v1_orchestrations__orchestration_id__cards__card_id__closure_get",
         "parameters": [
           {
@@ -5696,7 +5696,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/failures": {
       "get": {
-        "description": "Histórico de falhas do card (§13 do fluxo.md, ADR-0019).",
+        "description": "Histórico de falhas do card (fluxo §13, ADR-0019).",
         "operationId": "get_card_failures_v1_orchestrations__orchestration_id__cards__card_id__failures_get",
         "parameters": [
           {
@@ -5970,7 +5970,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa": {
       "get": {
-        "description": "Histórico de verificações manuais de QA do card (§16, ring de 10).",
+        "description": "Histórico de verificações manuais de QA do card (fluxo §16, ring de 10).",
         "operationId": "get_qa_checks_v1_orchestrations__orchestration_id__cards__card_id__qa_get",
         "parameters": [
           {
@@ -6017,7 +6017,7 @@
         "summary": "Get Qa Checks"
       },
       "post": {
-        "description": "Registra uma verificação manual de QA (§16).",
+        "description": "Registra uma verificação manual de QA (fluxo §16).",
         "operationId": "register_qa_check_v1_orchestrations__orchestration_id__cards__card_id__qa_post",
         "parameters": [
           {
@@ -6076,7 +6076,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/qa/{index}/fail": {
       "post": {
-        "description": "Reprova uma verificação de QA já registrada — cria o bug vinculado (§17).",
+        "description": "Reprova uma verificação de QA já registrada — cria o bug vinculado (fluxo §17).",
         "operationId": "fail_qa_check_v1_orchestrations__orchestration_id__cards__card_id__qa__index__fail_post",
         "parameters": [
           {
@@ -6144,7 +6144,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/race": {
       "post": {
-        "description": "Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs.\n\nCandidatos são perfis do catálogo (ADR-0076): os nomes em `executores` ou, sem\nlista, os perfis marcados `candidato`. Rodam na pasta desta orquestração.",
+        "description": "Roda os agentes CLI candidatos (req §26A.6) em paralelo e compara os diffs.\n\nCandidatos são perfis do catálogo (ADR-0076): os nomes em `executores` ou, sem\nlista, os perfis marcados `candidato`. Rodam na pasta desta orquestração.",
         "operationId": "race_card_v1_orchestrations__orchestration_id__cards__card_id__race_post",
         "parameters": [
           {
@@ -6768,7 +6768,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy": {
       "get": {
-        "description": "Última implantação (§18-22 do fluxo.md, ADR-0023).",
+        "description": "Última implantação (fluxo §18-22 do fluxo.md, ADR-0023).",
         "operationId": "get_deploy_v1_orchestrations__orchestration_id__deploy_get",
         "parameters": [
           {
@@ -6848,7 +6848,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy/approve": {
       "post": {
-        "description": "Aceite final da implantação (§22) — ação crítica, exige admin.",
+        "description": "Aceite final da implantação (fluxo §22) — ação crítica, exige admin.",
         "operationId": "approve_deploy_v1_orchestrations__orchestration_id__deploy_approve_post",
         "parameters": [
           {
@@ -7028,7 +7028,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy/pipeline": {
       "get": {
-        "description": "Status derivado por estágio (§19, wf §25, ADR-0029) — lista vazia =\nmonoambiente legado, nenhum pipeline configurado.",
+        "description": "Status derivado por estágio (wf §19, §25, ADR-0029) — lista vazia =\nmonoambiente legado, nenhum pipeline configurado.",
         "operationId": "get_deploy_pipeline_v1_orchestrations__orchestration_id__deploy_pipeline_get",
         "parameters": [
           {
@@ -7116,7 +7116,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy/rollback": {
       "post": {
-        "description": "Reverte a última implantação e abre uma tarefa de causa raiz (§21).",
+        "description": "Reverte a última implantação e abre uma tarefa de causa raiz (fluxo §21).",
         "operationId": "rollback_deploy_v1_orchestrations__orchestration_id__deploy_rollback_post",
         "parameters": [
           {
@@ -7206,7 +7206,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy/run": {
       "post": {
-        "description": "Roda a implantação — exige comando configurado e o quality gate mais\nrecente aprovado (§18); o resultado decide aceite automático ou humano.\nCom pipeline configurado, `body.estagio` escolhe qual estágio rodar\n(omitido, resolve o primeiro pendente — avanço governado, §19).",
+        "description": "Roda a implantação — exige comando configurado e o quality gate mais\nrecente aprovado (fluxo §18); o resultado decide aceite automático ou humano.\nCom pipeline configurado, `body.estagio` escolhe qual estágio rodar\n(omitido, resolve o primeiro pendente — avanço governado, fluxo §19).",
         "operationId": "run_deploy_v1_orchestrations__orchestration_id__deploy_run_post",
         "parameters": [
           {
@@ -7256,7 +7256,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/deploy/validate": {
       "post": {
-        "description": "Roda as verificações pós-implantação configuradas (§20).",
+        "description": "Roda as verificações pós-implantação configuradas (fluxo §20).",
         "operationId": "validate_deploy_v1_orchestrations__orchestration_id__deploy_validate_post",
         "parameters": [
           {
@@ -7296,7 +7296,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/discovery": {
       "get": {
-        "description": "Relatório de discovery atual (§3 do fluxo.md, ADR-0020).",
+        "description": "Relatório de discovery atual (fluxo §3, ADR-0020).",
         "operationId": "get_discovery_v1_orchestrations__orchestration_id__discovery_get",
         "parameters": [
           {
@@ -7426,7 +7426,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/discovery/history": {
       "get": {
-        "description": "Histórico de versões do discovery (§4.2, ADR-0021) — ring de até 5.",
+        "description": "Histórico de versões do discovery (wf §4.2, ADR-0021) — ring de até 5.",
         "operationId": "get_discovery_history_v1_orchestrations__orchestration_id__discovery_history_get",
         "parameters": [
           {
@@ -7466,7 +7466,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/discovery/run": {
       "post": {
-        "description": "Roda o discovery e aplica a regra de aprovação automática/humana (§4).",
+        "description": "Roda o discovery e aplica a regra de aprovação automática/humana (fluxo §4).",
         "operationId": "run_discovery_v1_orchestrations__orchestration_id__discovery_run_post",
         "parameters": [
           {
@@ -8037,7 +8037,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/documentos/{tipo}/review": {
       "post": {
-        "description": "Checklist do revisor (wf §11) — os quatro desfechos do §11.2.",
+        "description": "Checklist do revisor (wf §11) — os quatro desfechos do wf §11.2.",
         "operationId": "review_documento_v1_orchestrations__orchestration_id__documentos__tipo__review_post",
         "parameters": [
           {
@@ -8351,7 +8351,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/incidents": {
       "get": {
-        "description": "Incidentes da orquestração — abertos automaticamente por rollback (§21).",
+        "description": "Incidentes da orquestração — abertos automaticamente por rollback (fluxo §21).",
         "operationId": "list_incidents_v1_orchestrations__orchestration_id__incidents_get",
         "parameters": [
           {
@@ -8613,7 +8613,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/kanban": {
       "get": {
-        "description": "Tela 11 (Kanban operacional, wf §13/§35, ADR-0047): as 16 colunas reais\n(rótulo do wireframe quando existe), cards com os 11 campos do §13.3 já\nresolvidos, e o grafo de transições válidas.",
+        "description": "Tela 11 (Kanban operacional, wf §13/§35, ADR-0047): as 16 colunas reais\n(rótulo do wireframe quando existe), cards com os 11 campos do wf §13.3 já\nresolvidos, e o grafo de transições válidas.",
         "operationId": "get_kanban_board_v1_orchestrations__orchestration_id__kanban_get",
         "parameters": [
           {
@@ -8653,7 +8653,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/learning": {
       "get": {
-        "description": "Relatório de aprendizado da demanda (§24) — retrabalho, falhas por\netapa, desempenho por executor, intervenções humanas. Informativo.",
+        "description": "Relatório de aprendizado da demanda (fluxo §24) — retrabalho, falhas por\netapa, desempenho por executor, intervenções humanas. Informativo.",
         "operationId": "get_learning_report_v1_orchestrations__orchestration_id__learning_get",
         "parameters": [
           {
@@ -9303,7 +9303,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/pulls/{pr_id}/review": {
       "get": {
-        "description": "Veredito completo da última revisão independente (§14).",
+        "description": "Veredito completo da última revisão independente (fluxo §14).",
         "operationId": "get_review_v1_orchestrations__orchestration_id__pulls__pr_id__review_get",
         "parameters": [
           {
@@ -9957,6 +9957,68 @@
         "summary": "List Agent Runs"
       }
     },
+    "/v1/orchestrations/{orchestration_id}/similar-demands": {
+      "get": {
+        "description": "Demandas parecidas e o que aconteceu com elas (MEL-45, ADR-0079).\n\nCada recomendação cita a fonte (ids das demandas); sem histórico suficiente, `fonte`\ndiz isso e `recomendacoes` volta vazia — o painel não inventa.",
+        "operationId": "get_similar_demands_v1_orchestrations__orchestration_id__similar_demands_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "orchestration_id",
+            "required": true,
+            "schema": {
+              "title": "Orchestration Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limite",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limite",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "do_projeto",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Do Projeto",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Similar Demands V1 Orchestrations  Orchestration Id  Similar Demands Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Similar Demands"
+      }
+    },
     "/v1/orchestrations/{orchestration_id}/slo": {
       "get": {
         "operationId": "slo_report_v1_orchestrations__orchestration_id__slo_get",
@@ -10190,7 +10252,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section": {
       "post": {
-        "description": "Restauração seletiva de uma seção a partir de um snapshot (§23; admin).",
+        "description": "Restauração seletiva de uma seção a partir de um snapshot (req §23; admin).",
         "operationId": "restore_section_v1_orchestrations__orchestration_id__snapshots__version__restore_section_post",
         "parameters": [
           {
@@ -10249,7 +10311,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/snapshots/{version}/restore-section/preview": {
       "get": {
-        "description": "Dry-run: mostra o impacto da restauração seletiva sem aplicar (§23).",
+        "description": "Dry-run: mostra o impacto da restauração seletiva sem aplicar (req §23).",
         "operationId": "preview_restore_section_v1_orchestrations__orchestration_id__snapshots__version__restore_section_preview_get",
         "parameters": [
           {
@@ -10307,7 +10369,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/spec": {
       "get": {
-        "description": "Especificação corrente (§5 do fluxo.md, ADR-0021).",
+        "description": "Especificação corrente (fluxo §5, ADR-0021).",
         "operationId": "get_spec_v1_orchestrations__orchestration_id__spec_get",
         "parameters": [
           {
@@ -10347,7 +10409,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/spec/approve": {
       "post": {
-        "description": "Decide a especificação quando o ciclo do §6 escalou (ação crítica — admin).",
+        "description": "Decide a especificação quando o ciclo do fluxo §6 escalou (ação crítica — admin).",
         "operationId": "approve_spec_v1_orchestrations__orchestration_id__spec_approve_post",
         "parameters": [
           {
@@ -10397,7 +10459,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/spec/history": {
       "get": {
-        "description": "Histórico de versões da especificação (§4.2, ADR-0021) — ring de até 5.",
+        "description": "Histórico de versões da especificação (wf §4.2, ADR-0021) — ring de até 5.",
         "operationId": "get_spec_history_v1_orchestrations__orchestration_id__spec_history_get",
         "parameters": [
           {
@@ -10437,7 +10499,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/spec/review": {
       "post": {
-        "description": "Roda a revisão documental (§6) sobre a especificação corrente.",
+        "description": "Roda a revisão documental (fluxo §6) sobre a especificação corrente.",
         "operationId": "run_spec_review_v1_orchestrations__orchestration_id__spec_review_post",
         "parameters": [
           {
@@ -10487,7 +10549,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/spec/run": {
       "post": {
-        "description": "Gera/regenera a especificação — exige discovery aprovado (§5).",
+        "description": "Gera/regenera a especificação — exige discovery aprovado (fluxo §5).",
         "operationId": "run_spec_v1_orchestrations__orchestration_id__spec_run_post",
         "parameters": [
           {
@@ -10609,7 +10671,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/validation-checks": {
       "get": {
-        "description": "Bateria efetiva de validações (§12 do fluxo.md, ADR-0022).",
+        "description": "Bateria efetiva de validações (fluxo §12, ADR-0022).",
         "operationId": "get_validation_checks_v1_orchestrations__orchestration_id__validation_checks_get",
         "parameters": [
           {
@@ -10697,7 +10759,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/validation-checks/suggest": {
       "get": {
-        "description": "Sugestão determinística por stack (§4.5) — não grava nada.",
+        "description": "Sugestão determinística por stack (ADR-0022) — não grava nada.",
         "operationId": "suggest_validation_checks_v1_orchestrations__orchestration_id__validation_checks_suggest_get",
         "parameters": [
           {
@@ -10737,7 +10799,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/worktrees": {
       "get": {
-        "description": "Worktrees em disco desta orquestração, com `orfao` marcado (§3.3, ADR-0027).",
+        "description": "Worktrees em disco desta orquestração, com `orfao` marcado (wf §3.3, ADR-0027).",
         "operationId": "list_worktrees_v1_orchestrations__orchestration_id__worktrees_get",
         "parameters": [
           {
