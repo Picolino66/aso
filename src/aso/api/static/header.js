@@ -93,7 +93,7 @@
       .slice(0, 10)
       .map(function (a) {
         return (
-          '<a class="hdr-dropdown-item" href="/ui/detalhe?id=' +
+          '<a class="hdr-dropdown-item" href="/ui/esteira?id=' +
           encodeURIComponent(a.orchestration_id) +
           '">' +
           esc(a.action) +
@@ -128,7 +128,7 @@
           resultados.innerHTML = itens
             .map(function (item) {
               return (
-                '<a class="hdr-dropdown-item" href="/ui/detalhe?id=' +
+                '<a class="hdr-dropdown-item" href="/ui/esteira?id=' +
                 encodeURIComponent(item.orchestration_id) +
                 '"><span class="pill">' +
                 esc(item.tipo) +

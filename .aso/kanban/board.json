@@ -5317,6 +5317,97 @@
         "Testes reescritos com depend\u00eancia expl\u00edcita: test_card_dependencies, test_preparation_checklist_orchestration, test_card_lifecycle_api, test_gate_por_fase, test_mvp2, test_supervisor_concurrency, test_decision_engine, test_demand_brief_decision, test_pontos_herdados",
         "ADR-0075; ruff/format OK; mypy strict OK; lint-imports OK; alembic up/down/check OK; pytest 1734 passed, 7 skipped / 94.77%; Docker /health 200 + smoke OK"
       ]
+    },
+    {
+      "id": "MEL-54",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Cat\u00e1logo \u00fanico de executores (ADR-0076)",
+      "description": "Executores eram configurados em cinco lugares com preced\u00eancias diferentes (ASO_CLI_COMMAND/ASO_TARGET_REPO no provider global, ASO_LLM_* no provider e no cliente de planejamento, ASO_EXECUTORS, .aso/executors.json, ASO_CANDIDATE_COMMANDS fora do cat\u00e1logo), e dois scripts editavam a string do comando para ligar streaming e permiss\u00e3o de escrita. Agora o cat\u00e1logo \u00e9 a \u00fanica fonte em tempo de execu\u00e7\u00e3o e as flags s\u00e3o campos do perfil.",
+      "acceptance_criteria": [
+        "Nenhuma leitura de ASO_CLI_COMMAND, ASO_LLM_* ou ASO_CANDIDATE_COMMANDS fora do seed do cat\u00e1logo",
+        "Corrida de candidatos funciona com perfis do cat\u00e1logo",
+        "Ativar streaming ou permiss\u00e3o de escrita \u00e9 feito pelo campo do perfil, sem editar o comando \u00e0 m\u00e3o",
+        "Perfis existentes em .aso/executors.json s\u00e3o migrados sem perda"
+      ],
+      "dependencies": [
+        "MEL-14"
+      ],
+      "evidence": [
+        "execution/flags_de_cli.py: familia_do_comando, aplicar_flags e migrar_comando (Claude --output-format stream-json --verbose / --permission-mode plan|acceptEdits e --dangerously-skip-permissions; Codex --json / --sandbox read-only|workspace-write|danger-full-access); fam\u00edlia desconhecida e valor sem campo equivalente (--permission-mode auto) ficam intactos",
+        "ExecutorProfile ganha streaming, permissao_escrita e candidato + model_validator que migra as flags do comando (idempotente); public() exp\u00f5e os campos e familia_cli; cli_command monta as flags; llm_client e public() deixam de usar a reserva ASO_LLM_API_KEY",
+        "ExecutorSettingsStore.load migra, regrava e guarda .aso/executors.json.antes-adr-0076; perfil LLM sem api_key_env passa a apontar ASO_LLM_API_KEY (migrar_perfis_salvos). Arquivo real do operador migrado: 16 perfis, comando pronto id\u00eantico token a token",
+        "build_catalog_from_env \u00e9 o \u00fanico leitor de ASO_EXECUTORS/ASO_CLI_COMMAND/ASO_LLM_*/ASO_CANDIDATE_COMMANDS (candidatos viram perfis candidato=True; CLI antes do LLM vira o padr\u00e3o); bootstrap sem provider global e execution/routing_provider.py removido",
+        "PLANNING_KEY 'planejamento' em agent_assignments (s\u00f3 executor kind=llm); ExecutionSettingsService.cliente_de_planejamento (etapa \u2192 LLM padr\u00e3o com chave) e candidatos_da_corrida (executores do corpo \u2192 perfis candidato, s\u00f3 CLI); rotas /plan, cria\u00e7\u00e3o full-pipeline e POST .../race (RaceBody) traduzem para 409",
+        "comando_somente_leitura remove --dangerously-skip-permissions e --dangerously-bypass-approvals-and-sandbox antes de for\u00e7ar plan/read-only (ADR-0069)",
+        "Console: \u2699 Config com streaming, permiss\u00e3o de escrita e candidato + coluna CLI por perfil; etapa Planejamento no detalhe; scripts enable-agent-stream.sh e fix-executor-permissions.sh apagados; README, docs/operations.md, ADR-0015, e2e_candidates.sh e next_step atualizados",
+        "tests/integration/test_catalogo_unico_executores.py: 25 testes \u2014 flags por fam\u00edlia, permiss\u00e3o inv\u00e1lida recusada, pergunta somente leitura anula permiss\u00e3o total, migra\u00e7\u00e3o idempotente e sem perda (store + arquivo antigo dos scripts), sync do Codex preserva escolhas, seed, varredura AST de leituras de env fora do seed + muta\u00e7\u00e3o que prova a varredura, planejamento (409, LLM padr\u00e3o, etapa, recusa de executor n\u00e3o-LLM), corrida com executores escolhidos e recusas, bootstrap sem provider global",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK \u00b7 pytest 1756 passed / 7 skipped / 94.83%",
+        "Docker/Postgres: /health 200, smoke OK; cat\u00e1logo semeado no container migrou a flag do comando (claude: command 'claude -p', streaming true, permissao_escrita 'total'); /plan e cria\u00e7\u00e3o full-pipeline responderam 409 apontando o cat\u00e1logo; corrida sem lista usou o perfil candidato (job done, erro 'No such file or directory: claude' \u2014 bin\u00e1rio ausente no container)"
+      ]
+    },
+    {
+      "id": "MEL-44",
+      "epic": "EPIC-12",
+      "type": "Feature",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "\u00cdndice estrutural do workspace por commit (ADR-0077)",
+      "description": "Discovery, especifica\u00e7\u00e3o e revis\u00e3o decidiam sem nenhum fato estrutural do c\u00f3digo (o WorkspaceAnalyzer s\u00f3 via diret\u00f3rios de topo). Entra um \u00edndice determin\u00edstico por (reposit\u00f3rio, commit) \u2014 s\u00edmbolos, imports resolvidos, testes e pontos de entrada \u2014 usado para orientar o pedido e VERIFICAR a resposta do agente. Sem embeddings/banco vetorial: os agentes CLI j\u00e1 leem o c\u00f3digo (ADR-0069); verifica\u00e7\u00e3o exige fato exato.",
+      "acceptance_criteria": [
+        "\u00cdndice gerado para o pr\u00f3prio reposit\u00f3rio do ASO em tempo aceit\u00e1vel (medido e registrado na ADR)",
+        "Mesmo commit reaproveita o \u00edndice sem recalcular",
+        "Revis\u00e3o de um diff recebe a lista de m\u00f3dulos dependentes e testes relacionados",
+        "Teste garante que arquivos ignorados e padr\u00f5es de segredo n\u00e3o entram no \u00edndice"
+      ],
+      "dependencies": [
+        "MEL-19"
+      ],
+      "evidence": [
+        "execution/code_index.py: IndiceDoRepositorio (versao_do_schema, commit, sujo, precisao, modulos, arquivos) com ArquivoIndexado (linguagem, linhas, e_teste, simbolos, importa, entradas); Python por `ast` (classes, m\u00e9todos como Classe.metodo, constantes p\u00fablicas, imports relativos e ra\u00edzes src/lib/app, rotas de decorador inclusive dentro de f\u00e1bricas), TS/JS por regex declarada em `precisao`; consultas vizinhanca/testes_que_cobrem (diretos antes dos indiretos)/quem_importa/contem/resumo",
+        "Cache por commit em .aso/index/<commit>.json (+60 s no processo via indice_para_uso); \u00e1rvore suja n\u00e3o grava nem reaproveita; `.aso/` n\u00e3o conta como sujeira em estado_do_commit (sen\u00e3o gravar o \u00edndice sujaria a \u00e1rvore); \u00edndice corrompido ou de outro schema recalcula; workspace.ensure_git acrescenta .aso/index/ ao .gitignore do alvo",
+        "Medi\u00e7\u00e3o do crit\u00e9rio 1 (test_indice_do_proprio_aso_em_tempo_aceitavel): 642 arquivos, 3.163 s\u00edmbolos, 216 arquivos de teste, 206 entradas, ~1,0 s, ~388 KB de JSON",
+        "Uso 1 \u2014 contexto do card (ADR-0063): item `codigo` com uma linha por arquivo citado (s\u00edmbolos, entradas, usa, usado por, testes); arquivos citados = card.linked_files + componentes_afetados do discovery aprovado, no m\u00e1ximo 5; sem arquivo citado o \u00edndice nem \u00e9 constru\u00eddo (test_card_sem_arquivo_citado_nao_paga_indice)",
+        "Uso 2 \u2014 discovery (ADR-0020): mapa_do_repositorio no pedido (<2 KB) e valida\u00e7\u00e3o de componentes_afetados/evid\u00eancias contra o \u00edndice \u2014 mais estrito que a checagem por disco (.env, node_modules e caches n\u00e3o est\u00e3o no \u00edndice, logo n\u00e3o passam)",
+        "Uso 3 \u2014 revis\u00e3o (ADR-0017): ImpactoEstrutural (dependentes, testes, desconhecidos) montado dos arquivos do diff (arquivos_do_diff) entra no pedido; aus\u00eancia de dependentes \u00e9 declarada",
+        "Seguran\u00e7a (crit\u00e9rio 4): test_segredos_caches_e_binarios_nunca_entram_no_indice + test_regra_de_elegibilidade \u2014 .env*, *secret*/*credential*/*password*/*senha*, id_rsa, *.pem|key|p12|crt, bin\u00e1rios, >1 MB e DIRETORIOS_IGNORADOS ficam fora; o JSON do \u00edndice n\u00e3o cont\u00e9m o valor do segredo",
+        "tests/integration/test_indice_estrutural.py (32 testes). Ajustado: test_perguntas_com_repositorio usa _mudancas_do_projeto (ignora .aso/, artefato do runtime)",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration) \u00b7 pytest 1789 passed / 7 skipped / 94.82%. Docker/Postgres n\u00e3o exigido: n\u00e3o toca persist\u00eancia nem boot (o \u00edndice \u00e9 arquivo derivado no reposit\u00f3rio-alvo, coberto por integra\u00e7\u00e3o com git real)"
+      ]
+    },
+    {
+      "id": "MEL-52",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Consultas sem hidratar agregados",
+      "description": "Leituras carregavam agregados inteiros: _find_approval e list_all_approvals varriam TODAS as orquestra\u00e7\u00f5es, execution_metrics contava sobre a timeline completa e o relat\u00f3rio de aprendizado global hidratava cada orquestra\u00e7\u00e3o do recorte. Agora essas leituras s\u00e3o consultas no reposit\u00f3rio, com a mesma aritm\u00e9tica de antes.",
+      "acceptance_criteria": [
+        "Aprovar uma aprova\u00e7\u00e3o carrega no m\u00e1ximo uma orquestra\u00e7\u00e3o",
+        "Listagem global de aprova\u00e7\u00f5es n\u00e3o hidrata agregados",
+        "Relat\u00f3rio de aprendizado global usa consultas agregadas",
+        "Resultados id\u00eanticos aos atuais em testes comparativos"
+      ],
+      "dependencies": [
+        "MEL-32"
+      ],
+      "evidence": [
+        "Portas novas (SQL + mem\u00f3ria, mesmo contrato): orchestration_of_approval(id), approvals(status, orchestration_ids), count_events_by_type(oid, types) (COUNT GROUP BY, tipo sem linha volta zero), amostras_de_aprendizado(ids) (colunas usadas de kanban_cards/pull_requests/human_approvals/orchestrations.deploy_runs + s\u00f3 eventos AgentExecuted para o tempo por card) e AgentRunRepository.agregados_de_execucao (COUNT/AVG/SUM(case) em agent_runs)",
+        "ApprovalService._find_approval localiza por consulta e hidrata s\u00f3 a dona (a decis\u00e3o escreve no agregado); aprova\u00e7\u00e3o inexistente n\u00e3o hidrata nada",
+        "QueryService.list_all_approvals projeta das linhas e aceita filtros; GET /v1/approvals, header_summary e dashboard_summary passam status/ids para a consulta em vez de filtrar em mem\u00f3ria",
+        "MetricsService.execution_metrics: execu\u00e7\u00f5es e dura\u00e7\u00e3o m\u00e9dia de agent_runs (1:1 com AgentExecuted, ADR-0065), retries/falhas por COUNT GROUP BY; campo novo `origem` (agent_runs|eventos) com queda para o log quando n\u00e3o h\u00e1 run \u2014 base anterior \u00e0 ADR-0065 ou runs expurgados n\u00e3o relatam zero execu\u00e7\u00f5es",
+        "aprendizado.AmostraDeAprendizado + snapshots_da_amostra/indicadores_da_amostra: a aritm\u00e9tica do relat\u00f3rio de UMA demanda (amostra do agregado) e do GLOBAL (amostra de consulta) passou a ser a mesma fun\u00e7\u00e3o \u2014 duas contas paralelas divergiriam",
+        "tests/integration/test_leituras_sem_hidratar.py (10) com reposit\u00f3rio espi\u00e3o contando load(): decidir aprova\u00e7\u00e3o carrega [dona] (antes: as 4), inexistente carrega 0, listagem global e aprendizado global carregam 0; comparativos reproduzem o c\u00e1lculo antigo (aprova\u00e7\u00f5es, m\u00e9tricas de execu\u00e7\u00e3o contra a timeline, relat\u00f3rio inteiro por dataclasses.asdict) e os dois adapters devolvem a mesma amostra",
+        "Ajustados 3 testes que mutavam o bundle sem gravar (test_conflict_and_kanban_approval x2, test_learning_api): as leituras agora v\u00eam do reposit\u00f3rio, ent\u00e3o o teste persiste como qualquer rota real faria",
+        "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration: s\u00f3 consultas) \u00b7 pytest 1799 passed / 7 skipped / 94.81%",
+        "Docker/Postgres: /health 200, smoke OK; GET /v1/approvals?status=pending, approve, execution-metrics (origem=agent_runs, avg_ms a partir do numeric do Postgres) e /v1/learning (global e com recorte) conferidos no container"
+      ]
     }
   ]
 }

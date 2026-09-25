@@ -45,7 +45,7 @@ def test_regras_roteamento_gate_de_escrita_por_papel_admin() -> None:
     assert "EH_ADMIN" in pagina
 
 
-def test_console_linka_para_regras_de_roteamento() -> None:
+def test_configuracoes_linka_para_regras_de_roteamento() -> None:
+    """O console técnico saiu (ADR-0078): o atalho vive na seção Configurações."""
     client = TestClient(create_app(OrchestrationService()))
-    pagina = client.get("/ui/console").text
-    assert "/ui/regras-roteamento" in pagina
+    assert "/ui/regras-roteamento" in client.get("/ui/configuracoes").text

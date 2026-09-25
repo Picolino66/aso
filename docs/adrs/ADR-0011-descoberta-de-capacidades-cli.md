@@ -32,3 +32,10 @@ comandos finitos; servidores e watchers são rejeitados.
 - O docs-first concluído marca o workspace como preparado e não é repetido pelo Autopilot.
 - Um workspace sem código que contenha apenas o scaffold ASO continua sendo tratado como
   vazio no retry e recebe deterministicamente a feature `projeto` com as oito seções.
+
+## Adendo (ADR-0076, MEL-54)
+
+O catálogo virou a única fonte de executores em tempo de execução, e os perfis Codex gerenciados
+nascem com `permissao_escrita="edicoes"` em vez de `--sandbox workspace-write` escrito no comando;
+a sincronização preserva `streaming`, `permissao_escrita` e `candidato` escolhidos pelo operador.
+Ver [ADR-0076](ADR-0076-catalogo-unico-de-executores.md).

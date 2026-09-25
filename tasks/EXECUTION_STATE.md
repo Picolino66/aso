@@ -5,13 +5,13 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 
 ## Estado geral
 
-* Última atualização: 2026-09-15
+* Última atualização: 2026-09-25
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
-* Task atual: MEL-54 (implementing)
-* Última task concluída: MEL-53
-* Próxima task candidata: MEL-54 · MEL-44 · MEL-52 · MEL-55 · MEL-06
-* Estado: analyzing
+* Task atual: MEL-55 (validando)
+* Última task concluída: MEL-52
+* Próxima task candidata: MEL-55 · MEL-06
+* Estado: implementing
 
 ## Tasks concluídas
 
@@ -459,29 +459,147 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
   decision_engine não cria mais; ajustar testes) · [ ] 53.6 datas de remoção, ADR, docs, governança
 
 
+* MEL-54 — catálogo único de executores (ADR-0076; atualiza ADR-0007/0011/0014, adendo em 0069).
+  * Implementado: `execution/flags_de_cli.py` (`familia_do_comando`, `aplicar_flags`,
+    `migrar_comando`) monta streaming/permissão por família (Claude `--output-format stream-json
+    --verbose`, `--permission-mode plan|acceptEdits`, `--dangerously-skip-permissions`; Codex
+    `--json`, `--sandbox read-only|workspace-write|danger-full-access`); `ExecutorProfile` ganha
+    `streaming`, `permissao_escrita`, `candidato` + validator que migra flags do comando
+    (idempotente) e `public()` expõe `familia_cli`; `ExecutorSettingsStore.load` migra, regrava e
+    guarda `.aso/executors.json.antes-adr-0076`; `migrar_perfis_salvos` põe `ASO_LLM_API_KEY` em
+    perfil LLM sem `api_key_env` (a reserva global saiu de `llm_client`/`public`);
+    `build_catalog_from_env` é o único leitor de env (candidatos viram perfis `candidato`, CLI
+    antes do LLM vira padrão); bootstrap sem provider global, `execution/routing_provider.py` e
+    `build_llm_client_from_env` removidos; `PLANNING_KEY` + `cliente_de_planejamento` (etapa →
+    LLM padrão com chave) e `candidatos_da_corrida` (lista do corpo → perfis `candidato`, só CLI)
+    em `ExecutionSettingsService`, com rotas `/plan`, criação full-pipeline e `.../race` (RaceBody)
+    traduzindo para 409; `comando_somente_leitura` tira flags de autonomia total; console ⚙ Config
+    com os campos + coluna CLI e etapa Planejamento no detalhe; `enable-agent-stream.sh` e
+    `fix-executor-permissions.sh` apagados.
+  * Testes: `tests/integration/test_catalogo_unico_executores.py` (25). Negativos/governança:
+    `test_pergunta_somente_leitura_anula_permissao_total`, `test_permissao_invalida_e_recusada`,
+    `test_corrida_recusa_candidato_invalido`,
+    `test_etapa_de_planejamento_recusa_executor_que_nao_e_llm`,
+    `test_nenhuma_leitura_de_executor_por_ambiente_fora_do_seed` +
+    `test_varredura_pega_leitura_nova_fora_do_seed` (mutação que prova a varredura),
+    `test_store_migra_arquivo_antigo_sem_perda_e_so_uma_vez`. Ajustados:
+    `test_m5_code_execution` (sem os 3 testes do RoutingExecutionProvider),
+    `test_candidates_api`/`test_candidates_e2e` (perfis do catálogo),
+    `test_executor_catalog_codex` (sandbox virou campo); `tests/conftest.py` isola
+    `ASO_EXECUTORS_FILE` (a leitura regrava o arquivo e não pode tocar o do operador).
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check OK
+    (sem migration: nada de schema) · pytest 1756 passed / 7 skipped / 94.83% · Docker/Postgres:
+    /health 200, smoke OK, catálogo semeado migrou a flag do comando no container, `/plan` e
+    criação full-pipeline em 409 apontando o catálogo, corrida sem lista usou o perfil `candidato`
+    (job `done`; erro esperado "No such file or directory: claude" — binário ausente no container).
+  * Fato de campo: o `.aso/executors.json` real do operador foi migrado (16 perfis) — comando
+    pronto idêntico token a token ao anterior; backup em `.aso/executors.json.antes-adr-0076`
+    (ignorado pelo git).
+  * Decisões: `total` do Claude usa `--dangerously-skip-permissions` (flag que os perfis já usavam
+    e que o diagnóstico `sem_permissao` reconhece), não `bypassPermissions`; seed **não** é
+    persistido no primeiro boot (ambiente efêmero continua configurável); valor sem campo
+    equivalente (`--permission-mode auto`) fica no comando.
+
+* MEL-44 — índice estrutural do repositório por commit (ADR-0077).
+  * Implementado: `execution/code_index.py` — `IndiceDoRepositorio` por `(repo, commit)` com
+    linguagem/linhas, símbolos públicos com linha, imports resolvidos para caminhos do repo,
+    marcação de teste e entradas HTTP/CLI; Python por `ast` (métodos como `Classe.metodo`,
+    imports relativos, raízes `src/lib/app`, rotas de decorador inclusive dentro de fábricas),
+    TS/JS por regex com `precisao` declarada, outras linguagens só no inventário. Consultas
+    `vizinhanca`/`testes_que_cobrem` (diretos antes dos indiretos)/`quem_importa`/`contem`/
+    `resumo`. Cache em `.aso/index/<commit>.json` + 60 s no processo (`indice_para_uso`);
+    árvore suja recalcula sem gravar; `.aso/` não conta como sujeira (senão gravar o índice
+    sujaria a árvore e nada seria reaproveitado); schema/JSON inválido recalcula.
+    `execution/impacto.py` (`impacto_de`, `vizinhanca_para_contexto`);
+    `workspace.DIRETORIOS_IGNORADOS` público + `.aso/index/` no `.gitignore` do alvo.
+  * Usos: discovery recebe `mapa_do_repositorio` no pedido e tem `componentes_afetados` e
+    evidências conferidos contra o índice (evento `DiscoveryRun` registra `indice_commit` e
+    `componentes_descartados`); revisão recebe `ImpactoEstrutural` (dependentes + testes dos
+    arquivos do diff); contexto do card ganha o item `codigo` (arquivos citados =
+    `linked_files` + componentes do discovery aprovado, no máximo 5 — sem citação o índice
+    nem é construído).
+  * Medição (critério 1): 642 arquivos, 3.163 símbolos, 216 testes, 206 entradas, ~1,0 s,
+    ~388 KB de JSON no próprio repositório do ASO.
+  * Testes: `tests/integration/test_indice_estrutural.py` (33). Negativos/governança:
+    `test_segredos_caches_e_binarios_nunca_entram_no_indice`, `test_regra_de_elegibilidade`
+    (12 casos), `test_arvore_suja_nao_grava_nem_reaproveita`, `test_indice_corrompido_e_refeito`,
+    `test_discovery_descarta_componente_que_nao_existe_no_indice`,
+    `test_card_sem_arquivo_citado_nao_paga_indice`. Ajustado:
+    `test_perguntas_com_repositorio` usa `_mudancas_do_projeto` (ignora `.aso/`, artefato do
+    runtime — a regra vigiada é o agente não escrever no código).
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic
+    upgrade+check OK (sem migration) · pytest 1789 passed / 7 skipped / 94.82%.
+    Docker/Postgres não exigido (sem persistência/boot).
+  * Decisões: sem `tree-sitter`/`ctags` (dependência nativa no container/CI por precisão em
+    linguagens que o ASO não indexa a fundo hoje) e sem embeddings/banco vetorial — o índice
+    existe para VERIFICAR resposta, o que exige fato exato; a ADR-0077 registra o porquê e a
+    imprecisão declarada de TS/JS.
+
+* MEL-52 — consultas sem hidratar agregados (sem ADR: aplica o padrão da ADR-0038/ADR-0051).
+  * Implementado: portas `orchestration_of_approval`, `approvals(status, orchestration_ids)`,
+    `count_events_by_type` e `amostras_de_aprendizado` (SQL + memória, mesmo contrato) e
+    `AgentRunRepository.agregados_de_execucao` (COUNT/AVG/SUM(case) em `agent_runs`);
+    `_find_approval` hidrata só a dona; `list_all_approvals` projeta das linhas com filtros na
+    consulta (rota `/v1/approvals`, `header_summary`, `dashboard_summary`);
+    `MetricsService.execution_metrics` usa `agent_runs` + `COUNT GROUP BY type` e ganhou o campo
+    `origem` (`agent_runs|eventos`, com queda para o log quando não há run);
+    `aprendizado.AmostraDeAprendizado` + `snapshots_da_amostra`/`indicadores_da_amostra` deixam a
+    aritmética única para o relatório de uma demanda e para o global.
+  * Testes: `tests/integration/test_leituras_sem_hidratar.py` (10) — repositório espião conta
+    `load()` (decidir: `[dona]`; inexistente/listagem/aprendizado global: `[]`) e comparativos
+    reproduzem o cálculo antigo (aprovações, métricas contra a timeline, relatório inteiro por
+    `dataclasses.asdict`, paridade entre os dois adapters). Ajustados 3 testes que mutavam o
+    bundle sem gravar.
+  * Validação: ruff check/format OK · mypy strict OK · lint-imports KEPT · alembic upgrade+check
+    OK (sem migration) · pytest 1799 passed / 7 skipped / 94.81% · Docker/Postgres: /health 200,
+    smoke OK, `/v1/approvals?status=pending`, approve, `execution-metrics`
+    (`origem=agent_runs`, média vinda do `numeric`) e `/v1/learning` conferidos no container.
+  * Decisão: `execution_timeline` (custo por card) continua lendo o log — é a única fonte com
+    `uso_origem` por evento já materializada e não estava nos critérios; migrar para `agent_runs`
+    é candidato a task própria se virar gargalo.
+
 ## Task em andamento
 
-* ID: MEL-54 — catálogo único de executores (ADR-0076, atualiza ADR-0007/ADR-0011)
-* Desenho: 54.1 perfil com `streaming` e `permissao_escrita` (nenhuma|edicoes|total; vazio = não
-  gerenciado) e flags montadas por família (Claude `--output-format stream-json --verbose` /
-  `--permission-mode plan|acceptEdits|bypassPermissions`; Codex `--json` / `--sandbox
-  read-only|workspace-write|danger-full-access`); migração automática e idempotente de perfis salvos
-  (tira as flags do comando e liga os campos); saem `enable-agent-stream.sh` e
-  `fix-executor-permissions.sh`. 54.2 bootstrap sem provider global nem `RoutingExecutionProvider`;
-  planejamento pelo executor LLM do catálogo (etapa `planejamento` ou LLM padrão). 54.3 corrida
-  com perfis do catálogo (`executores` no corpo ou perfis `candidato`). 54.4 env só no seed
-  (`build_catalog_from_env`; chave do LLM semeado vira `api_key_env`), teste que varre `src`.
-* Feito (suíte 1723 passed antes dos testes novos): `execution/flags_de_cli.py`; perfil com
-  `streaming`/`permissao_escrita`/`candidato` + validator que migra flags; store migra e grava
-  (cópia `.antes-adr-0076`); seed único em `build_catalog_from_env` (+`ASO_CANDIDATE_COMMANDS`);
-  bootstrap sem provider; `routing_provider.py` removido; `PLANNING_KEY`;
-  `cliente_de_planejamento` e `candidatos_da_corrida` (settings) + rotas; codex gerenciado com
-  `permissao_escrita=edicoes`; `comando_somente_leitura` tira flags de autonomia total;
-  conftest isola `ASO_EXECUTORS_FILE`. `.aso/executors.json` real do operador JÁ foi migrado
-  (16 perfis, conferido token a token; backup `.aso/executors.json.antes-adr-0076`).
-* Falta: UI (form ⚙ Config com campos; etapa planejamento no detalhe), apagar os 2 scripts e
-  referências (docs/operations.md, README, next_step), testes novos (flags, migração, store,
-  planejamento, corrida com `executores`, varredura de env), export OpenAPI, ADR-0076, governança.
+* ID: MEL-55 — consolidar a UI legada e as páginas novas (ADR-0078, supersede a decisão da
+  ADR-0036 de manter as páginas legadas intocadas)
+* Inventário (feito, por rota de API exclusiva de cada página legada):
+  * `index.html` (console técnico) — 33 exclusivas: catálogo de executores (CRUD + sync),
+    snapshots (lista, diff, restore-section + preview), patches, conflitos (+resolve), SLO
+    (`slo`, `slo-history`, `slo/evaluate`), worktrees (+prune), `execution-timeline`, `audit` por
+    demanda, `autopilot`, `run-phase`, `quality-gates/run`, `cards/{}/run|race|move|open-pr|qa`,
+    `pulls/{}/ci|merge|review`, `docs-drift`/`docs-heal`, `fs/dirs`, `fs/analyze/stream`.
+  * `detalhe.html` (sala de controle) — 12 exclusivas: `next-step`, `agents/{etapa}`
+    (atribuição por etapa), `autopilot`, `quality-gates/run`, `spec/run|review|approve`,
+    `validation-checks/suggest`, `deploy` + `deploy/config`, `docs-heal`, `/v1/phases`.
+  * `macro.html` — 3: `fs/dirs`, `projects/{}/events`, `projects/{}/restore`.
+  * `nova.html` — 1: `fs/analyze/stream`.
+* Plano em 4 etapas (cada uma com bateria): (1) módulo JS compartilhado (`aso-api.js`: fetch com
+  token, erros 403/409, polling de job 202) + as 4 seções placeholder com conteúdo real
+  (`modelos` = catálogo de executores, `configuracoes` = hub de ajustes + projetos,
+  `incidentes` = lista cross-demanda, `esteira` = sala de controle por demanda);
+  (2) migrar para `demanda-detalhe` o que só existia no console (snapshots/diff/restore, patches,
+  conflitos, SLO, worktrees, execution-timeline); (3) migrar a sala de controle de `detalhe.html`
+  para `/ui/esteira?id=` (next-step, atribuição por etapa, autopilot, gate, spec) e o picker de
+  pasta/análise para `demanda-nova`; (4) rotas legadas redirecionam, arquivos removidos, testes de
+  HTML e smoke atualizados, ADR-0078.
+* Etapa 1 OK: `static/aso-api.js` (token/api/esc/mensagens 403-409 + polling de job; `jobs.js`
+  virou shim que delega), `/ui/modelos` = catálogo de executores real (campos da ADR-0076),
+  `/ui/incidentes` = lista cross-demanda com nova rota `GET /v1/incidents` (consulta no
+  repositório, SQL + memória), `/ui/configuracoes` = hub (atalhos + projetos com criar/arquivar/
+  restaurar/histórico, migrados de `macro.html` + estado do runtime).
+* Etapa 2 OK: `demanda-detalhe` ganhou a aba **Governança** (patches, conflitos + resolver,
+  snapshots + diff + restaurar seção com dry-run, orçamento de erro + avaliar + histórico,
+  worktrees + prune) e a aba Execuções passou a mostrar tempo/custo por card
+  (`execution-timeline`); a página migrou para o módulo compartilhado.
+* Testes: `tests/integration/test_consolidacao_ui.py` (14).
+* Etapa 3 OK: `/ui/esteira?id=` é a sala de controle (conteúdo de `detalhe.html` dentro do shell,
+  com seletor de demanda sem `?id=`); pré-análise da pasta migrada para `demanda-nova`; navegador
+  de pastas migrado para `configuracoes`.
+* Etapa 4 OK: `/ui/`, `/ui/nova`, `/ui/detalhe` e `/ui/console` respondem 307 preservando a query;
+  os 4 arquivos legados removidos; todas as 21 páginas usam `aso-api.js` e montam a sidebar;
+  links internos repontados; smoke atualizado (segue redirecionamento + checa as 4 seções);
+  ADR-0078; docs (mapa-paginas reescrito, README, design-system, plano-fidelidade, index).
+* Estado: validando (bateria completa em execução)
 
 ## Bloqueios
 
@@ -502,12 +620,13 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 
 ## Próximas tasks elegíveis
 
-1. MEL-06 · MEL-54 · MEL-55 (P2)
+1. MEL-55 (consolidar UI) · MEL-06 (refs de docs)
 2. MEL-04 (aguarda decisão do operador) → MEL-07
 
 ## Classificação do backlog (verificada em 2026-09-15 contra código @164c6ab)
 
-* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34, MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50, MEL-53
+* DONE: MEL-01, MEL-02, MEL-03, MEL-05, MEL-10…MEL-20, MEL-30, MEL-31, MEL-32, MEL-33, MEL-34,
+  MEL-40, MEL-41, MEL-36, MEL-35, MEL-42, MEL-43, MEL-51, MEL-50, MEL-53, MEL-54, MEL-44, MEL-52
 * IN_PROGRESS: —
 * READY: MEL-03, MEL-04, MEL-06, MEL-40, MEL-44, MEL-42, MEL-43, MEL-54,
   MEL-30, MEL-35, MEL-36, MEL-51, MEL-55
@@ -548,3 +667,6 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Todas as MEL nasceram na mesma revisão (`164c6ab`); números de linha citados podem ter
   deslocado — localize pela função.
 * O `/loop` autônomo executa uma MEL por vez com bateria DoD completa ao fim de cada uma.
+* Executores: em tempo de execução só o catálogo vale (ADR-0076). Ao rodar testes que sobem
+  `build_service`, `ASO_EXECUTORS_FILE` já é isolado em `tests/conftest.py` — não remova: a
+  leitura do store REGRAVA o arquivo migrado e apontaria para o `.aso/executors.json` do operador.

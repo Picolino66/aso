@@ -54,3 +54,10 @@ e Codex sabem buscar e ler código; o ASO os privava disso.
   binário real nos testes (CLIs fake); a verificação pós-pergunta cobre a falha dela.
 - Perguntas com leitura custam um `git worktree add/remove` e seguem sob o lock da orquestração,
   como antes.
+
+## Adendo (ADR-0076, MEL-54)
+
+`comando_somente_leitura` também remove `--dangerously-skip-permissions` e
+`--dangerously-bypass-approvals-and-sandbox`: com a permissão de escrita virando campo do perfil
+(ADR-0076), um perfil `total` chegava aqui com autonomia total e ficaria com duas permissões
+contraditórias no mesmo comando. Teste: `test_pergunta_somente_leitura_anula_permissao_total`.

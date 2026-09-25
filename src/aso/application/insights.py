@@ -28,14 +28,16 @@ from aso.execution.cli_provider import TIMEOUT_PADRAO as CLI_AGENT_TIMEOUT_PADRA
 from aso.execution.docs_drift import DocsDriftReport, check_drift
 from aso.execution.workspace import WorkspaceError
 from aso.observability.aprendizado import (
+    AmostraDeAprendizado,
     CardSnapshot,
     PullRequestSnapshot,
     RelatorioDeAprendizado,
     consolidar,
+    indicadores_da_amostra,
+    snapshots_da_amostra,
 )
 from aso.persistence.ports import OrchestrationRepository
 from aso.shared.events import DomainEvent
-from aso.shared.types import ColumnKey
 
 
 def _ultima_falha_de_planejamento(b: OrchestrationBundle) -> str:
@@ -127,85 +129,48 @@ class InsightService:
             raise KeyError(f"Card inexistente: {card_id}")
         return card.preparation_checklist
 
+    def _amostra_do_bundle(self, b: OrchestrationBundle) -> AmostraDeAprendizado:
+        """Achata o agregado hidratado na mesma `AmostraDeAprendizado` que as consultas
+        produzem (MEL-52) — daqui para frente o relatório de uma demanda e o global passam
+        pela mesma aritmética de `observability/aprendizado.py` (o único ponto que pode ligar
+        `control` a `observability`, mesmo arranjo de `next_step`/`Service.next_step`)."""
+        return AmostraDeAprendizado(
+            orchestration_id=b.orchestration.id,
+            cards=[
+                {
+                    "id": c.id,
+                    "status": c.status.value,
+                    "executor": c.executor,
+                    "assignee": c.assignee,
+                    "phase": c.phase.value,
+                    "failures": list(c.failures),
+                    "uso": dict(c.uso),
+                    "tentativa_atual": c.tentativa_atual,
+                    "qa_checks": list(c.qa_checks),
+                }
+                for c in b.board_service.cards_of(b.board.id)
+            ],
+            pulls=[
+                {
+                    "card_id": pr.card_id,
+                    "review_rounds": pr.review_rounds,
+                    "review_status": pr.review_status,
+                }
+                for pr in b.pull_requests
+            ],
+            approvals=[a.status for a in b.approvals],
+            deploy_runs=list(b.orchestration.deploy_runs),
+            tempo_ms_por_card=_tempo_ms_por_card(b.event_log.all()),
+        )
+
     def _coletar_aprendizado(
         self, b: OrchestrationBundle
     ) -> tuple[list[CardSnapshot], list[PullRequestSnapshot], int]:
-        """Coleta o estado já persistido do bundle e o achata para o agregador puro
-        de `observability/aprendizado.py` — o único ponto que pode ligar `control`
-        a `observability` (mesmo arranjo de `next_step`/`Service.next_step`)."""
-        cards_do_board = b.board_service.cards_of(b.board.id)
-        tempo_por_card = _tempo_ms_por_card(b.event_log.all())
-        cards = [
-            CardSnapshot(
-                id=c.id,
-                executor=c.executor or "",
-                failures=list(c.failures),
-                tempo_ms=tempo_por_card.get(c.id, 0.0),
-                custo_usd=float(c.uso.get("custo_usd", 0.0)),
-                # Nenhuma execução informou uso ainda (inclui card nunca executado,
-                # 0 >= 0) — nunca "custou zero" por omissão (§1.1, ADR-0026).
-                uso_indisponivel=int(c.uso.get("execucoes_sem_custo", 0))
-                >= int(c.uso.get("execucoes", 0)),
-                entregue=c.status == ColumnKey.DONE,
-                agente=c.assignee or "",
-            )
-            for c in cards_do_board
-        ]
-        pulls = [
-            PullRequestSnapshot(
-                card_id=pr.card_id, review_rounds=pr.review_rounds, review_status=pr.review_status
-            )
-            for pr in b.pull_requests
-        ]
-        intervencoes = sum(1 for a in b.approvals if a.status in ("approved", "rejected"))
-        intervencoes += sum(
-            1
-            for c in cards_do_board
-            for check in c.qa_checks
-            if check.get("tipo_responsavel") == "humano"
-            and check.get("status") in ("passou", "falhou")
-        )
-        return cards, pulls, intervencoes
+        return snapshots_da_amostra(self._amostra_do_bundle(b))
 
     def _coletar_indicadores_extra(self, b: OrchestrationBundle) -> dict[str, Any]:
-        """Contagens brutas dos indicadores novos da Tela 29 (wf §31.1,
-        ADR-0052) — taxa de aprovação/rollback/sucesso-no-primeiro-ciclo e
-        tempo por etapa. Devolve CONTAGENS, não taxas: quem soma através de
-        várias orquestrações (`get_learning_report_global`) precisa dos
-        brutos antes de dividir, senão a taxa global vira média-de-médias
-        (errada quando as amostras têm tamanhos diferentes).
-        """
-        aprovados = sum(1 for a in b.approvals if a.status == "approved")
-        decisoes_de_aprovacao = sum(1 for a in b.approvals if a.status in ("approved", "rejected"))
-        deploys = len(b.orchestration.deploy_runs)
-        rollbacks = sum(
-            1 for d in b.orchestration.deploy_runs if d.get("status") == STATUS_REVERTIDO
-        )
-        cards_do_board = b.board_service.cards_of(b.board.id)
-        # `tentativa_atual` é o contador AUTORITATIVO e sem limite de ring
-        # (§36.4, ADR-0031) — "primeiro ciclo" com base no ring de tentativas
-        # (capado em 10) mentiria para cards com histórico de retry mais longo.
-        cards_com_tentativa = sum(1 for c in cards_do_board if c.tentativa_atual >= 1)
-        soma_tentativas = sum(c.tentativa_atual for c in cards_do_board if c.tentativa_atual >= 1)
-        sucesso_primeiro_ciclo = sum(
-            1 for c in cards_do_board if c.tentativa_atual == 1 and c.status == ColumnKey.DONE
-        )
-        tempo_por_card = _tempo_ms_por_card(b.event_log.all())
-        tempo_por_etapa_ms: dict[str, list[float]] = {}
-        for c in cards_do_board:
-            tempo = tempo_por_card.get(c.id)
-            if tempo:
-                tempo_por_etapa_ms.setdefault(c.phase.value, []).append(tempo)
-        return {
-            "aprovados": aprovados,
-            "decisoes_de_aprovacao": decisoes_de_aprovacao,
-            "rollbacks": rollbacks,
-            "deploys": deploys,
-            "sucesso_primeiro_ciclo": sucesso_primeiro_ciclo,
-            "cards_com_tentativa": cards_com_tentativa,
-            "soma_tentativas": soma_tentativas,
-            "tempo_por_etapa_ms": tempo_por_etapa_ms,
-        }
+        """Contagens brutas dos indicadores da Tela 29 — ver `indicadores_da_amostra`."""
+        return indicadores_da_amostra(self._amostra_do_bundle(b), status_revertido=STATUS_REVERTIDO)
 
     def get_learning_report(self, orchestration_id: str) -> RelatorioDeAprendizado:
         """Relatório de aprendizado de UMA demanda (§24) — retrabalho, falhas por
@@ -226,11 +191,10 @@ class InsightService:
         data_ate: str | None = None,
     ) -> RelatorioDeAprendizado:
         """Mesmo relatório, consolidado entre orquestrações (Tela 29, wf §31,
-        ADR-0052) — "recorte por projeto e período" reaproveita o filtro SQL
-        real já indexado de `list_orchestrations` (ADR-0038) para restringir
-        QUAIS orquestrações hidratar, em vez de hidratar todo o sistema e
-        filtrar em memória (mesmo cuidado de escala já aplicado em
-        `audit_page`, ADR-0051)."""
+        ADR-0052) — "recorte por projeto e período" reaproveita o filtro SQL real já
+        indexado de `list_orchestrations` (ADR-0038) e, desde a MEL-52, os insumos vêm de
+        `amostras_de_aprendizado` (só as colunas usadas) em vez de hidratar o agregado
+        inteiro de cada orquestração do recorte."""
         orchestrations, _ = self._repo.list_orchestrations(
             project_id=project_id, created_from=data_de, created_to=data_ate
         )
@@ -240,13 +204,16 @@ class InsightService:
         aprovados = decisoes_de_aprovacao = rollbacks = deploys = 0
         sucesso_primeiro_ciclo = cards_com_tentativa = soma_tentativas = 0
         tempo_por_etapa_ms: dict[str, list[float]] = {}
-        for orch in orchestrations:
-            b = self._bundle(orch.id)
-            c, p, i = self._coletar_aprendizado(b)
+        amostras = [
+            AmostraDeAprendizado(**bruta)
+            for bruta in self._repo.amostras_de_aprendizado([o.id for o in orchestrations])
+        ]
+        for amostra in amostras:
+            c, p, i = snapshots_da_amostra(amostra)
             cards.extend(c)
             pulls.extend(p)
             intervencoes += i
-            extra = self._coletar_indicadores_extra(b)
+            extra = indicadores_da_amostra(amostra, status_revertido=STATUS_REVERTIDO)
             aprovados += extra["aprovados"]
             decisoes_de_aprovacao += extra["decisoes_de_aprovacao"]
             rollbacks += extra["rollbacks"]
@@ -266,7 +233,7 @@ class InsightService:
             rollbacks=rollbacks,
             deploys=deploys,
             sucesso_primeiro_ciclo=sucesso_primeiro_ciclo,
-            total_orchestrations=len(orchestrations),
+            total_orchestrations=len(amostras),
             soma_tentativas=soma_tentativas,
             cards_com_tentativa=cards_com_tentativa,
             tempo_por_etapa_ms=tempo_por_etapa_ms,

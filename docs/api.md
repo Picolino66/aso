@@ -35,11 +35,23 @@ orquestração e sujeita à governança definida na ADR-0008.
 
 ```
 GET    /v1/executors
+POST   /v1/executors                              # admin; cria/atualiza um perfil
+DELETE /v1/executors/{name}                       # admin; 'mock' não é removível
 POST   /v1/executors/sync                         # admin; Codex model/list
 PATCH  /v1/orchestrations/{id}/execution-settings # operator; created/blocked
 PUT    /v1/orchestrations/{id}/agents/{key}       # executor da etapa; body {executor, effort}
 DELETE /v1/orchestrations/{id}/agents/{key}       # volta a etapa ao padrão
 ```
+
+O catálogo é a **única** fonte de executores em tempo de execução
+([ADR-0076](adrs/ADR-0076-catalogo-unico-de-executores.md)): `ASO_EXECUTORS`, `ASO_CLI_COMMAND`,
+`ASO_LLM_*` e `ASO_CANDIDATE_COMMANDS` só semeiam o catálogo enquanto não há arquivo salvo
+(`ASO_EXECUTORS_FILE`). Perfis CLI têm `streaming` (NDJSON do painel ao vivo) e
+`permissao_escrita` (`""`, `nenhuma`, `edicoes`, `total`): o ASO monta as flags da família
+(`familia_cli`) — não coloque essas flags no `command` (se colocar, viram os campos ao salvar).
+`candidato` marca quem entra na corrida sem lista explícita: `POST .../cards/{id}/race` aceita
+`{"executores": [...]}` e, sem lista, roda os perfis `candidato` — nome desconhecido, perfil
+indisponível ou `kind` diferente de `cli` retorna `409`.
 
 Perfis Codex gerenciados expõem `managed_by`, `supported_efforts`, `available`,
 `availability_reason` e `runtime_version`. Modelo ou esforço indisponível retorna `409`
@@ -48,15 +60,19 @@ antes do worktree. A sincronização preserva perfis personalizados. O PATCH reg
 
 `{key}` é uma fase (`F1`..`F7`), `naming` (agente que batiza branches e commits,
 [ADR-0014](adrs/ADR-0014-agente-por-etapa-e-nomes-semanticos.md)), `triagem` (agente
-que interpreta a demanda, [ADR-0016](adrs/ADR-0016-ficha-da-demanda.md)) ou `revisao`
-(agente que revisa o diff de uma PR, [ADR-0017](adrs/ADR-0017-revisao-independente-de-codigo.md)).
+que interpreta a demanda, [ADR-0016](adrs/ADR-0016-ficha-da-demanda.md)), `revisao`
+(agente que revisa o diff de uma PR, [ADR-0017](adrs/ADR-0017-revisao-independente-de-codigo.md)),
+`discovery`, `especificacao` ou `planejamento` (executor **LLM** que planeja cards e ADRs,
+ADR-0076 — outro `kind` retorna `409`).
 O mapa resultante sai em `agent_assignments` no `GET` da orquestração. A resolução do
 executor de uma execução é, nesta ordem: parâmetro explícito da chamada →
-`agent_assignments[fase]` → `selected_executor` → default do catálogo (quando há pasta)
-→ provider global. Uma etapa com executor próprio **não** herda `selected_effort` — o
+`agent_assignments[fase]` → `selected_executor` → default do catálogo (quando há pasta, ou
+quando ele roda sem pasta: LLM, mock, ou CLI com `ASO_TARGET_REPO`) → mock. Não existe mais
+provider global (ADR-0076). Uma etapa com executor próprio **não** herda `selected_effort` — o
 esforço casa com o modelo, então sem esforço na etapa vale o do perfil. Fase que já
 ficou para trás retorna `409` (`index(fase) < index(current_phase)`); `naming`,
-`triagem` e `revisao` são sempre editáveis (não são fase). Todos registram
+`triagem`, `revisao`, `discovery`, `especificacao` e `planejamento` são sempre editáveis (não são
+fase). Todos registram
 `AgentAssignmentUpdated` com `before`/`after`/`actor`.
 
 Para execução de código, a criação aceita `execution_mode`, `executor`, `effort` e
@@ -521,7 +537,7 @@ GET    /v1/snapshots/{id}
 POST   /v1/snapshots/{id}/restore
 GET    /v1/snapshots/{a}/diff/{b}
 
-GET    /v1/approvals ; GET /v1/approvals/{id}
+GET    /v1/approvals ; GET /v1/approvals/{id}   # filtros status/project_id vão para a consulta
 POST   /v1/approvals/{id}/approve ; POST /v1/approvals/{id}/reject
 
 POST   /v1/context-patches            # submete patch ao ContextBus

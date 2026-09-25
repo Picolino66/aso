@@ -49,6 +49,17 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+def _mudancas_do_projeto(repo: Path) -> list[str]:
+    """Status do repositório ignorando `.aso/`: worktrees dos cards (ADR-0009) e índice
+    estrutural por commit (ADR-0077) são artefatos do runtime, não alteração do projeto —
+    o que estes testes vigiam é o agente não escrever no código."""
+    return [
+        linha
+        for linha in _git(repo, "status", "--porcelain").splitlines()
+        if linha.strip() and not linha[3:].strip().startswith(".aso/")
+    ]
+
+
 def _repo(path: Path) -> Path:
     path.mkdir(parents=True)
     for args in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
@@ -84,7 +95,7 @@ def test_discovery_le_o_repositorio_e_traz_evidencia_real(tmp_path: Path) -> Non
     # saneamento: componente inexistente sai e fica registrado
     assert relatorio.componentes_afetados == ["src/frete.py"]
     assert relatorio.componentes_descartados == ["src/inexistente.py"]
-    assert _git(repo, "status", "--porcelain") == ""
+    assert _mudancas_do_projeto(repo) == []
     assert len(_git(repo, "worktree", "list").splitlines()) == 1
 
 
@@ -99,7 +110,7 @@ def test_agente_que_escreve_durante_a_pergunta_tem_a_resposta_descartada(tmp_pat
     assert runs and runs[-1].status == "falha" and runs[-1].envelope["acesso_repo"] is True
     # a escrita ficou só no worktree descartado: base intacta
     assert not (repo / "lixo.txt").exists()
-    assert _git(repo, "status", "--porcelain") == ""
+    assert _mudancas_do_projeto(repo) == []
 
 
 def test_revisor_le_a_branch_da_pr_e_recebe_criterios_e_ci(tmp_path: Path) -> None:

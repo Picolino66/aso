@@ -48,6 +48,23 @@ class CardSnapshot:
 
 
 @dataclass(frozen=True)
+class AmostraDeAprendizado:
+    """Uma orquestração achatada para o agregador (MEL-52).
+
+    Existe para o relatório de UMA demanda (que lê o agregado hidratado) e o GLOBAL (que lê
+    consultas SQL) passarem pela **mesma** aritmética: duas contas paralelas divergiriam com o
+    tempo. Chaves de `cards`: id, status, executor, assignee, phase, failures, uso,
+    tentativa_atual, qa_checks; de `pulls`: card_id, review_rounds, review_status."""
+
+    orchestration_id: str
+    cards: list[dict[str, Any]] = field(default_factory=list)
+    pulls: list[dict[str, Any]] = field(default_factory=list)
+    approvals: list[str] = field(default_factory=list)  # status de cada aprovação
+    deploy_runs: list[dict[str, Any]] = field(default_factory=list)
+    tempo_ms_por_card: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class PullRequestSnapshot:
     card_id: str | None
     review_rounds: int
@@ -107,6 +124,84 @@ class RelatorioDeAprendizado:
     # — nunca calculado, documentado aqui em vez de aproximado por um proxy
     # que mentiria sobre o que está sendo medido.
     cobertura_de_testes: float | None = None
+
+
+# "Done" é o valor de `ColumnKey.DONE` (shared/types) — comparado como string para este módulo
+# seguir puro, sem importar o vocabulário do board.
+_STATUS_ENTREGUE = "Done"
+
+
+def snapshots_da_amostra(
+    amostra: AmostraDeAprendizado,
+) -> tuple[list[CardSnapshot], list[PullRequestSnapshot], int]:
+    """Achata uma amostra em `(cards, pulls, intervenções humanas)` (MEL-52).
+
+    Mesma conta para o relatório de uma demanda (amostra vinda do agregado) e para o global
+    (amostra vinda de consultas SQL)."""
+    cards = [
+        CardSnapshot(
+            id=str(c.get("id", "")),
+            executor=str(c.get("executor") or ""),
+            failures=list(c.get("failures") or []),
+            tempo_ms=amostra.tempo_ms_por_card.get(str(c.get("id", "")), 0.0),
+            custo_usd=float((c.get("uso") or {}).get("custo_usd", 0.0)),
+            # Nenhuma execução informou uso ainda (inclui card nunca executado, 0 >= 0) —
+            # nunca "custou zero" por omissão (§1.1, ADR-0026).
+            uso_indisponivel=int((c.get("uso") or {}).get("execucoes_sem_custo", 0))
+            >= int((c.get("uso") or {}).get("execucoes", 0)),
+            entregue=c.get("status") == _STATUS_ENTREGUE,
+            agente=str(c.get("assignee") or ""),
+        )
+        for c in amostra.cards
+    ]
+    pulls = [
+        PullRequestSnapshot(
+            card_id=p.get("card_id"),
+            review_rounds=int(p.get("review_rounds") or 0),
+            review_status=str(p.get("review_status") or ""),
+        )
+        for p in amostra.pulls
+    ]
+    intervencoes = sum(1 for status in amostra.approvals if status in ("approved", "rejected"))
+    intervencoes += sum(
+        1
+        for c in amostra.cards
+        for check in (c.get("qa_checks") or [])
+        if check.get("tipo_responsavel") == "humano" and check.get("status") in ("passou", "falhou")
+    )
+    return cards, pulls, intervencoes
+
+
+def indicadores_da_amostra(
+    amostra: AmostraDeAprendizado, *, status_revertido: str
+) -> dict[str, Any]:
+    """Contagens BRUTAS dos indicadores da Tela 29 (wf §31.1, ADR-0052) — não taxas.
+
+    Quem soma várias orquestrações precisa dos brutos antes de dividir: taxa de taxas é média
+    de médias, errada quando as amostras têm tamanhos diferentes."""
+    tentativas = [int(c.get("tentativa_atual") or 0) for c in amostra.cards]
+    tempo_por_etapa_ms: dict[str, list[float]] = {}
+    for c in amostra.cards:
+        tempo = amostra.tempo_ms_por_card.get(str(c.get("id", "")))
+        if tempo:
+            tempo_por_etapa_ms.setdefault(str(c.get("phase", "")), []).append(tempo)
+    return {
+        "aprovados": sum(1 for status in amostra.approvals if status == "approved"),
+        "decisoes_de_aprovacao": sum(
+            1 for status in amostra.approvals if status in ("approved", "rejected")
+        ),
+        "rollbacks": sum(1 for d in amostra.deploy_runs if d.get("status") == status_revertido),
+        "deploys": len(amostra.deploy_runs),
+        # `tentativa_atual` é o contador AUTORITATIVO e sem limite de ring (§36.4, ADR-0031).
+        "sucesso_primeiro_ciclo": sum(
+            1
+            for c in amostra.cards
+            if int(c.get("tentativa_atual") or 0) == 1 and c.get("status") == _STATUS_ENTREGUE
+        ),
+        "cards_com_tentativa": sum(1 for t in tentativas if t >= 1),
+        "soma_tentativas": sum(t for t in tentativas if t >= 1),
+        "tempo_por_etapa_ms": tempo_por_etapa_ms,
+    }
 
 
 def consolidar(

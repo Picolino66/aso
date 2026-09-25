@@ -66,7 +66,7 @@ parâmetro explícito da chamada
   → agent_assignments[fase]
   → selected_executor (padrão da orquestração)
   → catalog.default_name() (quando há pasta de trabalho)
-  → provider global do bootstrap (legado)
+  → padrão do catálogo que roda sem pasta (ADR-0076; antes: provider global do bootstrap)
 ```
 
 Duas consequências deliberadas:
@@ -137,3 +137,10 @@ passa a citar branch e título do card, em vez do `"aso: merge governado"` fixo.
   Escolha consciente — a alternativa era reescrever o histórico dele.
 - `agent_assignments` em JSONB não é consultável por SQL relacional. Aceito: o mapa só
   é lido junto da orquestração.
+
+## Adendo (ADR-0076, MEL-54)
+
+Entrou a etapa `planejamento` (executor LLM que planeja cards e ADRs) ao lado de `naming`,
+`triagem`, `revisao`, `discovery` e `especificacao`. Com o provider global extinto, a escolha por
+etapa é a **única** forma de rotear por fase. Ver
+[ADR-0076](ADR-0076-catalogo-unico-de-executores.md).

@@ -162,11 +162,18 @@ class ApprovalService:
         return approval
 
     def _find_approval(self, approval_id: str) -> tuple[OrchestrationBundle, HumanApproval] | None:
-        for oid in self._repo.list_ids():
-            bundle = self._bundle(oid)
-            for approval in bundle.approvals:
-                if approval.id == approval_id:
-                    return bundle, approval
+        """Localiza a aprovação por consulta (MEL-52): no máximo UM agregado hidratado.
+
+        A varredura anterior (`list_ids` + `_bundle` de cada) fazia decidir uma aprovação custar o
+        sistema inteiro — e, com o cache LRU (ADR-0068), despejava os bundles em uso. O agregado
+        ainda é hidratado (a decisão escreve nele), mas só o dono da aprovação."""
+        oid = self._repo.orchestration_of_approval(approval_id)
+        if oid is None:
+            return None
+        bundle = self._bundle(oid)
+        for approval in bundle.approvals:
+            if approval.id == approval_id:
+                return bundle, approval
         return None
 
     # ------------------------------------------------- ciclo de vida (§28.1)

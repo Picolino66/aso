@@ -8,6 +8,7 @@ from typing import Any
 from aso.agents.models import AgentDefinition
 from aso.control.models import Orchestration, Project, ProjectEvent
 from aso.control.routing_rules import RoutingRule
+from aso.governance.models import HumanApproval, Incident
 from aso.persistence.ports import ConcurrentModificationError
 from aso.persistence.state import OrchestrationState
 
@@ -92,6 +93,37 @@ class InMemoryOrchestrationRepository:
             if a.status == "pending"
         }
 
+    def orchestration_of_approval(self, approval_id: str) -> str | None:
+        """Mesmo contrato do adapter SQL (MEL-52)."""
+        for estado in self._all_states():
+            if any(a.id == approval_id for a in estado.approvals):
+                return estado.orchestration.id
+        return None
+
+    def approvals(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[HumanApproval]:
+        """Mesma ordem e mesmos filtros do adapter SQL (MEL-52)."""
+        resultado: list[HumanApproval] = []
+        for estado in sorted(self._all_states(), key=lambda e: e.orchestration.id):
+            if orchestration_ids is not None and estado.orchestration.id not in orchestration_ids:
+                continue
+            resultado.extend(a for a in estado.approvals if status is None or a.status == status)
+        return resultado
+
+    def incidents(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[Incident]:
+        """Mesmo contrato do adapter SQL (MEL-55)."""
+        resultado = [
+            incidente
+            for estado in self._all_states()
+            if orchestration_ids is None or estado.orchestration.id in orchestration_ids
+            for incidente in estado.incidents
+            if status is None or incidente.status == status
+        ]
+        return sorted(resultado, key=lambda i: i.created_at, reverse=True)
+
     def aggregate_metrics(self) -> dict[str, Any]:
         states = self._all_states()
         cards_by_status: dict[str, int] = {}
@@ -133,6 +165,63 @@ class InMemoryOrchestrationRepository:
             return [], 0
         eventos = list(reversed(state.events)) if newest_first else state.events
         return eventos[offset : offset + limit], len(state.events)
+
+    def count_events_by_type(self, orchestration_id: str, types: tuple[str, ...]) -> dict[str, int]:
+        """Mesmo contrato do adapter SQL (MEL-52)."""
+        contagem = {tipo: 0 for tipo in types}
+        estado = self.load(orchestration_id)
+        for evento in estado.events if estado else []:
+            tipo = str(evento.get("type", ""))
+            if tipo in contagem:
+                contagem[tipo] += 1
+        return contagem
+
+    def amostras_de_aprendizado(self, orchestration_ids: list[str]) -> list[dict[str, Any]]:
+        """Mesmo contrato do adapter SQL (MEL-52), a partir dos estados em memória."""
+        amostras: list[dict[str, Any]] = []
+        for oid in dict.fromkeys(orchestration_ids):
+            estado = self.load(oid)
+            if estado is None:
+                continue
+            tempos: dict[str, float] = {}
+            for evento in estado.events:
+                if evento.get("type") != "AgentExecuted":
+                    continue
+                payload = evento.get("payload") or {}
+                card_id, ms = payload.get("card_id"), payload.get("ms")
+                if isinstance(card_id, str) and isinstance(ms, int | float):
+                    tempos[card_id] = tempos.get(card_id, 0.0) + float(ms)
+            amostras.append(
+                {
+                    "orchestration_id": oid,
+                    "cards": [
+                        {
+                            "id": c.id,
+                            "status": c.status.value,
+                            "executor": c.executor,
+                            "assignee": c.assignee,
+                            "phase": c.phase.value,
+                            "failures": list(c.failures),
+                            "uso": dict(c.uso),
+                            "tentativa_atual": c.tentativa_atual,
+                            "qa_checks": list(c.qa_checks),
+                        }
+                        for c in estado.cards
+                    ],
+                    "pulls": [
+                        {
+                            "card_id": pr.card_id,
+                            "review_rounds": pr.review_rounds,
+                            "review_status": pr.review_status,
+                        }
+                        for pr in estado.pull_requests
+                    ],
+                    "approvals": [a.status for a in estado.approvals],
+                    "deploy_runs": list(estado.orchestration.deploy_runs),
+                    "tempo_ms_por_card": tempos,
+                }
+            )
+        return amostras
 
     def recent_events(self, *, limit: int) -> list[dict[str, Any]]:
         """Mesmo contrato de `SqlAlchemyOrchestrationRepository.recent_events`."""

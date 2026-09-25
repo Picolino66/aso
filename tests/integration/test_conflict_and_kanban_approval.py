@@ -31,6 +31,9 @@ def test_card_waits_human_then_released_on_approval() -> None:
         _patch(orch.id, requires_approval=True),
         card_id=card.id,
     )
+    # A aprovação é localizada por consulta (MEL-52): o caminho privado usado aqui não grava,
+    # então persistimos como qualquer rota faria antes de devolver a resposta.
+    svc._persist(svc._bundle(orch.id))  # noqa: SLF001
     svc._bundle(orch.id).board_service.apply_event(card.id, "AgentNeedsInput")  # noqa: SLF001
     assert svc.get_cards(orch.id)[0].status.value == "WaitingHuman"
 
@@ -48,6 +51,7 @@ def test_reject_blocks_card() -> None:
         _patch(orch.id, requires_approval=True),
         card_id=card.id,
     )
+    svc._persist(svc._bundle(orch.id))  # noqa: SLF001 — ver comentário acima (MEL-52)
     approval = next(a for a in svc.list_approvals(orch.id) if a.card_id == card.id)
     svc.decide_approval(approval.id, approved=False)
     assert svc.get_cards(orch.id)[0].status.value == "Blocked"

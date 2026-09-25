@@ -95,6 +95,8 @@ class OrchestrationService:
     conflicts = Delegado("_queries", QueryService.conflicts)
     list_all_approvals = Delegado("_queries", QueryService.list_all_approvals)
     count_cards_by_status = Delegado("_queries", QueryService.count_cards_by_status)
+    count_events_by_type = Delegado("_queries", QueryService.count_events_by_type)
+    list_all_incidents = Delegado("_queries", QueryService.list_all_incidents)
     search_adrs = Delegado("_queries", QueryService.search_adrs)
     timeline_page = Delegado("_queries", QueryService.timeline_page)
     list_pulls = Delegado("_queries", QueryService.list_pulls)
@@ -143,6 +145,7 @@ class OrchestrationService:
     _fechar_run = Delegado("_agent_task", AgentTaskService._fechar_run)
     _registrar_decisao_no_run = Delegado("_agent_task", AgentTaskService._registrar_decisao_no_run)
     list_agent_runs = Delegado("_agent_task", AgentTaskService.list_agent_runs)
+    execution_aggregates = Delegado("_agent_task", AgentTaskService.execution_aggregates)
     get_agent_run = Delegado("_agent_task", AgentTaskService.get_agent_run)
 
     # DeliveryService

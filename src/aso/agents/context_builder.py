@@ -8,7 +8,8 @@ Este módulo é **puro**: recebe fontes já extraídas (dados simples, sem `aso.
 devolve um `ContextoDaTarefa` priorizado e com orçamento de caracteres. Regras:
 
 1. Ordem de prioridade estrita — card → item de spec de origem → discovery aprovado →
-   ficha da demanda → ADRs aceitas relacionadas → saídas anteriores do ledger por seção.
+   ficha da demanda → ADRs aceitas relacionadas → vizinhança dos arquivos citados no card
+   (índice estrutural, ADR-0077) → saídas anteriores do ledger por seção.
 2. O card sempre entra (sem ele o agente trabalha cego).
 3. Um item nunca é cortado no meio: o primeiro que não cabe é omitido inteiro, junto com
    todos os de menor prioridade, e todos aparecem em `omitidos` (auditável).
@@ -61,6 +62,8 @@ class FontesDoContexto:
     discovery_resumo: str = ""
     ficha_da_demanda: dict[str, Any] = field(default_factory=dict)
     adrs: list[AdrResumida] = field(default_factory=list)
+    # Uma linha por arquivo citado no card: símbolos, quem usa e testes (ADR-0077).
+    vizinhanca_do_codigo: list[str] = field(default_factory=list)
     ledger: dict[str, Any] = field(default_factory=dict)
 
 
@@ -124,6 +127,14 @@ def _candidatos(fontes: FontesDoContexto) -> list[ItemDeContexto]:
                 chave=f"adr:{adr.id}",
                 titulo=f"{adr.id} — {adr.titulo}",
                 conteudo=adr.decisao,
+            )
+        )
+    if fontes.vizinhanca_do_codigo:
+        itens.append(
+            ItemDeContexto(
+                chave="codigo",
+                titulo="Vizinhança no código dos arquivos citados no card (índice)",
+                conteudo="\n".join(fontes.vizinhanca_do_codigo),
             )
         )
     for secao in SECOES_DO_LEDGER:

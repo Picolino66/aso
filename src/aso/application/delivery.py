@@ -30,6 +30,8 @@ from aso.control.review import (
 from aso.control.spec import SpecDocument
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.code_index import arquivos_do_diff, indice_para_uso
+from aso.execution.impacto import ImpactoEstrutural, impacto_de
 from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.execution.worktree import WorktreeError, WorktreeManager
 from aso.governance.models import PullRequest, ReviewComment
@@ -94,6 +96,15 @@ def _ultima_saida_de_ci(b: OrchestrationBundle, pr: PullRequest) -> str:
             origem = evento.payload.get("origem", "")
             return f"status: {evento.payload.get('status')} (origem: {origem})\n{detalhe}".strip()
     return ""
+
+
+def _impacto_do_diff(repositorio: str, diff: str) -> ImpactoEstrutural | None:
+    """Impacto estrutural dos arquivos do diff (ADR-0077); `None` quando não há índice."""
+    arquivos = arquivos_do_diff(diff)
+    if not arquivos:
+        return None
+    indice = indice_para_uso(repositorio)
+    return impacto_de(indice, arquivos) if indice is not None else None
 
 
 class DeliveryService:
@@ -384,6 +395,9 @@ class DeliveryService:
                         adrs=[(a.id, a.titulo, a.decisao) for a in fontes.adrs],
                         saida_ci=_ultima_saida_de_ci(b, pr),
                         repositorio=AcessoAoRepositorio(caminho=str(workspace.base), ref=pr.branch),
+                        # Risco de regressão com fato: quem importa o alterado e que testes
+                        # o cobrem, pelo índice do repositório (ADR-0077).
+                        impacto=_impacto_do_diff(str(workspace.base), diff),
                     ),
                 )
             return self._apply_review_verdict(b, pr, card, verdito, actor=actor)

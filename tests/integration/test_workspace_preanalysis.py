@@ -60,31 +60,38 @@ def test_preanalise_rejeita_caminho_invalido(tmp_path: Path) -> None:
     assert "não é uma pasta" in response.json()["detail"]
 
 
-def test_console_exige_preanalise_antes_da_demanda() -> None:
-    console = (Path(__file__).parents[2] / "src/aso/api/static/nova.html").read_text(
+def test_cadastro_de_demanda_oferece_preanalise_da_pasta() -> None:
+    """A pré-análise (SSE, sem alterar arquivo) migrou de `nova.html` para o cadastro completo
+    quando as páginas legadas saíram (ADR-0078). Ela é informativa: o operador vê o tamanho do
+    repositório antes de criar a demanda."""
+    pagina = (Path(__file__).parents[2] / "src/aso/api/static/demanda-nova.html").read_text(
         encoding="utf-8"
     )
 
-    assert 'id="analyze"' in console
-    assert 'id="demandCard" class="card" hidden' in console
-    assert "function resetAnalysis()" in console
-    assert "function analyzeWorkspace()" in console
-    assert "new EventSource('/v1/fs/analyze/stream?'" in console
-    assert "/analyze-folder" in console
-    assert "echo ok" not in console
-    assert "começará" not in console
-    assert "Autopilot só começa quando você acioná-lo" in console
-    assert "onclick=" not in console
+    assert 'id="btAnalisar"' in pagina
+    assert "function analisarPasta()" in pagina
+    assert "new EventSource('/v1/fs/analyze/stream?'" in pagina
+    assert "Nenhum arquivo foi alterado." in pagina
+    assert "/analyze-folder" in pagina  # docs-first continua sendo passo explícito
+    assert "onclick=" not in pagina
 
 
-def test_kanban_remove_executor_placeholder_e_mantem_colunas() -> None:
-    console = (Path(__file__).parents[2] / "src/aso/api/static/index.html").read_text(
+def test_kanban_mantem_as_colunas_do_board_sem_placeholder_de_executor() -> None:
+    """O board do console técnico virou `/ui/kanban` (ADR-0047); as colunas vêm do runtime."""
+    from fastapi.testclient import TestClient as _Client
+
+    from aso.api.app import create_app as _create_app
+
+    svc = OrchestrationService()
+    client = _Client(_create_app(svc))
+    oid = svc.create_orchestration("board do kanban").id
+    quadro = client.get(f"/v1/orchestrations/{oid}/kanban").json()
+    chaves = {col["coluna"] for col in quadro["colunas"]}
+    for esperada in ("Planning", "WaitingAgent", "Archived", "Ready"):
+        assert esperada in chaves, esperada
+
+    pagina = (Path(__file__).parents[2] / "src/aso/api/static/kanban.html").read_text(
         encoding="utf-8"
     )
-
-    assert "configCardExec" not in console
-    assert "_cardExecs" not in console
-    assert "'Planning'" in console
-    assert "'WaitingAgent'" in console
-    assert "'Archived'" in console
-    assert "moverParaReady(id, card.id)" in console
+    assert "configCardExec" not in pagina and "_cardExecs" not in pagina
+    assert "dados.colunas" in pagina  # colunas do runtime, não lista fixa no HTML

@@ -258,17 +258,14 @@ class QueryService:
     def header_summary(self, *, project_id: str | None = None) -> dict[str, object]:
         """Indicadores do header (wf §2.3, ADR-0035): execuções ativas, falhas e
         aprovações pendentes — escopados ao projeto quando informado, senão
-        globais. Mesmo padrão N+1 já usado por `list_all_approvals` (itera as
-        orquestrações do escopo a cada chamada — sem índice dedicado, dev-scale)."""
+        globais. Aprovações pendentes saem de consulta indexada (MEL-52); a contagem de
+        falhas ainda itera as orquestrações do escopo (`count_cards_by_status` é uma
+        consulta por orquestração — dev-scale, sem índice dedicado)."""
         orchestrations = self.list_all(project_id=project_id)
         ids = {o.id for o in orchestrations}
         execucoes_ativas = sum(1 for o in orchestrations if o.status == "running")
         falhas = sum(self.count_cards_by_status(o.id).get("Failed", 0) for o in orchestrations)
-        aprovacoes_pendentes = sum(
-            1
-            for a in self.list_all_approvals()
-            if a.orchestration_id in ids and a.status == "pending"
-        )
+        aprovacoes_pendentes = len(self.list_all_approvals(status="pending", orchestration_ids=ids))
         return {
             "execucoes_ativas": execucoes_ativas,
             "falhas": falhas,
@@ -338,11 +335,9 @@ class QueryService:
                     cards_por_status[status] = cards_por_status.get(status, 0) + count
         falhas_abertas = int(cards_por_status.get("Failed", 0))
         ids = {o.id for o in orchestrations}
-        pendentes = [
-            a
-            for a in self.list_all_approvals()
-            if a.status == "pending" and (project_id is None or a.orchestration_id in ids)
-        ]
+        pendentes = self.list_all_approvals(
+            status="pending", orchestration_ids=ids if project_id is not None else None
+        )
         aprovacoes_por_tipo: dict[str, int] = {}
         for aprovacao in pendentes:
             aprovacoes_por_tipo[aprovacao.tipo] = aprovacoes_por_tipo.get(aprovacao.tipo, 0) + 1
@@ -550,8 +545,19 @@ class QueryService:
     def list_approvals(self, orchestration_id: str) -> list[HumanApproval]:
         return list(self._bundle(orchestration_id).approvals)
 
-    def list_all_approvals(self) -> list[HumanApproval]:
-        return [a for oid in self._repo.list_ids() for a in self._bundle(oid).approvals]
+    def list_all_approvals(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[HumanApproval]:
+        """Aprovações de todo o sistema por consulta (MEL-52), sem hidratar agregado nenhum.
+
+        Os filtros vão para o SQL: a rota `/v1/approvals` filtrava em memória o que já podia ser
+        recortado na consulta (e antes hidratava toda orquestração do sistema para isso)."""
+        return self._repo.approvals(status=status, orchestration_ids=orchestration_ids)
+
+    def count_events_by_type(self, orchestration_id: str, types: tuple[str, ...]) -> dict[str, int]:
+        """Contagem de eventos por tipo (MEL-52), sem materializar a timeline."""
+        self._bundle(orchestration_id)  # 404 coerente para orquestração inexistente
+        return self._repo.count_events_by_type(orchestration_id, types)
 
     def count_cards_by_status(self, orchestration_id: str) -> dict[str, int]:
         self._bundle(orchestration_id)
@@ -592,6 +598,12 @@ class QueryService:
             "page_size": page_size,
             "newest_first": newest_first,
         }
+
+    def list_all_incidents(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[Incident]:
+        """Incidentes de todas as demandas (MEL-55) — consulta, sem hidratar agregado."""
+        return self._repo.incidents(status=status, orchestration_ids=orchestration_ids)
 
     def list_incidents(self, orchestration_id: str) -> list[Incident]:
         return list(self._bundle(orchestration_id).incidents)

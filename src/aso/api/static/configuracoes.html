@@ -8,8 +8,13 @@
   <link rel="stylesheet" href="/ui/components.css">
   <style>
     body { display:flex; flex-direction:column; min-height:100vh; }
-    .placeholder { max-width:640px; margin:40px auto; text-align:center; }
-    .placeholder h2 { margin:0 0 10px; font-size:20px; }
+    .atalhos { display:flex; flex-wrap:wrap; gap:10px; }
+    .atalho { flex:1 1 220px; border:1px solid var(--border); border-radius:var(--radius);
+              padding:12px; background:var(--panel); }
+    .atalho h3 { margin:0 0 4px; font-size:14px; }
+    .grade { display:flex; flex-wrap:wrap; gap:8px; }
+    .grade input { margin:0; }
+    .aviso { color:#b3261e; }
   </style>
 </head>
 <body>
@@ -17,21 +22,242 @@
   <div class="shell">
     <nav id="app-sidebar"></nav>
     <main>
-      <section class="card placeholder">
-        <h2>Configurações</h2>
+      <section class="card">
+        <h2 style="margin:0">Configurações</h2>
         <p class="muted">
-          Esta seção ainda não foi implementada — acompanhe <strong>FID-26</strong> no board
-          (<a href="/docs" target="_blank">API</a>).
+          Tudo o que se configura no runtime. Chaves de API <b>nunca</b> ficam aqui: são variáveis
+          de ambiente do processo (regra 9 da governança) — as telas só guardam o nome da variável.
         </p>
-        <a href="/ui/console">Conteúdo relacionado hoje: Console técnico (⚙ Config) →</a>
+        <div class="atalhos">
+          <div class="atalho">
+            <h3>Modelos e executores</h3>
+            <p class="muted">Catálogo único (ADR-0076): perfis CLI/LLM, streaming, permissão de
+              escrita e candidatos da corrida.</p>
+            <a class="btn sm" href="/ui/modelos">Abrir Modelos</a>
+          </div>
+          <div class="atalho">
+            <h3>Agentes (papéis)</h3>
+            <p class="muted">Catálogo de agentes e as permissões que o ContextBus aplica
+              (ADR-0053).</p>
+            <a class="btn sm" href="/ui/agentes">Abrir Agentes</a>
+          </div>
+          <div class="atalho">
+            <h3>Regras de roteamento</h3>
+            <p class="muted">Regras SE/ENTÃO avaliadas antes da heurística do motor de decisão
+              (ADR-0028).</p>
+            <a class="btn sm" href="/ui/regras-roteamento">Abrir Regras</a>
+          </div>
+          <div class="atalho">
+            <h3>Contrato da API</h3>
+            <p class="muted">OpenAPI gerado do código (ADR-0064) — a referência do que existe de
+              verdade.</p>
+            <a class="btn sm ghost" href="/docs" target="_blank">Abrir /docs</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3 style="margin:0 0 6px">Projetos (repositórios de trabalho)</h3>
+        <p class="muted">
+          Cada demanda pode pertencer a um projeto, que fixa a pasta de trabalho dos agentes
+          (ADR-0010). Arquivar preserva o histórico; restaurar exige que a pasta exista.
+        </p>
+        <div class="grade" style="margin-bottom:8px">
+          <input id="pNome" placeholder="nome do projeto" style="width:200px">
+          <input id="pPasta" placeholder="pasta (ex.: /home/eu/projetos/app)" style="flex:1">
+          <button class="btn sm ghost" id="btNavegar">📁 Navegar…</button>
+          <input id="pDescricao" placeholder="descrição (opcional)" style="width:220px">
+          <button class="btn sm" id="btCriar">Criar projeto</button>
+          <label class="muted" style="align-self:center">
+            <input type="checkbox" id="pArquivados"> mostrar arquivados
+          </label>
+        </div>
+        <div id="erro" class="aviso"></div>
+        <table>
+          <tr><th>Nome</th><th>Pasta</th><th>Status</th><th>Demandas</th><th></th></tr>
+          <tbody id="linhasProjetos"></tbody>
+        </table>
+        <div id="eventos"></div>
+        <div id="navegador" hidden class="subitem" style="margin-top:10px">
+          <div class="row between">
+            <strong id="navCaminho">—</strong>
+            <span>
+              <button class="btn sm ghost" id="btAcima">Acima</button>
+              <button class="btn sm" id="btUsar">Usar esta pasta</button>
+              <button class="btn sm ghost" id="btFechaNav">Fechar</button>
+            </span>
+          </div>
+          <div id="navLista" style="margin-top:8px"></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3 style="margin:0 0 6px">Estado do runtime</h3>
+        <p class="muted">
+          Leitura direta de <code>/health</code> e <code>/v1/me</code>: quem você é para a API
+          (papel do token) e o que o processo reporta. Sem token, o modo dev responde como
+          <code>admin</code> anônimo (ADR-0057) — não use em rede.
+        </p>
+        <table>
+          <tr><th>Item</th><th>Valor</th></tr>
+          <tbody id="linhasRuntime"></tbody>
+        </table>
       </section>
     </main>
   </div>
+
   <script src="/ui/header.js"></script>
   <script src="/ui/sidebar.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {});
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'configuracoes' });
+    const api = ASOApi.api, esc = ASOApi.esc;
+
+    function mostrarErro(mensagem) {
+      document.getElementById('erro').textContent = mensagem || '';
+    }
+
+    async function carregarProjetos() {
+      mostrarErro('');
+      const arquivados = document.getElementById('pArquivados').checked;
+      let projetos = [], demandas = [];
+      try {
+        projetos = await api('/v1/projects?include_archived=' + (arquivados ? 'true' : 'false'));
+        demandas = await api('/v1/orchestrations');
+      } catch (e) { mostrarErro(e.message); return; }
+      const porProjeto = {};
+      demandas.forEach(function (o) {
+        if (o.project_id) porProjeto[o.project_id] = (porProjeto[o.project_id] || 0) + 1;
+      });
+      document.getElementById('linhasProjetos').innerHTML = projetos.length
+        ? projetos.map(function (p) {
+            const acao = p.status === 'archived'
+              ? '<button class="btn sm" data-restaurar="' + esc(p.id) + '">Restaurar</button>'
+              : '<button class="btn sm err" data-arquivar="' + esc(p.id) + '">Arquivar</button>';
+            return '<tr><td>' + esc(p.name) + '</td><td><code>' + esc(p.target_path) +
+              '</code></td>' +
+              '<td><span class="pill ' + (p.status === 'archived' ? 'warn' : 'ok') + '">' +
+              esc(p.status) + '</span></td>' +
+              '<td>' + (porProjeto[p.id] || 0) + '</td>' +
+              '<td>' + acao +
+              ' <button class="btn sm ghost" data-eventos="' + esc(p.id) + '">Histórico</button>' +
+              ' <a class="btn sm ghost" href="/ui/demandas?project_id=' +
+              encodeURIComponent(p.id) + '">Demandas</a></td></tr>';
+          }).join('')
+        : '<tr><td colspan="5" class="muted">nenhum projeto cadastrado</td></tr>';
+    }
+
+    document.getElementById('linhasProjetos').addEventListener('click', async function (ev) {
+      const arquivar = ev.target.getAttribute('data-arquivar');
+      const restaurar = ev.target.getAttribute('data-restaurar');
+      const eventos = ev.target.getAttribute('data-eventos');
+      try {
+        if (arquivar) {
+          if (!confirm('Arquivar o projeto? As demandas continuam no histórico.')) return;
+          await api('/v1/projects/' + encodeURIComponent(arquivar), { method: 'DELETE' });
+          await carregarProjetos();
+        } else if (restaurar) {
+          await api('/v1/projects/' + encodeURIComponent(restaurar) + '/restore',
+                    { method: 'POST', body: {} });
+          await carregarProjetos();
+        } else if (eventos) {
+          const lista = await api('/v1/projects/' + encodeURIComponent(eventos) + '/events');
+          document.getElementById('eventos').innerHTML =
+            '<h4 style="margin:12px 0 4px">Histórico do projeto</h4>' +
+            (lista.length ? '<table><tr><th>Quando</th><th>Evento</th><th>Ator</th>' +
+              '<th>Mudança</th></tr>' + lista.map(function (e) {
+                const antes = JSON.stringify(e.before || {}), depois = JSON.stringify(e.after || {});
+                return '<tr><td>' +
+                  esc((e.created_at || '').replace('T', ' ').slice(0, 16)) + '</td><td>' +
+                  esc(e.type) + '</td><td>' + esc(e.actor || '—') + '</td><td><code>' +
+                  esc(antes) + ' → ' + esc(depois) + '</code></td></tr>';
+              }).join('') + '</table>'
+              : '<div class="empty">sem eventos</div>');
+        }
+      } catch (e) { mostrarErro(e.message); }
+    });
+
+    document.getElementById('btCriar').addEventListener('click', async function () {
+      const corpo = {
+        name: document.getElementById('pNome').value.trim(),
+        target_path: document.getElementById('pPasta').value.trim(),
+        description: document.getElementById('pDescricao').value.trim(),
+      };
+      if (!corpo.name || !corpo.target_path) {
+        mostrarErro('Informe nome e pasta do projeto.');
+        return;
+      }
+      try {
+        await api('/v1/projects', { method: 'POST', body: corpo });
+        document.getElementById('pNome').value = '';
+        document.getElementById('pPasta').value = '';
+        document.getElementById('pDescricao').value = '';
+        await carregarProjetos();
+      } catch (e) { mostrarErro(e.message); }
+    });
+    document.getElementById('pArquivados').addEventListener('change', carregarProjetos);
+
+    async function carregarRuntime() {
+      const linhas = [];
+      try {
+        const saude = await api('/health');
+        Object.keys(saude).forEach(function (k) {
+          linhas.push([k, typeof saude[k] === 'object' ? JSON.stringify(saude[k]) : saude[k]]);
+        });
+      } catch (e) { linhas.push(['/health', e.message]); }
+      try {
+        const eu = await api('/v1/me');
+        linhas.push(['ator', eu.actor || '—']);
+        linhas.push(['papel', eu.role || '—']);
+      } catch (e) { linhas.push(['/v1/me', e.message]); }
+      document.getElementById('linhasRuntime').innerHTML = linhas.map(function (par) {
+        return '<tr><td>' + esc(par[0]) + '</td><td><code>' + esc(par[1]) + '</code></td></tr>';
+      }).join('');
+    }
+
+    // Navegador de pastas (migrado do kanban macro, ADR-0078): o campo de pasta é validado
+    // contra `ASO_WORKSPACE_ROOTS` no servidor (ADR-0057) — aqui só se escolhe o caminho.
+    let caminhoAtual = null;
+
+    async function navegar(caminho) {
+      try {
+        const dados = await api('/v1/fs/dirs' + (caminho ? '?path=' + encodeURIComponent(caminho) : ''));
+        caminhoAtual = dados.path;
+        document.getElementById('navCaminho').textContent = dados.path;
+        document.getElementById('navLista').innerHTML = dados.dirs.length
+          ? dados.dirs.map(function (d) {
+              return '<div><button class="btn sm ghost" data-pasta="' + esc(d.path) + '">📁 ' +
+                esc(d.name) + '</button></div>';
+            }).join('')
+          : '<div class="empty">Sem subpastas.</div>';
+      } catch (e) {
+        document.getElementById('navCaminho').textContent = e.message;
+      }
+    }
+
+    document.getElementById('btNavegar').addEventListener('click', function () {
+      document.getElementById('navegador').hidden = false;
+      navegar(document.getElementById('pPasta').value.trim() || null);
+    });
+    document.getElementById('btFechaNav').addEventListener('click', function () {
+      document.getElementById('navegador').hidden = true;
+    });
+    document.getElementById('btAcima').addEventListener('click', function () {
+      const pai = caminhoAtual ? caminhoAtual.substring(0, caminhoAtual.lastIndexOf('/')) || '/' : '/';
+      navegar(pai);
+    });
+    document.getElementById('btUsar').addEventListener('click', function () {
+      if (caminhoAtual) document.getElementById('pPasta').value = caminhoAtual;
+      document.getElementById('navegador').hidden = true;
+    });
+    document.getElementById('navLista').addEventListener('click', function (ev) {
+      const pasta = ev.target.getAttribute('data-pasta');
+      if (pasta) navegar(pasta);
+    });
+
+    carregarProjetos();
+    carregarRuntime();
   </script>
 </body>
 </html>

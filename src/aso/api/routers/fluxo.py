@@ -227,13 +227,9 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         status: str | None = Query(default=None),
         project_id: str | None = Query(default=None),
     ) -> Any:
-        approvals = svc.list_all_approvals()
-        if status is not None:
-            approvals = [a for a in approvals if a.status == status]
-        if project_id is not None:
-            ids = {o.id for o in svc.list_all(project_id=project_id)}
-            approvals = [a for a in approvals if a.orchestration_id in ids]
-        return approvals
+        # Filtros na consulta, não em memória (MEL-52).
+        ids = {o.id for o in svc.list_all(project_id=project_id)} if project_id else None
+        return svc.list_all_approvals(status=status, orchestration_ids=ids)
 
     @router.get("/v1/approvals/{approval_id}")
     def get_approval(approval_id: str) -> Any:

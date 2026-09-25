@@ -22,8 +22,9 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-# Diretórios ignorados ao detectar "módulos" e ao checar se a pasta está vazia.
-_IGNORED_DIRS = frozenset(
+# Diretórios ignorados ao detectar "módulos", ao checar se a pasta está vazia e ao indexar
+# o código (ADR-0077): uma lista só, para o índice não divergir do que o scan vê.
+DIRETORIOS_IGNORADOS = frozenset(
     {
         ".git",
         ".aso",
@@ -207,16 +208,21 @@ class WorkspaceService:
             self._ensure_identity(path)
             self._git(path, "commit", "--allow-empty", "-m", "aso: commit inicial (HEAD)")
 
+    # Artefatos que o runtime cria dentro do repositório-alvo e que não são do projeto:
+    # worktrees dos cards (ADR-0009) e índice estrutural por commit (ADR-0077).
+    LINHAS_DO_GITIGNORE = (".aso/worktrees/", ".aso/index/")
+
     def _ensure_gitignore(self, path: Path) -> None:
         gi = path / ".gitignore"
-        line = ".aso/worktrees/"
         if gi.exists():
             content = gi.read_text(encoding="utf-8")
-            if line not in content:
+            faltando = [linha for linha in self.LINHAS_DO_GITIGNORE if linha not in content]
+            if faltando:
                 sep = "" if content.endswith("\n") or not content else "\n"
-                gi.write_text(f"{content}{sep}{line}\n", encoding="utf-8")
+                gi.write_text(f"{content}{sep}" + "".join(f"{x}\n" for x in faltando), "utf-8")
         else:
-            gi.write_text(f"# Gerado pelo ASO\n{line}\n", encoding="utf-8")
+            corpo = "".join(f"{x}\n" for x in self.LINHAS_DO_GITIGNORE)
+            gi.write_text(f"# Gerado pelo ASO\n{corpo}", encoding="utf-8")
 
     def _ensure_identity(self, path: Path) -> None:
         """Garante user.name/email locais (senão o commit falha em ambientes limpos)."""
@@ -284,7 +290,7 @@ class WorkspaceService:
                     if entry.is_symlink():
                         continue
                     if entry.is_dir():
-                        if entry.name in _IGNORED_DIRS:
+                        if entry.name in DIRETORIOS_IGNORADOS:
                             continue
                         yield from walk(entry)
                     elif entry.is_file():
@@ -344,7 +350,7 @@ class WorkspaceAnalyzer:
 
         detected_modules: list[str] = []
         for entry in sorted(p.iterdir(), key=lambda e: e.name.lower()):
-            if entry.name.startswith(".") or entry.name in _IGNORED_DIRS:
+            if entry.name.startswith(".") or entry.name in DIRETORIOS_IGNORADOS:
                 continue
             if entry.name in {"docs", "specs", "tasks", "agents", "skills", "adr"}:
                 continue

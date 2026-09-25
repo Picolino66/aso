@@ -103,15 +103,17 @@ def test_next_step_404_em_orquestracao_inexistente() -> None:
     assert client.get("/v1/orchestrations/orch_nao_existe/next-step").status_code == 404
 
 
-def test_ui_detalhe_e_dedicada_a_uma_orquestracao() -> None:
-    """A tela de detalhe não repete o formulário de criação nem o kanban global."""
+def test_sala_de_controle_e_dedicada_a_uma_orquestracao() -> None:
+    """A sala de controle (seção Esteira desde a ADR-0078) não repete o formulário de criação.
+
+    `/ui/detalhe` continua respondendo: redireciona para a seção nova, preservando o `?id=`."""
     client = _client(OrchestrationService(catalog=_mock_catalog()))
-    pagina = client.get("/ui/detalhe")
+    pagina = client.get("/ui/esteira")
     assert pagina.status_code == 200
     assert "Próximo passo" in pagina.text
     assert "Esteira F1 → F7" in pagina.text
     assert "NOVA ORQUESTRAÇÃO" not in pagina.text.upper()
-    # O console técnico completo continua acessível para auditoria.
-    console = client.get("/ui/console")
-    assert console.status_code == 200
-    assert "Nova orquestração" in console.text
+
+    legada = client.get("/ui/detalhe?id=orch_1", follow_redirects=False)
+    assert legada.status_code == 307
+    assert legada.headers["location"] == "/ui/esteira?id=orch_1"

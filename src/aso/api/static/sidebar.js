@@ -2,10 +2,10 @@
  *
  * Segundo módulo JS compartilhado do projeto (depois de `header.js`, ADR-0035)
  * — 16 itens de navegação, cada um numa página própria; duplicar isso em 16
- * arquivos seria pior que este arquivo. Só as 16 páginas novas montam a
- * sidebar; as 4 páginas legadas (`/ui/`, `/ui/nova`, `/ui/detalhe`,
- * `/ui/console`) continuam como estavam — cada uma mistura conteúdo de várias
- * seções, então não há uma "seção ativa" única e honesta para destacar nelas.
+ * arquivos seria pior que este arquivo. Desde a ADR-0078 (MEL-55) TODAS as
+ * páginas do console montam a sidebar: as quatro páginas legadas (kanban macro,
+ * formulário de nova orquestração, sala de controle e console técnico) foram
+ * consolidadas nas seções, e as rotas antigas agora redirecionam.
  */
 (function () {
   'use strict';

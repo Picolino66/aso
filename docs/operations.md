@@ -90,6 +90,13 @@ pip-audit --skip-editable       # SCA
 - `?token=` só é aceito em `…/events/stream` (EventSource); nas demais rotas use o header.
 - `/metrics` é público e não hidrata orquestrações: os gauges de SLO vêm da última
   amostra persistida (`POST .../slo/evaluate`).
+- **Leituras por consulta (MEL-52).** Decidir uma aprovação hidrata **uma** orquestração (a dona,
+  localizada por `orchestration_of_approval`); `GET /v1/approvals` (com `status`/`project_id`), o
+  header e o painel projetam as aprovações das linhas, sem hidratar agregado nenhum;
+  `GET …/execution-metrics` conta execuções e duração média em `agent_runs` e retries/falhas por
+  `COUNT(*) GROUP BY type` — o campo `origem` diz `agent_runs` ou `eventos` (queda para o log
+  quando não há run registrado, em base anterior à ADR-0065 ou com runs expurgados); o relatório de
+  aprendizado global (`GET /v1/learning`) lê só as colunas que usa.
 - Em produção, defina os tokens (papéis: `viewer` < `operator` < `admin`):
 
 ```bash
@@ -387,6 +394,24 @@ Catálogos antigos com a flag digitada no comando são migrados na leitura (a fl
 cópia do arquivo original em `.aso/executors.json.antes-adr-0076`). Quando o card falha assim, o
 motivo registrado passa a incluir **a última fala do agente** e o "Próximo passo" mostra o
 bloqueio `executor_sem_permissao` com a orientação.
+
+### Índice estrutural do repositório (ADR-0077)
+
+Discovery, contexto do card e revisão usam um índice determinístico por `(repositório, commit)`,
+gravado em `<repo-alvo>/.aso/index/<commit>.json` (o `.gitignore` do alvo recebe `.aso/index/`):
+
+- **o que entra:** linguagem e linhas por arquivo, símbolos públicos com linha, imports resolvidos
+  para caminhos do repositório, marcação de teste e pontos de entrada (rotas HTTP, comandos);
+- **o que nunca entra:** `.env*`, `*secret*`/`*credential*`/`*password*`/`*senha*`, `id_rsa`,
+  `*.pem|key|p12|crt`, binários, arquivos acima de 1 MB e os diretórios ignorados do workspace
+  (`.git`, `.venv`, `node_modules`, caches, `dist`, `build`…);
+- **custo:** ~1 s para o repositório do ASO (642 arquivos, 3.163 símbolos, ~388 KB de JSON); o
+  mesmo commit reaproveita o arquivo, e árvore suja recalcula sem gravar (60 s de cache no
+  processo). Apagar `.aso/index/` é seguro a qualquer momento: o próximo uso reconstrói.
+
+Efeito prático: componente afetado que o agente inventa no discovery é descartado
+(`componentes_descartados`), a revisão recebe "quem importa os arquivos alterados" e "testes
+relacionados", e o contexto do card leva a vizinhança dos arquivos citados.
 
 ### Ver o que o agente está fazendo (streaming)
 

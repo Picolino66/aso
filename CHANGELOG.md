@@ -13,7 +13,32 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   (FID-01…FID-27) no Backlog do board, sob os épicos EPIC-9 (lacunas da esteira) e
   EPIC-10 (shell e telas).
 
+### Adicionado
+- **MEL-44 — índice estrutural do repositório por commit (ADR-0077):** `execution/code_index.py`
+  mapeia símbolos públicos, imports já resolvidos para caminhos, arquivos de teste e pontos de
+  entrada (Python por `ast`; TS/JS por regex, com a imprecisão declarada), com cache em
+  `<repo>/.aso/index/<commit>.json` (~1 s e ~388 KB para o próprio ASO: 642 arquivos, 3.163
+  símbolos). Discovery passa a receber o mapa do repositório e a ter `componentes_afetados` e
+  evidências **conferidos contra o índice** (o que não existe é descartado); a revisão recebe quem
+  importa os arquivos alterados e os testes relacionados; o contexto do card leva a vizinhança dos
+  arquivos citados. Sem embeddings nem banco vetorial — a ADR registra por quê.
+
 ### Alterado
+- **MEL-52 — consultas sem hidratar agregados:** decidir uma aprovação carrega **uma**
+  orquestração (localizada por consulta, não por varredura do sistema); `GET /v1/approvals`, o
+  header e o painel projetam as aprovações das linhas com os filtros na consulta;
+  `…/execution-metrics` conta execuções e duração média em `agent_runs` e retries/falhas por
+  `COUNT(*) GROUP BY type` (campo novo `origem`, com queda para o log quando não há run); e o
+  relatório de aprendizado global lê só as colunas que usa. A aritmética do relatório passou a ser
+  a mesma para uma demanda e para o global (`AmostraDeAprendizado`).
+- **MEL-54 — catálogo único de executores (ADR-0076):** `ASO_EXECUTORS`, `ASO_CLI_COMMAND`,
+  `ASO_LLM_*` e `ASO_CANDIDATE_COMMANDS` passam a apenas **semear** o catálogo (um teste varre
+  `src` e falha se algo voltar a lê-las fora do seed); saem o provider global do bootstrap e o
+  `RoutingExecutionProvider`; o planejamento usa a etapa `planejamento` ou o LLM padrão do
+  catálogo; a corrida de candidatos usa `executores` no corpo ou os perfis marcados `candidato`;
+  streaming e permissão de escrita viram campos do perfil (o ASO monta as flags de Claude Code e
+  Codex), com migração idempotente dos perfis salvos — `enable-agent-stream.sh` e
+  `fix-executor-permissions.sh` foram apagados.
 - **MEL-53 — remoção de código morto (ADR-0075):** saem `AgentExecutor`, `_agent_order`, as duas
   etapas vazias do ContextBus (pipeline de 6 etapas), as estratégias que eram só rótulo
   (migration converte planos), `parallel_group`/`allowed_tools`/`requires_approval_for`, tipos de

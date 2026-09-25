@@ -27,6 +27,7 @@ from aso.control.models import AgentAssignment
 from aso.control.respostas_estruturadas import vocabulario
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.code_index import IndiceDoRepositorio
 from aso.execution.repositorio_leitura import AcessoAoRepositorio, caminho_existe
 from aso.execution.workspace import WorkspaceReport
 from aso.shared.ids import now_iso
@@ -203,10 +204,13 @@ class DiscoveryService:
         workspace_report: WorkspaceReport,
         comentarios_anteriores: str = "",
         repositorio: AcessoAoRepositorio | None = None,
+        indice: IndiceDoRepositorio | None = None,
     ) -> DiscoveryReport:
         """Relatório de discovery. Sem agente configurado (ou com falha), heurística.
 
-        Com `repositorio` e executor CLI, o agente lê um checkout de leitura (ADR-0069)."""
+        Com `repositorio` e executor CLI, o agente lê um checkout de leitura (ADR-0069). Com
+        `indice` (ADR-0077) o mapa do repositório entra no pedido e todo componente afetado é
+        conferido contra o índice — o que não existe lá é descartado e registrado."""
         base = _heuristica(user_request, demand_brief, workspace_report)
         if assignment is None or self._catalog is None:
             return base
@@ -226,6 +230,7 @@ class DiscoveryService:
                 workspace_report=workspace_report,
                 comentarios_anteriores=comentarios_anteriores,
                 repositorio=repositorio if leitura else None,
+                indice=indice,
             )
         except ERROS_DE_AGENTE as exc:
             fim = now_iso()
@@ -243,6 +248,7 @@ class DiscoveryService:
             bruto,
             repositorio=repositorio.caminho if leitura and repositorio else None,
             modulos_detectados=workspace_report.detected_modules,
+            indice=indice,
         )
         fim = now_iso()
         duracao_ms = (time.monotonic() - relogio) * 1000
@@ -284,10 +290,11 @@ class DiscoveryService:
         workspace_report: WorkspaceReport,
         comentarios_anteriores: str,
         repositorio: AcessoAoRepositorio | None = None,
+        indice: IndiceDoRepositorio | None = None,
     ) -> dict[str, object]:
         assert self._catalog is not None  # noqa: S101 - garantido pelo chamador
         pedido = _montar_pedido(
-            user_request, demand_brief, workspace_report, comentarios_anteriores
+            user_request, demand_brief, workspace_report, comentarios_anteriores, indice
         )
         system = _DISCOVERY_SYSTEM + (_DISCOVERY_COM_REPOSITORIO if repositorio else "")
         return perguntar_ao_agente(
@@ -307,6 +314,7 @@ def _montar_pedido(
     demand_brief: DemandBrief,
     workspace_report: WorkspaceReport,
     comentarios_anteriores: str,
+    indice: IndiceDoRepositorio | None = None,
 ) -> str:
     partes = [
         f"Demanda:\n{user_request}",
@@ -319,6 +327,8 @@ def _montar_pedido(
         f"repositório git: {'sim' if workspace_report.is_git else 'não'}; "
         f"docs-first já existe: {'sim' if workspace_report.has_aso_docs else 'não'}.",
     ]
+    if indice is not None:
+        partes.append(mapa_do_repositorio(indice))
     if comentarios_anteriores:
         partes.append(
             f"Uma versão anterior deste discovery foi reprovada com o comentário: "
@@ -356,7 +366,44 @@ def _lista_texto(valor: object, *, limite: int = 12) -> list[str]:
     return [str(v).strip() for v in valor if str(v).strip()][:limite]
 
 
-def _evidencias(valor: object, repositorio: str) -> list[EvidenciaDoDiscovery]:
+def mapa_do_repositorio(indice: IndiceDoRepositorio, *, limite: int = 12) -> str:
+    """Bloco compacto do índice para o pedido: módulos, pontos de entrada e números.
+
+    O índice inteiro nunca vai ao agente (ADR-0077): ele já lê o código; o que ajuda é saber
+    onde olhar e com quais nomes o runtime vai conferir a resposta."""
+    resumo = indice.resumo()
+    entradas = [
+        f"{arquivo}: {', '.join(dados.entradas[:3])}"
+        for arquivo, dados in indice.arquivos.items()
+        if dados.entradas
+    ][:limite]
+    linhas = [
+        f"Índice estrutural do repositório (commit {indice.commit[:8] or 'sem commit'}): "
+        f"{resumo['arquivos']} arquivos indexados, {resumo['simbolos']} símbolos públicos, "
+        f"{resumo['testes']} arquivos de teste.",
+        f"Módulos de topo: {', '.join(indice.modulos) or '(nenhum)'}.",
+    ]
+    if entradas:
+        linhas.append("Pontos de entrada detectados: " + " | ".join(entradas))
+    linhas.append(
+        "Cite em `componentes_afetados` apenas caminhos ou módulos que existam no repositório — "
+        "o runtime descarta o que não estiver no índice."
+    )
+    return "\n".join(linhas)
+
+
+def _componente_existe(
+    componente: str, *, repositorio: str | None, indice: IndiceDoRepositorio | None
+) -> bool:
+    """Índice manda quando existe (já exclui segredo, cache e binário); senão, o disco."""
+    if indice is not None:
+        return indice.contem(componente)
+    return repositorio is not None and caminho_existe(repositorio, componente)
+
+
+def _evidencias(
+    valor: object, repositorio: str | None, indice: IndiceDoRepositorio | None = None
+) -> list[EvidenciaDoDiscovery]:
     if not isinstance(valor, list):
         return []
     itens: list[EvidenciaDoDiscovery] = []
@@ -364,11 +411,20 @@ def _evidencias(valor: object, repositorio: str) -> list[EvidenciaDoDiscovery]:
         if not isinstance(bruto, dict):
             continue
         arquivo = str(bruto.get("arquivo") or "").strip()
-        if arquivo and caminho_existe(repositorio, arquivo):
+        if arquivo and _arquivo_existe(arquivo, repositorio=repositorio, indice=indice):
             itens.append(
                 EvidenciaDoDiscovery(arquivo=arquivo, trecho=str(bruto.get("trecho") or "")[:500])
             )
     return itens
+
+
+def _arquivo_existe(
+    arquivo: str, *, repositorio: str | None, indice: IndiceDoRepositorio | None
+) -> bool:
+    """Evidência aponta para arquivo de verdade? (índice primeiro, como nos componentes)."""
+    if indice is not None:
+        return arquivo.strip().strip("`'\"").removeprefix("./") in indice.arquivos
+    return repositorio is not None and caminho_existe(repositorio, arquivo)
 
 
 def _sanear(
@@ -376,6 +432,7 @@ def _sanear(
     *,
     repositorio: str | None = None,
     modulos_detectados: list[str] | None = None,
+    indice: IndiceDoRepositorio | None = None,
 ) -> DiscoveryReport | None:
     """Aceita a resposta do agente só depois de validar `confianca` contra o
     vocabulário fechado. Devolve `None` quando não sobra nenhum campo de conteúdo
@@ -394,12 +451,16 @@ def _sanear(
     componentes = _lista_texto(bruto.get("componentes_afetados"))
     descartados: list[str] = []
     evidencias: list[EvidenciaDoDiscovery] = []
-    if repositorio is not None:
+    if repositorio is not None or indice is not None:
         modulos = set(modulos_detectados or [])
-        validos = [c for c in componentes if c in modulos or caminho_existe(repositorio, c)]
+        validos = [
+            c
+            for c in componentes
+            if c in modulos or _componente_existe(c, repositorio=repositorio, indice=indice)
+        ]
         descartados = [c for c in componentes if c not in validos]
         componentes = validos
-        evidencias = _evidencias(bruto.get("evidencias"), repositorio)
+        evidencias = _evidencias(bruto.get("evidencias"), repositorio, indice)
     riscos = _lista_texto(bruto.get("riscos"))
     if not (situacao_atual or problema or recomendacao or componentes or riscos):
         return None

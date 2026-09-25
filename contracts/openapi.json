@@ -1156,6 +1156,11 @@
             "title": "Base Url",
             "type": "string"
           },
+          "candidato": {
+            "default": false,
+            "title": "Candidato",
+            "type": "boolean"
+          },
           "command": {
             "default": "",
             "title": "Command",
@@ -1185,10 +1190,20 @@
             "title": "Name",
             "type": "string"
           },
+          "permissao_escrita": {
+            "default": "",
+            "title": "Permissao Escrita",
+            "type": "string"
+          },
           "provider": {
             "default": "",
             "title": "Provider",
             "type": "string"
+          },
+          "streaming": {
+            "default": false,
+            "title": "Streaming",
+            "type": "boolean"
           }
         },
         "required": [
@@ -1438,6 +1453,27 @@
           }
         },
         "title": "QaFailBody",
+        "type": "object"
+      },
+      "RaceBody": {
+        "description": "Corrida de candidatos (§26A.6): perfis do catálogo; vazio = perfis `candidato`.",
+        "properties": {
+          "executores": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executores"
+          }
+        },
+        "title": "RaceBody",
         "type": "object"
       },
       "RequestHelpBody": {
@@ -3126,6 +3162,69 @@
           }
         },
         "summary": "Header Summary"
+      }
+    },
+    "/v1/incidents": {
+      "get": {
+        "description": "Incidentes de todas as demandas (Tela \"Incidentes\" da sidebar, MEL-55/ADR-0078).\n\nFiltros vão para a consulta: nada de hidratar agregado para filtrar em memória (MEL-52).",
+        "operationId": "list_all_incidents_v1_incidents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List All Incidents V1 Incidents Get"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List All Incidents"
       }
     },
     "/v1/jobs/{job_id}": {
@@ -6045,7 +6144,7 @@
     },
     "/v1/orchestrations/{orchestration_id}/cards/{card_id}/race": {
       "post": {
-        "description": "Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs.",
+        "description": "Roda os agentes CLI candidatos (§26A.6) em paralelo e compara os diffs.\n\nCandidatos são perfis do catálogo (ADR-0076): os nomes em `executores` ou, sem\nlista, os perfis marcados `candidato`. Rodam na pasta desta orquestração.",
         "operationId": "race_card_v1_orchestrations__orchestration_id__cards__card_id__race_post",
         "parameters": [
           {
@@ -6067,6 +6166,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RaceBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "content": {

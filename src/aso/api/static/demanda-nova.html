@@ -28,6 +28,21 @@
 
         <div id="erro" class="error" hidden></div>
 
+        <!-- Pré-análise da pasta do projeto (migrada de `nova.html`, ADR-0078): percorre os
+             arquivos elegíveis sem alterar nada, para o operador ver o tamanho do repositório
+             antes de criar a demanda. Só aparece com projeto escolhido. -->
+        <div id="preAnalise" hidden class="campo">
+          <label>Pré-análise da pasta do projeto</label>
+          <div class="row">
+            <button class="btn sm ghost" id="btAnalisar" type="button">Analisar pasta</button>
+            <span class="muted" id="statusAnalise" style="align-self:center">—</span>
+          </div>
+          <div style="margin-top:6px;background:var(--panel-2);border-radius:6px;height:8px;
+                      overflow:hidden">
+            <div id="barraAnalise" style="height:8px;width:0;background:var(--accent)"></div>
+          </div>
+        </div>
+
         <fieldset>
           <legend>Informações gerais</legend>
           <div class="campo"><label for="titulo">Título *</label><input id="titulo" placeholder="Resumo curto da demanda"></div>
@@ -165,23 +180,14 @@
     </main>
   </div>
   <script src="/ui/header.js"></script>
-  <script src="/ui/jobs.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {});
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
 
-    function token() { return localStorage.getItem('aso_token') || ''; }
-    async function api(path, opts) {
-      opts = opts || {};
-      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
-      if (token()) headers.Authorization = 'Bearer ' + token();
-      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
-      let corpo = null;
-      try { corpo = await r.json(); } catch (e) { corpo = null; }
-      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return window.asoResolverResposta(r.status, corpo, headers);
-    }
+    // Acesso à API pelo módulo compartilhado (ADR-0078).
+    const api = ASOApi.api;
 
     function linhas(id) {
       return document
@@ -194,17 +200,64 @@
       return Array.from(document.getElementById(id).selectedOptions).map(function (o) { return o.value; });
     }
 
+    let PROJETOS = [];
+
     async function carregarProjetos() {
       try {
-        const projetos = await api('/v1/projects');
+        PROJETOS = await api('/v1/projects');
         const select = document.getElementById('project_id');
-        projetos.forEach(function (p) {
+        PROJETOS.forEach(function (p) {
           const opt = document.createElement('option');
           opt.value = p.id; opt.textContent = p.name;
           select.appendChild(opt);
         });
+        select.addEventListener('change', function () {
+          document.getElementById('preAnalise').hidden = !select.value;
+          document.getElementById('statusAnalise').textContent = '—';
+          document.getElementById('barraAnalise').style.width = '0';
+        });
       } catch (e) { /* catálogo indisponível — segue sem projeto */ }
     }
+
+    let fluxoAnalise = null;
+
+    function analisarPasta() {
+      const projeto = PROJETOS.find(function (p) {
+        return p.id === document.getElementById('project_id').value;
+      });
+      if (!projeto) return;
+      if (fluxoAnalise) { fluxoAnalise.close(); fluxoAnalise = null; }
+      const botao = document.getElementById('btAnalisar');
+      const status = document.getElementById('statusAnalise');
+      const barra = document.getElementById('barraAnalise');
+      botao.disabled = true;
+      status.textContent = 'Enumerando arquivos permitidos…';
+      const query = new URLSearchParams({ path: projeto.target_path });
+      const t = ASOApi.token();
+      if (t) query.set('token', t);
+      fluxoAnalise = new EventSource('/v1/fs/analyze/stream?' + query.toString());
+      fluxoAnalise.onmessage = function (evento) {
+        const dados = JSON.parse(evento.data);
+        barra.style.width = String(dados.percent) + '%';
+        status.textContent = dados.file
+          ? dados.current + '/' + dados.total + ' · ' + dados.file
+          : dados.total + ' arquivo(s) encontrado(s)';
+        if (dados.current === dados.total) {
+          fluxoAnalise.close(); fluxoAnalise = null;
+          botao.disabled = false; botao.textContent = 'Analisar novamente';
+          status.textContent = 'Pré-análise concluída: ' + dados.total +
+            ' arquivo(s). Nenhum arquivo foi alterado.';
+        }
+      };
+      fluxoAnalise.onerror = function () {
+        if (fluxoAnalise) { fluxoAnalise.close(); fluxoAnalise = null; }
+        botao.disabled = false; botao.textContent = 'Tentar novamente';
+        status.textContent = 'Não foi possível pré-analisar a pasta: confira o caminho e a ' +
+          'sua permissão de acesso.';
+      };
+    }
+
+    document.getElementById('btAnalisar').addEventListener('click', analisarPasta);
     async function carregarExecutores() {
       try {
         const catalogo = await api('/v1/executors');
@@ -288,7 +341,7 @@
             /* docs-first best-effort — a orquestração já existe, segue para o detalhe */
           }
         }
-        location.href = '/ui/detalhe?id=' + orch.id;
+        location.href = '/ui/esteira?id=' + orch.id;
       } catch (e) { mostrarErro('Não foi possível salvar: ' + e.message); }
     }
 

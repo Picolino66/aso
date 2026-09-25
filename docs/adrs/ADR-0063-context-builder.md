@@ -35,8 +35,9 @@ A documentação diz que "todo agente recebe o contexto atualizado", mas:
 - `agents/context_builder.py` (puro; recebe `FontesDoContexto` extraídas pelo serviço) monta
   `ContextoDaTarefa` em **prioridade estrita**: card (sempre) → item de especificação de
   origem (casado por título na versão atual da spec) → resumo do discovery aprovado → ficha
-  da demanda → ADRs aceitas da fase do card ou referenciadas por ele → saídas anteriores do
-  ledger (`architecture`, `contracts`, `engineering`), por seção.
+  da demanda → ADRs aceitas da fase do card ou referenciadas por ele → vizinhança no código
+  dos arquivos citados (índice estrutural, [ADR-0077](ADR-0077-indice-estrutural-por-commit.md))
+  → saídas anteriores do ledger (`architecture`, `contracts`, `engineering`), por seção.
 - **Orçamento** em caracteres (`ASO_CONTEXTO_MAX_CHARS`, padrão 12.000): o primeiro item que
   não cabe é omitido **inteiro**, junto com todos os de menor prioridade; as chaves omitidas
   ficam em `omitidos`. Nada é cortado no meio.
@@ -54,3 +55,11 @@ A documentação diz que "todo agente recebe o contexto atualizado", mas:
   (custo acompanhado na MEL-41).
 - O congelamento de seções (ADR-0061) passa a proteger informação que de fato é consumida.
 - Leitura do repositório pelo agente (MEL-40) e índice de código (MEL-44) ficam fora.
+
+## Adendo (ADR-0077, MEL-44)
+
+Entrou o item `codigo`: uma linha por arquivo citado pelo trabalho (símbolos com linha, pontos de
+entrada, quem importa, testes que cobrem), tirada do índice estrutural por commit. "Arquivos
+citados" = `linked_files` do card + `componentes_afetados` do discovery aprovado (já validados
+contra o índice), no máximo 5. Sem arquivo citado o índice nem é construído, e o item respeita o
+orçamento como qualquer outro.

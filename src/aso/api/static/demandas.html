@@ -108,27 +108,15 @@
     </main>
   </div>
   <script src="/ui/header.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {});
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
 
-    function token() { return localStorage.getItem('aso_token') || ''; }
-    async function api(path, opts) {
-      opts = opts || {};
-      const headers = Object.assign({}, opts.headers || {});
-      if (token()) headers.Authorization = 'Bearer ' + token();
-      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
-      let corpo = null;
-      try { corpo = await r.json(); } catch (e) { corpo = null; }
-      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return corpo;
-    }
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
+    // Acesso à API pelo módulo compartilhado (ADR-0078): erros 403/409 com uma mensagem
+    // só e 202 da fila resolvido sozinho (ADR-0067).
+    const token = ASOApi.token, api = ASOApi.api, esc = ASOApi.esc;
 
     const CAMPOS_FILTRO = [
       'q', 'project_id', 'tipo', 'risco', 'complexidade', 'impacto',
@@ -149,7 +137,7 @@
     // em vez de fingir uma ação que não existe (ADR-0038).
     function acoesDaLinha(orch) {
       return [
-        { rotulo: 'Abrir', href: '/ui/detalhe?id=' + orch.id },
+        { rotulo: 'Abrir', href: '/ui/esteira?id=' + orch.id },
         { rotulo: 'Editar', desabilitado: 'Sem suporte hoje — ver FID-12 (cadastro completo)' },
         { rotulo: 'Duplicar', onClick: function () { duplicar(orch.id); } },
         { rotulo: 'Priorizar', desabilitado: 'Não existe prioridade de demanda separada do risco (ADR-0038)' },
@@ -166,7 +154,7 @@
     async function duplicar(id) {
       try {
         const nova = await api('/v1/orchestrations/' + encodeURIComponent(id) + '/duplicate', { method: 'POST' });
-        location.href = '/ui/detalhe?id=' + nova.id;
+        location.href = '/ui/esteira?id=' + nova.id;
       } catch (e) { alert('Não foi possível duplicar: ' + e.message); }
     }
     async function cancelar(id) {

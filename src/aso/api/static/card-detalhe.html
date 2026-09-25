@@ -44,7 +44,7 @@
   </div>
 
   <script src="/ui/header.js"></script>
-  <script src="/ui/jobs.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     const ID = new URLSearchParams(location.search).get('id');
@@ -52,22 +52,9 @@
     ASOHeader.mount(document.getElementById('app-header'), { orchestrationId: ID });
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
 
-    function token() { return localStorage.getItem('aso_token') || ''; }
-    async function api(path, opts) {
-      opts = opts || {};
-      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
-      if (token()) headers.Authorization = 'Bearer ' + token();
-      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
-      let corpo = null;
-      try { corpo = await r.json(); } catch (e) { corpo = null; }
-      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return window.asoResolverResposta(r.status, corpo, headers);
-    }
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
+    // Acesso à API pelo módulo compartilhado (ADR-0078): erros 403/409 com uma mensagem
+    // só e 202 da fila resolvido sozinho (ADR-0067).
+    const token = ASOApi.token, api = ASOApi.api, esc = ASOApi.esc;
     function lista(itens) {
       if (!itens || !itens.length) return '<p class="muted">Nenhum item.</p>';
       return '<ul class="simples">' + itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
@@ -85,7 +72,7 @@
     }
 
     if (!ID || !CARD) { location.href = '/ui/demandas'; }
-    document.getElementById('linkDemanda').href = '/ui/detalhe?id=' + encodeURIComponent(ID);
+    document.getElementById('linkDemanda').href = '/ui/esteira?id=' + encodeURIComponent(ID);
     document.getElementById('linkArvore').href = '/ui/demanda-estrutura?id=' + encodeURIComponent(ID);
 
     // As 10 abas originais (wf §14.2, ADR-0041) + "Falhas" (wf §17/§19, ADR-0048)

@@ -115,14 +115,19 @@ correto — a spec usa nomes ilustrativos. **Nenhuma task foi criada para isso.*
 
 ### 4.1 O que existe
 
-Quatro arquivos em `src/aso/api/static/`:
+> **Histórico.** Este diagnóstico descreve o console de quatro arquivos que existia quando o
+> plano foi escrito. As quatro páginas foram consolidadas nas seções da sidebar pela MEL-55
+> ([ADR-0078](adrs/ADR-0078-consolidacao-do-console.md)) e suas rotas hoje redirecionam; o mapa
+> atual está em [mapa-paginas.md](mapa-paginas.md).
 
-| Arquivo | Papel | Rota |
+Quatro arquivos em `src/aso/api/static/` (removidos na ADR-0078):
+
+| Arquivo | Papel | Rota (hoje redireciona para) |
 |---|---|---|
-| `index.html` (70 KB) | Console: lista de orquestrações + 14 abas | `/ui/console`, `/ui/` |
-| `detalhe.html` (81 KB) | Esteira F1→F7 de uma orquestração, ~12 seções empilhadas | `/ui/detalhe` |
-| `nova.html` (17 KB) | Criação de orquestração | `/ui/nova` |
-| `macro.html` (19 KB) | Visão macro | — |
+| `index.html` (70 KB) | Console: lista de orquestrações + 14 abas | `/ui/console` → `/ui/demanda-detalhe` |
+| `detalhe.html` (81 KB) | Esteira F1→F7 de uma orquestração | `/ui/detalhe` → `/ui/esteira` |
+| `nova.html` (17 KB) | Criação de orquestração | `/ui/nova` → `/ui/demanda-nova` |
+| `macro.html` (19 KB) | Visão macro | `/ui/` → `/ui/dashboard` |
 
 Abas do console: `kanban · pulls · races · costs · worktrees · slo · learning ·
 adrs · approvals · conflicts · snapshots · patches · audit · timeline`.

@@ -11,7 +11,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import Engine, create_engine, delete, event, func, inspect, select, update
+from sqlalchemy import (
+    Engine,
+    case,
+    create_engine,
+    delete,
+    event,
+    func,
+    inspect,
+    select,
+    update,
+)
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -81,7 +91,7 @@ from aso.governance.models import (
     Snapshot,
 )
 from aso.kanban.models import Board, BoardColumn, CardEvent, KanbanCard
-from aso.observability.agent_runs import KIND_ASK, AgentRun
+from aso.observability.agent_runs import KIND_ASK, KIND_EXECUTE, STATUS_FALHA, AgentRun
 from aso.persistence.ports import ConcurrentModificationError
 from aso.persistence.state import OrchestrationState
 from aso.shared.types import ColumnKey, GateStatus
@@ -644,6 +654,53 @@ class SqlAlchemyOrchestrationRepository:
             )
             return set(session.scalars(stmt))
 
+    def orchestration_of_approval(self, approval_id: str) -> str | None:
+        """De qual orquestração é esta aprovação (MEL-52) — uma query pela PK.
+
+        Antes, `_find_approval` hidratava TODAS as orquestrações até achar o id: decidir uma
+        aprovação custava o sistema inteiro. Agora custa uma linha + um agregado."""
+        with self._session_factory() as session:
+            return session.scalar(
+                select(HumanApprovalRow.orchestration_id).where(HumanApprovalRow.id == approval_id)
+            )
+
+    def approvals(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[HumanApproval]:
+        """Aprovações projetadas direto das linhas (MEL-52), sem hidratar agregado nenhum.
+
+        Ordem estável e igual à do agregado: por orquestração e pela posição gravada."""
+        with self._session_factory() as session:
+            stmt = select(HumanApprovalRow)
+            if status is not None:
+                stmt = stmt.where(HumanApprovalRow.status == status)
+            if orchestration_ids is not None:
+                if not orchestration_ids:
+                    return []
+                stmt = stmt.where(HumanApprovalRow.orchestration_id.in_(orchestration_ids))
+            rows = session.scalars(
+                stmt.order_by(HumanApprovalRow.orchestration_id, HumanApprovalRow.posicao)
+            ).all()
+            return [HumanApproval(**_cols(row, exclude=("posicao",))) for row in rows]
+
+    def incidents(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[Incident]:
+        """Incidentes de todo o sistema por consulta (MEL-55) — a tela cross-demanda precisa
+        deles sem hidratar agregado nenhum, mesmo raciocínio das aprovações (MEL-52).
+
+        Mais recentes primeiro: numa lista de incidentes, o que acabou de abrir é o que importa."""
+        with self._session_factory() as session:
+            stmt = select(IncidentRow)
+            if status is not None:
+                stmt = stmt.where(IncidentRow.status == status)
+            if orchestration_ids is not None:
+                if not orchestration_ids:
+                    return []
+                stmt = stmt.where(IncidentRow.orchestration_id.in_(orchestration_ids))
+            rows = session.scalars(stmt.order_by(IncidentRow.created_at.desc())).all()
+            return [Incident(**_cols(row, exclude=("posicao",))) for row in rows]
+
     def aggregate_metrics(self) -> dict[str, Any]:
         with self._session_factory() as session:
             orch_total = session.scalar(select(func.count()).select_from(OrchestrationRow)) or 0
@@ -733,6 +790,117 @@ class SqlAlchemyOrchestrationRepository:
                 {"type": r.type, "payload": r.payload, "created_at": r.created_at} for r in rows
             ]
             return items, int(total)
+
+    def count_events_by_type(self, orchestration_id: str, types: tuple[str, ...]) -> dict[str, int]:
+        """`COUNT(*) GROUP BY type` do log de eventos (MEL-52).
+
+        As métricas de execução liam a timeline INTEIRA para contar dois tipos de evento; aqui o
+        banco conta. Tipo sem nenhuma linha volta zero, para quem chama não precisar de `get`."""
+        if not types:
+            return {}
+        with self._session_factory() as session:
+            rows = session.execute(
+                select(EventRow.type, func.count())
+                .where(EventRow.orchestration_id == orchestration_id, EventRow.type.in_(types))
+                .group_by(EventRow.type)
+            ).all()
+        contagem = {tipo: 0 for tipo in types}
+        for tipo, total in rows:
+            contagem[str(tipo)] = int(total)
+        return contagem
+
+    def amostras_de_aprendizado(self, orchestration_ids: list[str]) -> list[dict[str, Any]]:
+        """Insumos do relatório de aprendizado global por consulta (MEL-52).
+
+        Antes, o relatório global hidratava o agregado INTEIRO de cada orquestração do recorte
+        (board, plano, contexto, patches, eventos, snapshots…) para usar cards, PRs, aprovações,
+        deploys e o tempo por card. Aqui só as colunas usadas viajam, e só os eventos
+        `AgentExecuted` (o tempo por card) são lidos — nunca a timeline completa."""
+        if not orchestration_ids:
+            return []
+        ids = list(dict.fromkeys(orchestration_ids))
+        with self._session_factory() as session:
+            cards = session.execute(
+                select(
+                    CardRow.orchestration_id,
+                    CardRow.id,
+                    CardRow.status,
+                    CardRow.executor,
+                    CardRow.assignee,
+                    CardRow.phase,
+                    CardRow.failures,
+                    CardRow.uso,
+                    CardRow.tentativa_atual,
+                    CardRow.qa_checks,
+                )
+                .where(CardRow.orchestration_id.in_(ids))
+                .order_by(CardRow.orchestration_id, CardRow.posicao)
+            ).all()
+            pulls = session.execute(
+                select(
+                    PullRequestRow.orchestration_id,
+                    PullRequestRow.card_id,
+                    PullRequestRow.review_rounds,
+                    PullRequestRow.review_status,
+                )
+                .where(PullRequestRow.orchestration_id.in_(ids))
+                .order_by(PullRequestRow.orchestration_id, PullRequestRow.posicao)
+            ).all()
+            approvals = session.execute(
+                select(HumanApprovalRow.orchestration_id, HumanApprovalRow.status)
+                .where(HumanApprovalRow.orchestration_id.in_(ids))
+                .order_by(HumanApprovalRow.orchestration_id, HumanApprovalRow.posicao)
+            ).all()
+            deploys = session.execute(
+                select(OrchestrationRow.id, OrchestrationRow.deploy_runs).where(
+                    OrchestrationRow.id.in_(ids)
+                )
+            ).all()
+            eventos = session.execute(
+                select(EventRow.orchestration_id, EventRow.payload).where(
+                    EventRow.orchestration_id.in_(ids), EventRow.type == "AgentExecuted"
+                )
+            ).all()
+
+        por_id: dict[str, dict[str, Any]] = {
+            oid: {
+                "orchestration_id": oid,
+                "cards": [],
+                "pulls": [],
+                "approvals": [],
+                "deploy_runs": [],
+                "tempo_ms_por_card": {},
+            }
+            for oid in ids
+        }
+        for oid, *valores in cards:
+            chaves = (
+                "id",
+                "status",
+                "executor",
+                "assignee",
+                "phase",
+                "failures",
+                "uso",
+                "tentativa_atual",
+                "qa_checks",
+            )
+            por_id[oid]["cards"].append(dict(zip(chaves, valores, strict=True)))
+        for oid, card_id, rounds, review_status in pulls:
+            por_id[oid]["pulls"].append(
+                {"card_id": card_id, "review_rounds": rounds, "review_status": review_status}
+            )
+        for oid, status in approvals:
+            por_id[oid]["approvals"].append(status)
+        for oid, deploy_runs in deploys:
+            por_id[oid]["deploy_runs"] = list(deploy_runs or [])
+        for oid, payload in eventos:
+            card_id = (payload or {}).get("card_id")
+            ms = (payload or {}).get("ms")
+            if isinstance(card_id, str) and isinstance(ms, int | float):
+                tempos = por_id[oid]["tempo_ms_por_card"]
+                tempos[card_id] = tempos.get(card_id, 0.0) + float(ms)
+        return [por_id[oid] for oid in ids]
 
     def recent_events(self, *, limit: int) -> list[dict[str, Any]]:
         """Atividade recente GLOBAL (Dashboard §3.3, ADR-0037) — uma única query
@@ -1085,6 +1253,25 @@ class SqlAlchemyAgentRunRepository:
                 )
             )
             return round(float(total or 0.0), 6)
+
+    def agregados_de_execucao(self, orchestration_id: str) -> dict[str, float]:
+        """Contagem, duração média e falhas das execuções — `COUNT/AVG` no banco (MEL-52)."""
+        with self._session_factory() as session:
+            total, media, falhas = session.execute(
+                select(
+                    func.count(),
+                    func.avg(AgentRunRow.duracao_ms),
+                    func.sum(case((AgentRunRow.status == STATUS_FALHA, 1), else_=0)),
+                ).where(
+                    AgentRunRow.orchestration_id == orchestration_id,
+                    AgentRunRow.kind == KIND_EXECUTE,
+                )
+            ).one()
+        return {
+            "execucoes": float(total or 0),
+            "duracao_media_ms": round(float(media), 1) if media is not None else 0.0,
+            "falhas_de_execucao": float(falhas or 0),
+        }
 
     def expurgar_textos(self, antes_de: str) -> int:
         with self._session_factory() as session:

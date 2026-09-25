@@ -8,8 +8,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
 from aso.api.deps import ApiDeps
 
@@ -19,26 +19,29 @@ _STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 def criar_router(deps: ApiDeps) -> APIRouter:
     router = APIRouter()
 
-    # -- UI: rotas explícitas (precedem o mount de arquivos estáticos) ----------
-    @router.get("/ui/", include_in_schema=False)
-    def ui_macro() -> FileResponse:
-        """Kanban Macro: visão global de todos os projetos e cards (tela inicial)."""
-        return FileResponse(_STATIC_DIR / "macro.html")
+    # -- Rotas legadas: redirecionam para a página equivalente da sidebar (ADR-0078, MEL-55).
+    # As quatro páginas legadas (`macro.html`, `nova.html`, `detalhe.html`, `index.html`) foram
+    # consolidadas: nenhuma funcionalidade ficou só nelas (inventário na ADR-0078). Os
+    # redirecionamentos ficam porque link salvo e marcador do operador não podem quebrar; a
+    # query string é preservada para `?id=` continuar abrindo a mesma demanda. 307 (temporário)
+    # de propósito: um 301 ficaria no cache do navegador mesmo depois de a rota sair.
+    def _redirecionar(destino: str) -> Callable[[Request], RedirectResponse]:
+        def handler(request: Request) -> RedirectResponse:
+            consulta = request.url.query
+            return RedirectResponse(f"{destino}?{consulta}" if consulta else destino, 307)
 
-    @router.get("/ui/nova", include_in_schema=False)
-    def ui_nova() -> FileResponse:
-        """Formulário focado de nova orquestração (sem outras orquestrações)."""
-        return FileResponse(_STATIC_DIR / "nova.html")
+        return handler
 
-    @router.get("/ui/detalhe", include_in_schema=False)
-    def ui_detalhe() -> FileResponse:
-        """Sala de controle de UMA orquestração: fase, próximo passo e pendências."""
-        return FileResponse(_STATIC_DIR / "detalhe.html")
-
-    @router.get("/ui/console", include_in_schema=False)
-    def ui_console() -> FileResponse:
-        """Console técnico completo (abas de auditoria) — mantido para operação avançada."""
-        return FileResponse(_STATIC_DIR / "index.html")
+    _LEGADAS = {
+        "/ui/": "/ui/dashboard",  # kanban macro → visão geral (projetos ficam em Configurações)
+        "/ui/nova": "/ui/demanda-nova",
+        "/ui/detalhe": "/ui/esteira",  # sala de controle, agora dentro da sidebar
+        "/ui/console": "/ui/demanda-detalhe",  # auditoria técnica → aba Governança da demanda
+    }
+    for _rota, _destino in _LEGADAS.items():
+        router.add_api_route(
+            _rota, _redirecionar(_destino), methods=["GET"], include_in_schema=False
+        )
 
     @router.get("/ui/demanda-nova", include_in_schema=False)
     def ui_demanda_nova() -> FileResponse:

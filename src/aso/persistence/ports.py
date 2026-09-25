@@ -7,6 +7,7 @@ from typing import Any, Protocol, runtime_checkable
 from aso.agents.models import AgentDefinition
 from aso.control.models import Orchestration, Project, ProjectEvent
 from aso.control.routing_rules import RoutingRule
+from aso.governance.models import HumanApproval, Incident
 from aso.persistence.state import OrchestrationState
 
 
@@ -49,6 +50,12 @@ class OrchestrationRepository(Protocol):
 
     def orchestration_ids_with_pending_approval(self) -> set[str]: ...
 
+    def orchestration_of_approval(self, approval_id: str) -> str | None: ...
+
+    def approvals(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[HumanApproval]: ...
+
     def aggregate_metrics(self) -> dict[str, Any]: ...
 
     def events_page(
@@ -56,6 +63,16 @@ class OrchestrationRepository(Protocol):
     ) -> tuple[list[dict[str, Any]], int]: ...
 
     def recent_events(self, *, limit: int) -> list[dict[str, Any]]: ...
+
+    def count_events_by_type(
+        self, orchestration_id: str, types: tuple[str, ...]
+    ) -> dict[str, int]: ...
+
+    def amostras_de_aprendizado(self, orchestration_ids: list[str]) -> list[dict[str, Any]]: ...
+
+    def incidents(
+        self, *, status: str | None = None, orchestration_ids: set[str] | None = None
+    ) -> list[Incident]: ...
 
     def audit_page(
         self,

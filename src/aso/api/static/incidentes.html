@@ -8,8 +8,9 @@
   <link rel="stylesheet" href="/ui/components.css">
   <style>
     body { display:flex; flex-direction:column; min-height:100vh; }
-    .placeholder { max-width:640px; margin:40px auto; text-align:center; }
-    .placeholder h2 { margin:0 0 10px; font-size:20px; }
+    .filtros { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+    .filtros select { margin:0; width:auto; }
+    .aviso { color:#b3261e; }
   </style>
 </head>
 <body>
@@ -17,21 +18,99 @@
   <div class="shell">
     <nav id="app-sidebar"></nav>
     <main>
-      <section class="card placeholder">
-        <h2>Incidentes</h2>
+      <section class="card">
+        <h2 style="margin:0">Incidentes</h2>
         <p class="muted">
-          Esta seção ainda não foi implementada — acompanhe sem card de tela dedicado — entidade já existe (FID-05, ADR-0032) no board
-          (<a href="/docs" target="_blank">API</a>).
+          Incidentes de <b>todas as demandas</b> (§21, ADR-0032), abertos automaticamente pelo
+          rollback de implantação. A timeline completa e as ações <b>investigar</b>/<b>resolver</b>
+          ficam na aba "Incidentes" da demanda — aqui está a visão cruzada para achar o que está
+          aberto agora.
         </p>
-        <a href="/ui/detalhe">Conteúdo relacionado hoje: Detalhe da orquestração (rollback/incidentes) →</a>
+        <div class="filtros">
+          <select id="fStatus">
+            <option value="">todos os status</option>
+            <option value="aberto">aberto</option>
+            <option value="investigando">investigando</option>
+            <option value="resolvido">resolvido</option>
+          </select>
+          <select id="fProjeto"><option value="">todos os projetos</option></select>
+          <span class="muted" id="contagem"></span>
+        </div>
+        <div id="erro" class="aviso"></div>
+        <table>
+          <tr>
+            <th>Aberto em</th><th>Demanda</th><th>Título</th><th>Gravidade</th><th>Status</th>
+            <th>Implantação</th><th></th>
+          </tr>
+          <tbody id="linhas"></tbody>
+        </table>
       </section>
     </main>
   </div>
+
   <script src="/ui/header.js"></script>
   <script src="/ui/sidebar.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script>
     ASOHeader.mount(document.getElementById('app-header'), {});
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'incidentes' });
+    const api = ASOApi.api, esc = ASOApi.esc;
+    const PILL = { aberto: 'err', investigando: 'warn', resolvido: 'ok' };
+
+    async function carregar() {
+      document.getElementById('erro').textContent = '';
+      const status = document.getElementById('fStatus').value;
+      const projeto = document.getElementById('fProjeto').value;
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (projeto) params.set('project_id', projeto);
+      let incidentes = [], demandas = [];
+      try {
+        incidentes = await api('/v1/incidents' + (params.toString() ? '?' + params : ''));
+        demandas = await api('/v1/orchestrations');
+      } catch (e) {
+        document.getElementById('erro').textContent = e.message;
+        return;
+      }
+      const titulo = {};
+      demandas.forEach(function (o) { titulo[o.id] = (o.user_request || o.id).slice(0, 60); });
+      document.getElementById('contagem').textContent =
+        incidentes.length + ' incidente(s)';
+      document.getElementById('linhas').innerHTML = incidentes.length
+        ? incidentes.map(function (i) {
+            const implantacao = [i.deploy_ambiente, i.deploy_estagio]
+              .filter(Boolean).join(' · ') +
+              (i.deploy_versao != null ? ' v' + i.deploy_versao : '');
+            return '<tr><td>' + esc((i.created_at || '').replace('T', ' ').slice(0, 16)) + '</td>' +
+              '<td><a href="/ui/demanda-detalhe?id=' + encodeURIComponent(i.orchestration_id) +
+              '&aba=incidentes">' + esc(titulo[i.orchestration_id] || i.orchestration_id) +
+              '</a></td>' +
+              '<td>' + esc(i.titulo) + (i.motivo ? '<br><span class="muted">' +
+              esc(i.motivo.slice(0, 120)) + '</span>' : '') + '</td>' +
+              '<td>' + esc(i.gravidade) + '</td>' +
+              '<td><span class="pill ' + (PILL[i.status] || '') + '">' + esc(i.status) +
+              '</span></td>' +
+              '<td>' + esc(implantacao || '—') + '</td>' +
+              '<td><a class="btn sm ghost" href="/ui/demanda-detalhe?id=' +
+              encodeURIComponent(i.orchestration_id) + '&aba=incidentes">Abrir</a></td></tr>';
+          }).join('')
+        : '<tr><td colspan="7" class="muted">nenhum incidente registrado</td></tr>';
+    }
+
+    async function carregarProjetos() {
+      try {
+        const projetos = await api('/v1/projects');
+        document.getElementById('fProjeto').innerHTML =
+          '<option value="">todos os projetos</option>' + projetos.map(function (p) {
+            return '<option value="' + esc(p.id) + '">' + esc(p.name) + '</option>';
+          }).join('');
+      } catch (e) { /* sem projetos cadastrados: o filtro fica só com "todos" */ }
+    }
+
+    document.getElementById('fStatus').addEventListener('change', carregar);
+    document.getElementById('fProjeto').addEventListener('change', carregar);
+    carregarProjetos();
+    carregar();
   </script>
 </body>
 </html>

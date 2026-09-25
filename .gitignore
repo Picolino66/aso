@@ -20,6 +20,8 @@ build/
 # Worktrees dos cards. O runtime injeta esta mesma linha no .gitignore dos repos-alvo
 # (WorkspaceService.ensure_git); faltava aqui, e o próprio ASO já foi alvo de orquestração.
 .aso/worktrees/
+# Índice estrutural por commit (ADR-0077) — derivado, recalculável
+.aso/index/
 
 # Banco SQLite local. `alembic` sem ASO_DATABASE_URL cai no fallback `sqlite:///aso.db`
 # (migrations/env.py) e cria este arquivo na raiz — é estado de runtime, não código.

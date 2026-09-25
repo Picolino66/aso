@@ -98,10 +98,7 @@ def test_apenas_dashboard_carrega_mermaid() -> None:
     página; as outras 19 continuam sem nenhuma lib externa."""
     client = _client()
     for rota in (
-        "/ui/",
-        "/ui/nova",
-        "/ui/detalhe",
-        "/ui/console",
+        # As 4 rotas legadas saíram na ADR-0078 (redirecionam para as seções abaixo).
         "/ui/demandas",
         "/ui/esteira",
         "/ui/kanban",

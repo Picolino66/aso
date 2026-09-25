@@ -141,6 +141,13 @@ class AgentRunRepository(Protocol):
         """Custo somado das perguntas (`kind=ask`) — o das execuções já está nos cards."""
         ...
 
+    def agregados_de_execucao(self, orchestration_id: str) -> dict[str, float]:
+        """`execucoes`, `duracao_media_ms` e `falhas_de_execucao` das execuções (MEL-52).
+
+        Uma execução = um `AgentRun` de `kind=execute` (o mesmo 1:1 do evento `AgentExecuted`),
+        então a métrica sai de consulta agregada em vez da timeline inteira."""
+        ...
+
 
 class InMemoryAgentRunRepository:
     """Adapter em memória (testes e modo sem banco)."""
@@ -174,6 +181,19 @@ class InMemoryAgentRunRepository:
             ),
             6,
         )
+
+    def agregados_de_execucao(self, orchestration_id: str) -> dict[str, float]:
+        execucoes = [
+            r
+            for r in self._runs.values()
+            if r.orchestration_id == orchestration_id and r.kind == KIND_EXECUTE
+        ]
+        duracoes = [float(r.duracao_ms) for r in execucoes if r.duracao_ms]
+        return {
+            "execucoes": float(len(execucoes)),
+            "duracao_media_ms": round(sum(duracoes) / len(duracoes), 1) if duracoes else 0.0,
+            "falhas_de_execucao": float(sum(1 for r in execucoes if r.status == STATUS_FALHA)),
+        }
 
     def expurgar_textos(self, antes_de: str) -> int:
         alterados = 0

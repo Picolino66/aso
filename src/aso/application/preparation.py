@@ -43,6 +43,7 @@ from aso.control.spec import STATUS_REPROVADO as SPEC_STATUS_REPROVADO
 from aso.control.spec import SpecDocument, SpecService, SpecWorkItem
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.code_index import indice_para_uso
 from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.execution.workspace import WorkspaceAnalyzer, WorkspaceService
 from aso.kanban.models import KanbanCard
@@ -179,6 +180,9 @@ class PreparationService:
             nome = self._discovery_executor(executor, assignment_ref)
             efetivo_effort = effort or (assignment_ref.effort if assignment_ref else None)
             assignment = AgentAssignment(executor=nome, effort=efetivo_effort) if nome else None
+            # Índice estrutural (ADR-0077): construído uma vez e reaproveitado no evento —
+            # rastreabilidade de QUAL commit orientou e validou este discovery.
+            indice = indice_para_uso(root)
             report = self._perguntar_registrando(
                 b.orchestration.id,
                 None,
@@ -190,6 +194,7 @@ class PreparationService:
                     comentarios_anteriores=comentarios,
                     # O agente CLI lê um checkout de leitura da pasta (ADR-0069).
                     repositorio=AcessoAoRepositorio(caminho=str(root)),
+                    indice=indice,
                 ),
             )
             report.status = (
@@ -210,6 +215,8 @@ class PreparationService:
                     "origem": report.origem,
                     "versao": report.versao,
                     "acesso_repo": report.acesso_repo,
+                    "indice_commit": indice.commit if indice else "",
+                    "componentes_descartados": list(report.componentes_descartados),
                 },
             )
             self._persist(b)

@@ -124,3 +124,6 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0073 — Esforço (effort) mapeado por tipo de executor](adrs/ADR-0073-effort-mapeado-por-executor.md)
 - [ADR-0074 — Execução em lote por ondas com limite de paralelismo por orquestração](adrs/ADR-0074-paralelismo-por-onda.md)
 - [ADR-0075 — Remoção de código morto e de abstrações que não mudavam a execução](adrs/ADR-0075-remocao-de-codigo-morto.md)
+- [ADR-0076 — Catálogo único de executores (e flags como campo do perfil)](adrs/ADR-0076-catalogo-unico-de-executores.md)
+- [ADR-0077 — Índice estrutural do repositório por commit (e por que não embeddings)](adrs/ADR-0077-indice-estrutural-por-commit.md)
+- [ADR-0078 — Consolidação do console: uma geração de páginas, uma navegação](adrs/ADR-0078-consolidacao-do-console.md)

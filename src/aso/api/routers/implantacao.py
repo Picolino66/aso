@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
 
 from aso.api.deps import ApiDeps, actor_de
@@ -220,6 +220,17 @@ def criar_router(deps: ApiDeps) -> APIRouter:
         )
 
     # --- incidentes (§21, wf §27/§38, ADR-0032) ---
+
+    @router.get("/v1/incidents")
+    def list_all_incidents(
+        status: str | None = Query(default=None),
+        project_id: str | None = Query(default=None),
+    ) -> Any:
+        """Incidentes de todas as demandas (Tela "Incidentes" da sidebar, MEL-55/ADR-0078).
+
+        Filtros vão para a consulta: nada de hidratar agregado para filtrar em memória (MEL-52)."""
+        ids = {o.id for o in svc.list_all(project_id=project_id)} if project_id else None
+        return svc.list_all_incidents(status=status, orchestration_ids=ids)
 
     @router.get("/v1/orchestrations/{orchestration_id}/incidents")
     def list_incidents(orchestration_id: str) -> Any:

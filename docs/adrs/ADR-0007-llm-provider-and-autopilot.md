@@ -49,3 +49,12 @@ cards+ADRs governados.
 - Prepara M3/M4 (PhaseRunner + loop de autopilot com aprovação por fase) e M5
   (execução de código real em F5/F6 com gate rodando testes).
 - Aprovação humana continua obrigatória nos portões de fase (§8.6/§24).
+
+## Adendo (ADR-0076, MEL-54)
+
+O cliente LLM do planejamento não vem mais do ambiente (`build_llm_client_from_env` foi removido):
+sai do catálogo — executor atribuído à etapa `planejamento` ou o LLM padrão (primeiro perfil LLM
+com chave). `ASO_LLM_*` apenas semeia o perfil `llm` quando não há catálogo salvo. O
+`RoutingExecutionProvider` (planner F1–F4 / coder F5–F6) foi removido: rotear por fase é atribuir
+executores por etapa (ADR-0014). Ver
+[ADR-0076](ADR-0076-catalogo-unico-de-executores.md).

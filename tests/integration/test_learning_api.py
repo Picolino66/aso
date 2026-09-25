@@ -53,6 +53,9 @@ def test_learning_global_consolida_duas_orquestracoes() -> None:
     card2.executor = "claude-opus"
     svc.register_qa_check(orch1.id, card1.id, cenario="a")
     svc.fail_qa_check(orch1.id, card1.id, 0)
+    # O relatório global lê consultas, não o cache de agregados (MEL-52): a mutação direta do
+    # card precisa estar gravada — é o que qualquer fluxo real faz antes de responder.
+    svc._persist(svc._bundle(orch2.id))  # noqa: SLF001
 
     corpo = client.get("/v1/learning").json()
     assert corpo["orchestration_id"] == "todas"

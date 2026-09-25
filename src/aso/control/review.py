@@ -32,6 +32,7 @@ from aso.control.models import SPEC_KEY, AgentAssignment
 from aso.control.respostas_estruturadas import vocabulario
 from aso.control.triage import DemandBrief
 from aso.execution.catalog import ExecutorCatalog
+from aso.execution.impacto import ImpactoEstrutural
 from aso.execution.repositorio_leitura import AcessoAoRepositorio
 from aso.shared.ids import now_iso
 from aso.shared.types import RiskLevel
@@ -264,12 +265,15 @@ class ReviewService:
         adrs: list[tuple[str, str, str]] | None = None,
         saida_ci: str = "",
         repositorio: AcessoAoRepositorio | None = None,
+        impacto: ImpactoEstrutural | None = None,
     ) -> ReviewVerdict:
         """Veredito da revisão. Sem agente (ou com falha), `necessita_humano`.
 
         O pedido leva o item de spec de origem, os critérios, as ADRs relacionadas
-        (`(id, título, decisão)`) e a última saída da CI; com `repositorio` e executor CLI, o
-        revisor lê a branch da PR em modo leitura (ADR-0069)."""
+        (`(id, título, decisão)`), a última saída da CI e o impacto estrutural do índice
+        (ADR-0077: quem importa os arquivos alterados e quais testes os cobrem — "risco de
+        regressão" deixa de ser adivinhação); com `repositorio` e executor CLI, o revisor lê a
+        branch da PR em modo leitura (ADR-0069)."""
         if assignment is None or self._catalog is None:
             return _indisponivel("nenhum agente revisor configurado")
         diff_truncado, aviso_truncamento = _truncar_diff(diff)
@@ -286,6 +290,7 @@ class ReviewService:
                 adrs=adrs or [],
                 saida_ci=saida_ci,
                 repositorio=repositorio,
+                impacto=impacto,
             )
         except ERROS_DE_AGENTE as exc:
             return _indisponivel(f"{type(exc).__name__}: {exc}"[:200])
@@ -312,6 +317,7 @@ class ReviewService:
         adrs: list[tuple[str, str, str]] | None = None,
         saida_ci: str = "",
         repositorio: AcessoAoRepositorio | None = None,
+        impacto: ImpactoEstrutural | None = None,
     ) -> dict[str, object]:
         assert self._catalog is not None  # noqa: S101 - garantido pelo chamador
         pedido = _pedido(
@@ -324,6 +330,7 @@ class ReviewService:
             item_de_spec=item_de_spec,
             adrs=adrs or [],
             saida_ci=saida_ci,
+            impacto=impacto,
         )
         leitura = tem_acesso_ao_repositorio(self._catalog, assignment, repositorio)
         return perguntar_ao_agente(
@@ -455,6 +462,7 @@ def _pedido(
     item_de_spec: dict[str, object] | None = None,
     adrs: list[tuple[str, str, str]] | None = None,
     saida_ci: str = "",
+    impacto: ImpactoEstrutural | None = None,
 ) -> str:
     linhas = [f"Card em revisão: {card_title}"]
     if card_description:
@@ -470,6 +478,8 @@ def _pedido(
         )
     for adr_id, titulo, decisao in (adrs or [])[:10]:
         linhas.append(f"ADR relacionada {adr_id} — {titulo}: {decisao[:400]}")
+    if impacto is not None and not impacto.vazio():
+        linhas.append(impacto.como_texto())
     if saida_ci:
         linhas.append("Última execução da CI:\n" + saida_ci[-3000:])
     if aviso:

@@ -417,7 +417,7 @@ def test_pipeline_completo_planeja_na_criacao_com_o_llm_do_catalogo(
     monkeypatch.setenv("CHAVE_FORTE", "k")
     client = TestClient(create_app(OrchestrationService(catalog=catalogo)))
     resp = client.post(
-        "/v1/orchestrations", json={"user_request": "x", "execution_mode": "full_pipeline"}
+        "/v1/orchestrations", json={"user_request": "x", "execution_mode": "full-pipeline"}
     )
     assert resp.status_code == 201
     assert chamadas and chamadas[0][0] == "forte"

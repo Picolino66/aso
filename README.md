@@ -195,9 +195,10 @@ que o agente está fazendo"** com a saída do CLI em tempo real, funil só da fa
 corrente, pendências de governança acionáveis e atividade ao vivo por SSE. Cada etapa
 da esteira mostra o que é, o que entrega e **qual agente a executa** —
 clicar no chip troca o agente daquela fase, então F1 pode rodar num modelo barato e F5 no
-mais forte, na mesma orquestração. O console técnico completo — timeline, ADRs, aprovações,
-snapshots (diff), patches, conflitos, corridas de candidatos, custos e PRs — continua em
-`/ui/console`.
+mais forte, na mesma orquestração. Essa sala de controle é a seção **Esteira** (`/ui/esteira?id=`);
+a auditoria técnica — timeline, ADRs, aprovações, snapshots (diff), patches, conflitos, corridas de
+candidatos, custos e PRs — fica nas abas de `/ui/demanda-detalhe` (ADR-0078). As rotas antigas
+(`/ui/`, `/ui/nova`, `/ui/detalhe`, `/ui/console`) redirecionam para as seções equivalentes.
 
 Para o painel mostrar ferramenta por ferramenta (e não só a resposta final do agente), marque
 **streaming** no perfil do executor (⚙ Config): o ASO monta `--output-format stream-json

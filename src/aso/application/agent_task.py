@@ -39,6 +39,8 @@ from aso.control.preparation import (
     marcar_item,
 )
 from aso.control.spec import SpecDocument
+from aso.execution.code_index import indice_para_uso
+from aso.execution.impacto import vizinhanca_para_contexto
 from aso.execution.llm_provider import LlmExecutionProvider
 from aso.execution.precos import precificar
 from aso.kanban.models import KanbanCard
@@ -360,6 +362,10 @@ class AgentTaskService:
         self._bundle(orchestration_id)  # 404 coerente para orquestração inexistente
         return self._agent_runs.listar(orchestration_id, card_id=card_id)
 
+    def execution_aggregates(self, orchestration_id: str) -> dict[str, float]:
+        """Agregados das execuções deste agregado (MEL-52) — consulta, não timeline."""
+        return self._agent_runs.agregados_de_execucao(orchestration_id)
+
     def get_agent_run(self, run_id: str) -> AgentRun:
         run = self._agent_runs.obter(run_id)
         if run is None:
@@ -418,5 +424,41 @@ class AgentTaskService:
             discovery_resumo=discovery_resumo,
             ficha_da_demanda=ficha,
             adrs=adrs,
+            vizinhanca_do_codigo=AgentTaskService._vizinhanca_do_codigo(b, card),
             ledger={secao: payload.get(secao) for secao in SECOES_DO_LEDGER},
         )
+
+    # Quantos arquivos citados entram com vizinhança: o suficiente para orientar sem
+    # empurrar spec/ADRs fora do orçamento de contexto (ADR-0063).
+    _MAX_ARQUIVOS_NA_VIZINHANCA = 5
+
+    @staticmethod
+    def _arquivos_citados(b: OrchestrationBundle, card: KanbanCard) -> list[str]:
+        """Caminhos que a governança já associou a este trabalho, em ordem de confiança.
+
+        `linked_files` é a rastreabilidade explícita do card; os `componentes_afetados` do
+        discovery aprovado vêm depois — eles já foram conferidos contra o índice (ADR-0077),
+        então não são chute do agente."""
+        citados = list(card.linked_files)
+        if b.orchestration.discovery_reports:
+            relatorio = versao_atual(b.orchestration.discovery_reports, DiscoveryReport)
+            if relatorio.status == STATUS_APROVADO:
+                citados.extend(relatorio.componentes_afetados)
+        return list(dict.fromkeys(c for c in citados if c.strip()))
+
+    @staticmethod
+    def _vizinhanca_do_codigo(b: OrchestrationBundle, card: KanbanCard) -> list[str]:
+        """Fatos estruturais dos arquivos citados por este trabalho (ADR-0077).
+
+        Só roda quando há arquivo citado: sem isso não há o que localizar, e indexar por nada
+        custaria segundos em toda execução. Falha de leitura nunca impede a execução."""
+        alvo = b.orchestration.target_path
+        citados = AgentTaskService._arquivos_citados(b, card)
+        if not (alvo and citados):
+            return []
+        indice = indice_para_uso(alvo)
+        if indice is None:
+            return []
+        arquivos = [c for c in citados if c.strip().removeprefix("./") in indice.arquivos]
+        limite = AgentTaskService._MAX_ARQUIVOS_NA_VIZINHANCA
+        return vizinhanca_para_contexto(indice, arquivos[:limite])

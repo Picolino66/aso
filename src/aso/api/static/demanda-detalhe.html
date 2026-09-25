@@ -43,7 +43,7 @@
   </div>
 
   <script src="/ui/header.js"></script>
-  <script src="/ui/jobs.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script>
     const ID = new URLSearchParams(location.search).get('id');
@@ -51,22 +51,9 @@
     ASOHeader.mount(document.getElementById('app-header'), { orchestrationId: ID });
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'demandas' });
 
-    function token() { return localStorage.getItem('aso_token') || ''; }
-    async function api(path, opts) {
-      opts = opts || {};
-      const headers = Object.assign({ 'content-type': 'application/json' }, opts.headers || {});
-      if (token()) headers.Authorization = 'Bearer ' + token();
-      const r = await fetch(path, Object.assign({}, opts, { headers: headers }));
-      let corpo = null;
-      try { corpo = await r.json(); } catch (e) { corpo = null; }
-      if (!r.ok) throw new Error((corpo && corpo.detail) || ('HTTP ' + r.status));
-      return window.asoResolverResposta(r.status, corpo, headers);
-    }
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
+    // Acesso à API pelo módulo compartilhado (ADR-0078): erros 403/409 com uma mensagem só e
+    // 202 da fila resolvido sozinho (ADR-0067).
+    const token = ASOApi.token, api = ASOApi.api, esc = ASOApi.esc;
     function lista(itens) {
       if (!itens || !itens.length) return '<p class="muted">Nenhum item.</p>';
       return '<ul class="simples">' + itens.map(function (i) { return '<li>' + esc(i) + '</li>'; }).join('') + '</ul>';
@@ -86,7 +73,8 @@
     // Deploys ganhou o pipeline/checklist/saúde/rollback das Telas 22-25.
     const ABAS = [
       'Visão geral', 'Classificação', 'Recomendação', 'Discovery', 'Documentos', 'Cards',
-      'Execuções', 'Testes', 'Reviews', 'Deploys', 'Incidentes', 'Encerramento', 'Histórico', 'Métricas',
+      'Execuções', 'Testes', 'Reviews', 'Deploys', 'Incidentes', 'Governança', 'Encerramento',
+      'Histórico', 'Métricas',
     ];
 
     const ESTRATEGIAS_ROLLBACK = [
@@ -388,9 +376,10 @@
     }
 
     async function abaExecucoes() {
-      const [metricas, runs] = await Promise.all([
+      const [metricas, runs, linhaDoTempo] = await Promise.all([
         api('/v1/orchestrations/' + encodeURIComponent(ID) + '/execution-metrics'),
         api('/v1/orchestrations/' + encodeURIComponent(ID) + '/candidate-runs'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/execution-timeline'),
       ]);
       let html = '<p class="muted"><a href="/ui/execucoes?id=' + encodeURIComponent(ID) + '">Ver painel de execução por card →</a></p>';
       html += campo('Execuções de agente', String(metricas.agent_executions)) +
@@ -403,6 +392,29 @@
         return '<div class="subitem">Card ' + esc(r.card_id) + ' — recomendado: <strong>' + esc(r.recommended_branch || '—') + '</strong>' +
           ' · ' + (r.candidates || []).length + ' candidato(s)</div>';
       }).join('') : '<p class="muted">Nenhuma corrida de candidatos.</p>';
+      // Tempo e custo por card (antes só no console técnico). Tempo é fallback declarado, não
+      // custo: dois agentes de 30 s podem diferir em 50x no valor pago (§1.1, ADR-0026).
+      const porCard = linhaDoTempo.cards || [];
+      html += '<h3>Tempo e custo por card</h3>';
+      html += porCard.length
+        ? '<table><tr><th>Card</th><th style="text-align:right">Execuções</th>' +
+          '<th style="text-align:right">Tempo (ms)</th><th style="text-align:right">Falhas</th>' +
+          '<th style="text-align:right">Custo (US$)</th></tr>' +
+          porCard.map(function (x) {
+            return '<tr><td><a href="/ui/card-detalhe?id=' + encodeURIComponent(ID) + '&card=' +
+              encodeURIComponent(x.card_id) + '"><code>' + esc(x.card_id) + '</code></a></td>' +
+              '<td style="text-align:right">' + x.executions + '</td>' +
+              '<td style="text-align:right">' + Math.round(x.total_ms) + '</td>' +
+              '<td style="text-align:right">' + x.failures + '</td>' +
+              '<td style="text-align:right">' +
+              (x.total_custo_usd ? Number(x.total_custo_usd).toFixed(4) : '—') + '</td></tr>';
+          }).join('') + '</table>' +
+          (linhaDoTempo.total_custo_usd
+            ? '<p class="muted">Custo total informado pelos agentes: US$ ' +
+              Number(linhaDoTempo.total_custo_usd).toFixed(4) + '.</p>'
+            : '<p class="muted">Nenhuma execução informou custo — o tempo é a única pista de ' +
+              'onde o esforço se concentrou (ADR-0026).</p>')
+        : '<p class="muted">Nenhuma execução de agente registrada.</p>';
       return html;
     }
 
@@ -656,6 +668,208 @@
       ['pendencias_futuras', 'Pendências futuras'],
     ];
 
+    // ------------------------------------------------- Governança (migrada do console técnico)
+    // Patches do ContextBus, conflitos, snapshots (diff + restauração de seção), orçamento de erro
+    // e worktrees em disco só existiam no console técnico, removido na ADR-0078 (MEL-55).
+    function pillSeveridade(s) {
+      const cor = (s === 'critical' || s === 'high') ? 'err'
+        : (s === 'warning' || s === 'medium') ? 'warn' : 'ok';
+      return '<span class="pill ' + cor + '">' + esc(s) + '</span>';
+    }
+
+    async function abaGovernanca() {
+      const [patches, conflitos, snapshots, slo, historico, worktrees] = await Promise.all([
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/patches'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/conflicts'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/snapshots'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/slo'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/slo-history?limit=20'),
+        api('/v1/orchestrations/' + encodeURIComponent(ID) + '/worktrees').catch(function () {
+          return [];
+        }),
+      ]);
+      let html = '<p class="muted">O ContextBus é o único escritor do contexto canônico: cada ' +
+        'mudança é um patch validado. Restaurar seção e remover worktrees órfãos são ações ' +
+        'críticas (papel <code>admin</code>).</p>';
+
+      html += '<h3 style="margin-top:0">Patches do ContextBus (' + patches.length + ')</h3>';
+      html += patches.length
+        ? '<table><tr><th>Agente</th><th>Alvo</th><th>Tipo</th><th>Status</th></tr>' +
+          patches.map(function (p) {
+            return '<tr><td>' + esc(p.agent) + '</td><td><code>' + esc(p.target_path) +
+              '</code></td><td>' + esc(p.patch_type) + '</td><td>' + esc(p.status) + '</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Nenhum patch submetido.</p>';
+
+      html += '<h3>Conflitos (' + conflitos.length + ')</h3>';
+      html += conflitos.length
+        ? '<table><tr><th>Tipo</th><th>Descrição</th><th>Status</th><th></th></tr>' +
+          conflitos.map(function (cf) {
+            return '<tr><td>' + esc(cf.type) + '</td><td>' + esc(cf.description) +
+              (cf.resolution ? '<div class="muted">→ ' + esc(cf.resolution) + '</div>' : '') +
+              '</td><td>' + esc(cf.status) + '</td><td>' +
+              (cf.status === 'open'
+                ? '<button class="btn sm" data-resolver="' + esc(cf.id) + '">Resolver</button>'
+                : '') + '</td></tr>';
+          }).join('') + '</table>'
+        : '<p class="muted">Nenhum conflito detectado.</p>';
+
+      const opcoes = snapshots.map(function (sn) {
+        return '<option>' + esc(sn.snapshot_version) + '</option>';
+      }).join('');
+      html += '<h3>Snapshots (' + snapshots.length + ')</h3>';
+      html += snapshots.length
+        ? '<table><tr><th>Versão</th><th>Fase</th><th>Seções congeladas</th></tr>' +
+          snapshots.map(function (sn) {
+            return '<tr><td><code>' + esc(sn.snapshot_version) + '</code></td><td>' +
+              esc(sn.phase) + '</td><td class="muted">' +
+              esc((sn.frozen_sections || []).join(', ') || '—') + '</td></tr>';
+          }).join('') + '</table>' +
+          '<div class="row" style="margin-top:10px"><span class="muted" ' +
+          'style="align-self:center">comparar:</span>' +
+          '<select id="snapA" style="width:auto;margin:0">' + opcoes + '</select>' +
+          '<span style="align-self:center">→</span>' +
+          '<select id="snapB" style="width:auto;margin:0">' + opcoes + '</select>' +
+          '<button class="btn sm" id="btDiff">Comparar</button></div><div id="diffSnap"></div>'
+        : '<p class="muted">Nenhum snapshot gerado.</p>';
+
+      const eb = slo.error_budget || {};
+      const consumido = Math.min(100, Math.round(eb.consumed_pct || 0));
+      html += '<h3>Orçamento de erro ' + pillSeveridade(eb.severity || 'ok') + '</h3>' +
+        '<div class="muted">' + (eb.failures || 0) + '/' + (eb.executions || 0) +
+        ' falhas · taxa ' + (eb.fail_rate || 0) + ' · orçamento ' + (eb.budget || 0) +
+        ' · tendência ' + esc(eb.trend || '—') + ' · amostras ' + (eb.samples || 0) + '</div>' +
+        '<div style="margin-top:8px;background:var(--panel-2);border-radius:6px;height:12px;' +
+        'overflow:hidden"><div style="height:12px;width:' + consumido +
+        '%;background:var(--accent)"></div></div>' +
+        '<div class="muted" style="margin-top:4px">burn-rate ' + (eb.burn_rate || 0) + '× · ' +
+        consumido + '% consumido</div>' +
+        '<div class="row" style="margin-top:8px">' +
+        '<button class="btn sm" id="btAvaliarSlo">Avaliar agora</button></div>';
+      html += (slo.slos || []).length
+        ? '<table style="margin-top:8px"><tr><th>SLO</th><th>Alvo</th><th>Atual</th>' +
+          '<th>Severidade</th></tr>' + slo.slos.map(function (x) {
+            return '<tr><td>' + esc(x.name) + '</td><td>' + esc(String(x.target)) + '</td><td>' +
+              esc(String(x.actual)) + '</td><td>' + pillSeveridade(x.severity) + '</td></tr>';
+          }).join('') + '</table>'
+        : '';
+      if (historico.length) {
+        html += '<h4 style="margin:12px 0 4px">Histórico de burn-rate (' + historico.length +
+          ' amostras)</h4><table><tr><th>Quando</th><th style="text-align:right">Burn-rate</th>' +
+          '<th style="text-align:right">% consumido</th></tr>' +
+          historico.slice().reverse().map(function (h) {
+            return '<tr><td class="muted">' + esc(h.created_at) + '</td>' +
+              '<td style="text-align:right">' + h.burn_rate + '×</td>' +
+              '<td style="text-align:right">' + h.consumed_pct + '%</td></tr>';
+          }).join('') + '</table>';
+      }
+
+      const orfaos = worktrees.filter(function (w) { return w.orfao; });
+      html += '<h3>Worktrees em disco (' + worktrees.length + ' · ' + orfaos.length +
+        ' órfão(s))</h3>';
+      html += worktrees.length
+        ? '<table><tr><th>Caminho</th><th>Branch</th><th>Estado</th></tr>' +
+          worktrees.map(function (w) {
+            return '<tr><td><code>' + esc(w.path) + '</code></td><td>' + esc(w.branch || '—') +
+              '</td><td>' + (w.orfao ? '<span class="pill err">órfão</span>'
+                                     : '<span class="muted">ativo</span>') + '</td></tr>';
+          }).join('') + '</table>' +
+          (orfaos.length
+            ? '<div class="row" style="margin-top:8px"><button class="btn sm err" id="btPrune">' +
+              'Remover órfãos (admin)</button></div>'
+            : '')
+        : '<p class="muted">Nenhum worktree em disco — o runtime remove ao fim de cada execução; ' +
+          'sobra algo aqui só depois de um processo morto (§3.3, ADR-0027).</p>';
+      return html;
+    }
+
+    function wireGovernancaAcoes() {
+      const conteudo = document.getElementById('conteudoAbas');
+      // Delegação: os botões são recriados a cada render da aba. Uma vez só — reatar a cada
+      // troca de aba dispararia a ação N vezes.
+      if (conteudo.dataset.governancaLigada) return;
+      conteudo.dataset.governancaLigada = '1';
+      conteudo.addEventListener('click', async function (ev) {
+        if (abaAtual !== 'Governança') return;
+        const resolver = ev.target.getAttribute && ev.target.getAttribute('data-resolver');
+        const restaurar = ev.target.getAttribute && ev.target.getAttribute('data-restaurar');
+        try {
+          if (resolver) {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/conflicts/' +
+              encodeURIComponent(resolver) + '/resolve', { method: 'POST', body: {} });
+            delete TAB_CACHE['Governança'];
+            await carregarAbaAtual();
+          } else if (restaurar) {
+            await restaurarSecao(restaurar, ev.target.getAttribute('data-versao'));
+          } else if (ev.target.id === 'btAvaliarSlo') {
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/slo/evaluate',
+                      { method: 'POST', body: {} });
+            delete TAB_CACHE['Governança'];
+            await carregarAbaAtual();
+          } else if (ev.target.id === 'btPrune') {
+            if (!confirm('Remover os worktrees órfãos? Isso não apaga nada do banco — só o que ' +
+                         'sobrou em disco de um processo morto.')) return;
+            await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/worktrees/prune',
+                      { method: 'POST', body: {} });
+            delete TAB_CACHE['Governança'];
+            await carregarAbaAtual();
+          } else if (ev.target.id === 'btDiff') {
+            await compararSnapshots();
+          }
+        } catch (e) { alert(e.message); }
+      });
+    }
+
+    async function compararSnapshots() {
+      const a = document.getElementById('snapA').value;
+      const b = document.getElementById('snapB').value;
+      const d = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/snapshots/' +
+        encodeURIComponent(a) + '/diff/' + encodeURIComponent(b));
+      const detalhes = d.section_details || {};
+      const secoes = d.changed_sections || [];
+      document.getElementById('diffSnap').innerHTML =
+        '<div class="subitem" style="margin-top:10px">' +
+        '<div>seções alteradas: <strong>' + esc(secoes.join(', ') || '—') + '</strong></div>' +
+        '<div class="muted">congeladas +: ' + esc((d.frozen_added || []).join(', ') || '—') +
+        ' · -: ' + esc((d.frozen_removed || []).join(', ') || '—') + '</div>' +
+        (secoes.length
+          ? '<table style="margin-top:6px"><tr><th>Seção</th><th>+ adicionadas</th>' +
+            '<th>- removidas</th><th>~ alteradas</th><th></th></tr>' +
+            secoes.map(function (secao) {
+              const x = detalhes[secao] || {};
+              return '<tr><td><code>' + esc(secao) + '</code></td><td>' +
+                esc((x.added || []).join(', ') || '—') + '</td><td>' +
+                esc((x.removed || []).join(', ') || '—') + '</td><td>' +
+                esc((x.modified || []).join(', ') || '—') + '</td>' +
+                '<td><button class="btn sm ghost" data-restaurar="' + esc(secao) +
+                '" data-versao="' + esc(a) + '">Restaurar de ' + esc(a) + '</button></td></tr>';
+            }).join('') + '</table>' +
+            '<div class="muted" style="margin-top:4px">Restaurar seção restaura só aquela seção ' +
+            'a partir do snapshot da esquerda — ação crítica (admin).</div>'
+          : '') + '</div>';
+    }
+
+    async function restaurarSecao(secao, versao) {
+      // Dry-run antes de confirmar: a ação é crítica e escreve no ledger (ADR-0061).
+      const previa = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/snapshots/' +
+        encodeURIComponent(versao) + '/restore-section/preview?section=' +
+        encodeURIComponent(secao));
+      const mudancas = previa.changes || {};
+      const resumo = previa.no_op
+        ? 'Nenhuma mudança (seção idêntica ao snapshot).'
+        : '+' + (mudancas.added || []).length + ' -' + (mudancas.removed || []).length +
+          ' ~' + (mudancas.modified || []).length;
+      if (!confirm('Restaurar a seção "' + secao + '" a partir do snapshot ' + versao +
+                   '?\n\nImpacto: ' + resumo)) return;
+      if (previa.no_op) return;
+      const r = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/snapshots/' +
+        encodeURIComponent(versao) + '/restore-section', { method: 'POST', body: { section: secao } });
+      alert('Seção "' + r.section + '" restaurada (contexto v' + r.context_version + ').');
+      delete TAB_CACHE['Governança'];
+      await carregarNucleo();
+      await carregarAbaAtual();
+    }
+
     async function abaEncerramento() {
       const dados = await api('/v1/orchestrations/' + encodeURIComponent(ID) + '/closure');
       const r = dados.relatorio, m = dados.metricas;
@@ -715,8 +929,8 @@
       'Visão geral': abaVisaoGeral, 'Classificação': abaClassificacao, 'Recomendação': abaRecomendacao,
       'Discovery': abaDiscovery, 'Documentos': abaDocumentos,
       'Cards': abaCards, 'Execuções': abaExecucoes, 'Testes': abaTestes, 'Reviews': abaReviews,
-      'Deploys': abaDeploys, 'Incidentes': abaIncidentes, 'Encerramento': abaEncerramento,
-      'Histórico': abaHistorico, 'Métricas': abaMetricas,
+      'Deploys': abaDeploys, 'Incidentes': abaIncidentes, 'Governança': abaGovernanca,
+      'Encerramento': abaEncerramento, 'Histórico': abaHistorico, 'Métricas': abaMetricas,
     };
 
     function wireAbaAtual() {
@@ -725,6 +939,7 @@
       if (abaAtual === 'Discovery') wireDiscoveryAcoes();
       if (abaAtual === 'Deploys') wireDeploysAcoes();
       if (abaAtual === 'Incidentes') wireIncidentesAcoes();
+      if (abaAtual === 'Governança') wireGovernancaAcoes();
     }
 
     async function carregarAbaAtual() {

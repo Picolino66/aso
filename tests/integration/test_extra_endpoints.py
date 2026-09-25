@@ -187,9 +187,13 @@ def test_assets_compartilhados_nao_sao_interceptados_pela_rota_de_secao() -> Non
         assert client.get(f"/ui/{asset}").status_code == 200
 
 
-def test_rotas_antigas_continuam_validas_sem_sidebar() -> None:
+def test_rotas_antigas_redirecionam_para_as_secoes_com_sidebar() -> None:
+    """ADR-0078 supersede a decisão da ADR-0036 de manter as legadas fora da sidebar: elas foram
+    consolidadas nas seções, e agora TODA página do console tem a navegação."""
     client = TestClient(create_app(OrchestrationService()))
     for rota in ("/ui/", "/ui/nova", "/ui/detalhe", "/ui/console"):
-        pagina = client.get(rota).text
-        assert "/ui/sidebar.js" not in pagina
-        assert 'id="app-sidebar"' not in pagina
+        assert client.get(rota, follow_redirects=False).status_code == 307, rota
+        pagina = client.get(rota, follow_redirects=True)
+        assert pagina.status_code == 200, rota
+        assert "/ui/sidebar.js" in pagina.text, rota
+        assert 'id="app-sidebar"' in pagina.text, rota

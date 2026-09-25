@@ -90,5 +90,5 @@ def test_demandas_html_aponta_historico_e_documentos_para_demanda_detalhe() -> N
     pagina = client.get("/ui/demandas").text
     assert "/ui/demanda-detalhe?id=' + orch.id + '&aba=Histórico'" in pagina
     assert "/ui/demanda-detalhe?id=' + orch.id + '&aba=Documentos'" in pagina
-    # "Abrir" continua indo para a sala de controle legada (ação, não navegação de leitura)
-    assert "{ rotulo: 'Abrir', href: '/ui/detalhe?id=' + orch.id }" in pagina
+    # "Abrir" vai para a sala de controle, agora a seção Esteira (MEL-55, ADR-0078)
+    assert "{ rotulo: 'Abrir', href: '/ui/esteira?id=' + orch.id }" in pagina

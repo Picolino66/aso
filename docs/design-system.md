@@ -145,7 +145,7 @@ Novo nesta ADR — nenhuma tela hoje o consome ainda; existe para a Tela 10
   <div>14:04 — Módulo authentication identificado</div>
 </div>
 ```
-Variante rica (usada em `detalhe.html`, painel ao vivo do agente): `.feed` com
+Variante rica (usada em `esteira.html`, painel ao vivo do agente): `.feed` com
 linhas `.l` tipadas (`.texto`/`.ferramenta`/`.resultado`/`.marco`/`.bruto`/`.err`).
 
 ### Barra de progresso (wf §6.4)
@@ -175,8 +175,8 @@ página); ambos continuam funcionando.
 - `max-width:900px` — colapsa qualquer `main` de duas colunas para uma coluna.
 - `max-width:720px` — reduz o padding do header e esconde `header .spacer`.
 
-Cada página pode acrescentar seus próprios ajustes finos (ex.: `nova.html`
-empilha o indicador de etapas em telas muito estreitas).
+Cada página pode acrescentar seus próprios ajustes finos (ex.: `esteira.html`
+colapsa a coluna de atividade ao vivo em telas estreitas).
 
 ## O que NÃO mudou (tokens/componentes, ADR-0034)
 

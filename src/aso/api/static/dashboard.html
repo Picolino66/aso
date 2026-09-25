@@ -71,6 +71,7 @@ flowchart LR
     </main>
   </div>
   <script src="/ui/header.js"></script>
+  <script src="/ui/aso-api.js"></script>
   <script src="/ui/sidebar.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
   <script>
@@ -78,18 +79,8 @@ flowchart LR
     ASOSidebar.mount(document.getElementById('app-sidebar'), { active: 'dashboard' });
     if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: 'neutral' }); }
 
-    function token() { return localStorage.getItem('aso_token') || ''; }
-    async function api(path) {
-      const headers = {};
-      if (token()) headers.Authorization = 'Bearer ' + token();
-      const r = await fetch(path, { headers });
-      return r.ok ? r.json() : null;
-    }
-    function esc(s) {
-      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-      });
-    }
+    // Acesso à API pelo módulo compartilhado (ADR-0078).
+    const token = ASOApi.token, api = ASOApi.api, esc = ASOApi.esc;
 
     // Sem campo de "variação": nenhuma série temporal real existe hoje para
     // calcular isso (ADR-0037) — cada card mostra só valor e link.

@@ -36,6 +36,12 @@ class FonteDeMetricas(Protocol):
 
     def aggregate_metrics(self) -> dict[str, Any]: ...
 
+    def execution_aggregates(self, orchestration_id: str) -> dict[str, float]: ...
+
+    def count_events_by_type(
+        self, orchestration_id: str, types: tuple[str, ...]
+    ) -> dict[str, int]: ...
+
 
 # SLOs padrão (baseados em sintomas). Cada um é avaliado por orquestração.
 _BLOCKED_STATUSES = ("Blocked", "Failed")
@@ -84,18 +90,39 @@ class MetricsService:
         return self.svc.aggregate_metrics()
 
     def execution_metrics(self, orchestration_id: str) -> dict[str, Any]:
-        """Métricas de execução: nº de execuções, duração média, retries, falhas, waiting-human."""
-        events = self.svc.timeline(orchestration_id)
-        executed = [e for e in events if e.type == "AgentExecuted"]
-        durations = [float(e.payload.get("ms", 0)) for e in executed]
+        """Métricas de execução: nº de execuções, duração média, retries, falhas, waiting-human.
+
+        MEL-52: nada disto materializa a timeline. Execuções e duração média saem de `agent_runs`
+        (ADR-0065 — um run de `kind=execute` por evento `AgentExecuted`, 1:1); retries e falhas de
+        card saem de `COUNT(*) GROUP BY type` no log. `origem` declara de onde vieram as execuções:
+        agregado sem nenhum run (banco anterior à ADR-0065, ou runs expurgados) cai para a
+        contagem de eventos, em vez de relatar zero execuções.
+        """
+        agregados = self.svc.execution_aggregates(orchestration_id)
+        contagens = self.svc.count_events_by_type(
+            orchestration_id, ("AgentExecuted", "AgentRetry", "AgentFailed")
+        )
+        execucoes = int(agregados.get("execucoes", 0.0))
+        origem = "agent_runs"
+        media_ms = float(agregados.get("duracao_media_ms", 0.0))
+        if execucoes == 0 and contagens.get("AgentExecuted", 0):
+            origem = "eventos"
+            execucoes = contagens["AgentExecuted"]
+            duracoes = [
+                float(e.payload.get("ms", 0))
+                for e in self.svc.timeline(orchestration_id)
+                if e.type == "AgentExecuted"
+            ]
+            media_ms = round(sum(duracoes) / len(duracoes), 1) if duracoes else 0.0
         counts = self.svc.count_cards_by_status(orchestration_id)
         return {
             "orchestration_id": orchestration_id,
-            "agent_executions": len(executed),
-            "avg_ms": round(sum(durations) / len(durations), 1) if durations else 0.0,
-            "retries": len([e for e in events if e.type == "AgentRetry"]),
-            "failures": len([e for e in events if e.type == "AgentFailed"]),
+            "agent_executions": execucoes,
+            "avg_ms": media_ms,
+            "retries": contagens.get("AgentRetry", 0),
+            "failures": contagens.get("AgentFailed", 0),
             "waiting_human": counts.get("WaitingHuman", 0),
+            "origem": origem,
         }
 
     def execution_timeline(self, orchestration_id: str) -> dict[str, Any]:

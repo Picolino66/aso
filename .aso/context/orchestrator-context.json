@@ -800,8 +800,8 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 1734,
-      "coverage": "94.77%",
+      "tests": 1799,
+      "coverage": "94.81%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
@@ -1340,7 +1340,10 @@
     "MEL-43",
     "MEL-51",
     "MEL-50",
-    "MEL-53"
+    "MEL-53",
+    "MEL-54",
+    "MEL-44",
+    "MEL-52"
   ],
   "increments_post_o5": [
     "FID-25 (Tela 29 - Metricas e aprendizado, wf §31, ADR-0052): investigacao previa confirmou que a maior parte ja tinha fonte real -- observability/aprendizado.py (ADR-0025) ja agregava por executor/modelo (execucoes, falhas, retrabalho, tempo medio, custo) e list_orchestrations (ADR-0038) ja filtrava por projeto/periodo em SQL real indexado; a tabela de comparacao de modelos (wf §31.2) ja estava 100% coberta. O card cita aprendizado.py como origem das 8 recomendacoes, mas o modulo produzia so 1 frase de texto livre -- nenhuma das 8 categorias existia como logica distinta. Nova recomendacoes_estruturadas(): 6 categorias com regra deterministica e limiar fixo documentado (aumentar effort/evitar modelo/adicionar teste/modificar aprovacao/alterar limite de tentativas/ajustar roteamento); 'criar agente especializado' e 'criar template de card' ficam PERMANENTEMENTE desabilitadas -- nenhum sinal nos dados sustenta essas duas, mesmo padrao de 'criar investigacao separada' desabilitada no FID-21/ADR-0048. 'Cobertura de testes' e SEMPRE None, nunca calculado -- sem fonte real no runtime, mostrado honestamente como 'nao disponivel'. get_learning_report_global ganhou project_id/data_de/data_ate -- filtro SQL real aplicado ANTES de hidratar qualquer orquestracao (mesmo cuidado de escala de audit_page/ADR-0051). 4 indicadores novos (tempo/custo medio por demanda, numero medio de tentativas, falhas por agente) -- consolidar() ganhou parametros de CONTAGEM BRUTA somados pelo coletor antes de dividir (nunca uma media-de-medias); 'primeiro ciclo'/'tentativas' usam tentativa_atual (contador autoritativo sem limite de ring, ADR-0031); 'falhas por agente' usa novo CardSnapshot.agente (papel), agrupamento diferente de desempenho_por_executor (modelo). /ui/metricas deixou de ser placeholder: pagina unica cross-demanda (mesmo padrao de /ui/auditoria), 15 indicadores, comparacao de modelos, 8 recomendacoes com justificativa. Nenhuma migration necessaria -- tudo em dataclasses puras computadas na leitura. 27 testes novos; ruff+format+mypy --strict OK; alembic sem novas operacoes; pytest com cobertura >=80% (1307 testes, 93.27%).",
@@ -1386,6 +1389,9 @@
     "MEL-43 — effort mapeado por executor com declaração de não suporte; 1724 testes / 94.93%",
     "MEL-51 — lock git por repositório (paralelismo entre projetos); 1728 testes / 94.93%",
     "MEL-50 — paralelismo por onda com limites e dependência só após Done; 1734 testes / 94.82%",
-    "MEL-53 — remoção de código morto e abstrações vazias com migration validada no Postgres; 1734 testes / 94.77%"
+    "MEL-53 — remoção de código morto e abstrações vazias com migration validada no Postgres; 1734 testes / 94.77%",
+    "MEL-54 — catálogo único de executores (ADR-0076): env só semeia, sem provider global nem RoutingExecutionProvider, streaming/permissão de escrita como campo do perfil com migração dos perfis salvos, planejamento e corrida de candidatos pelo catálogo; 1756 testes / 94.83%",
+    "MEL-44 — índice estrutural por commit (ADR-0077): execution/code_index.py + impacto.py, cache em .aso/index/<commit>.json, discovery valida componentes contra o índice, revisão recebe dependentes e testes, contexto do card ganha a vizinhança dos arquivos citados; 1789 testes / 94.82%",
+    "MEL-52 — consultas sem hidratar agregados: aprovação localizada por consulta (uma orquestração), listagem global projetada das linhas, métricas de execução por agent_runs + COUNT GROUP BY e relatório de aprendizado global por amostras SQL, com aritmética única; 1799 testes / 94.81%"
   ]
 }
