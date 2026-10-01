@@ -128,3 +128,4 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0077 — Índice estrutural do repositório por commit (e por que não embeddings)](adrs/ADR-0077-indice-estrutural-por-commit.md)
 - [ADR-0078 — Consolidação do console: uma geração de páginas, uma navegação](adrs/ADR-0078-consolidacao-do-console.md)
 - [ADR-0079 — Demandas parecidas por BM25 em processo (e por que não `tsvector`/FTS5 nem embeddings)](adrs/ADR-0079-similaridade-de-demandas-por-bm25.md)
+- [ADR-0080 — Redação de segredos como invariante do estado governado](adrs/ADR-0080-redacao-de-segredos-na-saida-de-agente.md)

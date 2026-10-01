@@ -219,6 +219,32 @@ class WorkflowService:
                 "autopilot_completed", orchestration_id=orchestration_id, phase=completed_phase
             )
             return None
+        # DISCOVERED-04: a aprovação `fase_gate` diz qual fase ela liberou, mas `advance_phase`
+        # avança a fase CORRENTE. Uma aprovação antiga (de uma fase já passada) decidida depois
+        # arrastaria a esteira sem que ninguém tivesse aprovado a fase atual — recusa e registra.
+        with self._lock_for(orchestration_id):
+            b = self._bundle(orchestration_id)
+            corrente = b.orchestration.current_phase.value
+            if corrente != completed_phase:
+                b.event_log.append(
+                    "PhaseAdvanceRefused",
+                    {
+                        "phase": corrente,
+                        "reason": (
+                            f"aprovação de fase_gate de {completed_phase}, mas a esteira está "
+                            f"em {corrente}: aprovar uma fase já passada não avança a atual"
+                        ),
+                    },
+                )
+                self._persist(b)
+                self._log.warning(
+                    "autopilot_advance_refused",
+                    orchestration_id=orchestration_id,
+                    reason="fase_gate de fase que não é a corrente",
+                    aprovada=completed_phase,
+                    corrente=corrente,
+                )
+                return None
         try:
             # Mesmo caminho governado do avanço manual: se um gate reprovado foi rodado
             # depois da abertura da aprovação, o avanço é recusado (evento

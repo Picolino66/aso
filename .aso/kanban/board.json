@@ -5520,6 +5520,98 @@
         "tests/integration/test_cache_por_commit.py (9): contagem de constru\u00e7\u00f5es provando que a segunda leitura no mesmo commit n\u00e3o reconstr\u00f3i (mem\u00f3ria e disco), invalida\u00e7\u00e3o por commit novo, \u00e1rvore suja sem cache, limite por quantidade, limpeza por idade preservando o atual, pasta sem \u00edndice, origem no relat\u00f3rio/evento/AgentRun e no painel",
         "Bateria: ruff check/format OK \u00b7 mypy strict OK \u00b7 lint-imports KEPT \u00b7 alembic upgrade+check OK (sem migration) \u00b7 pytest 1851 passed / 9 skipped / 94.77%. Docker n\u00e3o exigido: o cache \u00e9 arquivo derivado no reposit\u00f3rio-alvo, coberto por integra\u00e7\u00e3o com git real"
       ]
+    },
+    {
+      "id": "MEL-58",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Reda\u00e7\u00e3o de segredos em toda sa\u00edda de agente persistida (ADR-0080)",
+      "description": "DISCOVERED-03: a sa\u00edda do agente podia levar o valor de um segredo para o estado governado (eventos, block_reason, failures, hist\u00f3rico do card, log ao vivo) e para o log do processo \u2014 s\u00f3 agent_runs e o resultado de job eram mascarados. Regra 9.",
+      "acceptance_criteria": [
+        "Nenhum valor de vari\u00e1vel de ambiente sens\u00edvel aparece em evento, card, log ao vivo ou resposta da API depois de uma execu\u00e7\u00e3o que o imprimiu",
+        "A reda\u00e7\u00e3o \u00e9 aplicada no ponto de entrada",
+        "Padr\u00f5es conhecidos (sk-, ghp_, AKIA, Bearer, api_key=) continuam cobertos",
+        "Nenhuma mudan\u00e7a de comportamento al\u00e9m da reda\u00e7\u00e3o"
+      ],
+      "dependencies": [
+        "MEL-30"
+      ],
+      "evidence": [
+        "shared/segredos.py: mascarar_segredos, mascarar_valor (recursiva), mascarar_json; agent_runs reexporta",
+        "Pontos de entrada: EventLog.append, FailureRecord (validador), BoardService.move_card, block_reason do roteamento de falha, AgentLogBus._append/_close e processador do structlog",
+        "tests/integration/test_redacao_de_segredos.py (8), incluindo agente CLI real que imprime o segredo em stdout/stderr e falha com ele: nada em timeline, cards, agent_runs, agent-log, /runs, /next-step",
+        "O teste achou 2 vazamentos fora do invent\u00e1rio inicial (log estruturado do processo e desfecho da sess\u00e3o do log ao vivo) \u2014 ambos corrigidos",
+        "Bateria: ruff/format/mypy OK \u00b7 lint-imports KEPT \u00b7 alembic OK \u00b7 pytest 1859 passed / 9 skipped / 94.77% \u00b7 Docker: /health 200, smoke OK, log do processo redigido no container"
+      ]
+    },
+    {
+      "id": "MEL-59",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F5",
+      "status": "Done",
+      "priority": "high",
+      "title": "Aprova\u00e7\u00e3o de fase_gate de fase j\u00e1 passada n\u00e3o avan\u00e7a a fase corrente",
+      "description": "DISCOVERED-04: o auto-avan\u00e7o usava approval.payload['phase'] s\u00f3 para achar a pr\u00f3xima fase, mas advance_phase avan\u00e7a a current_phase \u2014 uma aprova\u00e7\u00e3o antiga decidida depois arrastava a esteira.",
+      "acceptance_criteria": [
+        "Aprova\u00e7\u00e3o de fase_gate cuja fase \u2260 current_phase n\u00e3o avan\u00e7a e registra PhaseAdvanceRefused",
+        "Aprovar o gate da fase corrente continua avan\u00e7ando"
+      ],
+      "dependencies": [
+        "MEL-10"
+      ],
+      "evidence": [
+        "application/workflow.py `_advance_after_phase_gate`: compara completed_phase com current_phase sob o lock; diferente \u2192 evento PhaseAdvanceRefused com o motivo, log e retorno sem avan\u00e7ar (a decis\u00e3o humana continua registrada)",
+        "tests/integration/test_autopilot_loop.py: test_aprovacao_de_fase_ja_passada_nao_avanca_a_fase_corrente (negativo) e test_aprovacao_da_fase_corrente_continua_avancando (contraprova)",
+        "Bateria: ruff/format/mypy OK \u00b7 pytest 1861 passed / 9 skipped / 94.78%. Sem persist\u00eancia nova (Docker n\u00e3o exigido)"
+      ]
+    },
+    {
+      "id": "MEL-60",
+      "epic": "EPIC-12",
+      "type": "Bug",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Imagem Docker leva o wrapper dos agentes CLI",
+      "description": "DISCOVERED-02: o Dockerfile n\u00e3o copiava scripts/, mas os perfis Codex gerenciados e o README usam /app/scripts/aso-agent-wrapper.sh \u2014 perfil CLI via wrapper falhava s\u00f3 no container.",
+      "acceptance_criteria": [
+        "/app/scripts/aso-agent-wrapper.sh existe e \u00e9 execut\u00e1vel na imagem",
+        "Teste trava a regress\u00e3o (Dockerfile e .dockerignore)"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "Dockerfile: COPY scripts/aso-agent-wrapper.sh + chmod +x (s\u00f3 o wrapper; demais scripts s\u00e3o do operador)",
+        "tests/unit/test_imagem_docker.py (3): Dockerfile copia e torna execut\u00e1vel, .dockerignore n\u00e3o exclui, caminho padr\u00e3o dos perfis gerenciados",
+        "Docker: imagem reconstru\u00edda, wrapper presente (-rwxrwxr-x) e executando \u2014 validou o contrato TaskEnvelope dentro do container; /health 200, smoke OK",
+        "Bateria: ruff/format/mypy OK \u00b7 pytest 1864 passed / 9 skipped / 94.78%"
+      ]
+    },
+    {
+      "id": "MEL-61",
+      "epic": "EPIC-12",
+      "type": "Docs",
+      "phase": "F6",
+      "status": "Done",
+      "priority": "medium",
+      "title": "Documenta\u00e7\u00e3o de API s\u00f3 cita rotas que existem",
+      "description": "DISCOVERED-05: docs/api.md listava a API 'ideal' do requisito (rotas planas /v1/boards, /v1/cards/{id}, /v1/providers, /v1/agent-router\u2026) que nunca existiu; GOVERNANCE.md citava PUT /v1/executors.",
+      "acceptance_criteria": [
+        "Nenhum documento de refer\u00eancia cita rota ausente do contrato gerado",
+        "Teste trava a regress\u00e3o"
+      ],
+      "dependencies": [
+        "MEL-02"
+      ],
+      "evidence": [
+        "docs/api.md: se\u00e7\u00f5es Kanban e Agentes reescritas com as rotas reais aninhadas por orquestra\u00e7\u00e3o, dizendo explicitamente o que o requisito previa e como o runtime resolveu (cat\u00e1logo de executores, atribui\u00e7\u00e3o por etapa, regras de roteamento, job cancel); ADRs, snapshots e context-patches com as rotas reais",
+        "docs/GOVERNANCE.md: `POST/PUT /v1/executors` \u2192 `POST /v1/executors`",
+        "tests/unit/test_docs_api_bate_com_o_contrato.py: varre api.md, README, operations, GOVERNANCE, HOW_IT_WORKS e mapa-paginas contra contracts/openapi.json + muta\u00e7\u00e3o que prova que a varredura enxerga rota inventada",
+        "Bateria: ruff/mypy OK \u00b7 pytest 1866 passed / 9 skipped / 94.79%"
+      ]
     }
   ]
 }

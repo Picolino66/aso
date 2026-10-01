@@ -800,8 +800,8 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 1851,
-      "coverage": "94.77%",
+      "tests": 1866,
+      "coverage": "94.79%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
@@ -1347,7 +1347,11 @@
     "MEL-55",
     "MEL-06",
     "MEL-45",
-    "MEL-57"
+    "MEL-57",
+    "MEL-58",
+    "MEL-59",
+    "MEL-60",
+    "MEL-61"
   ],
   "increments_post_o5": [
     "FID-25 (Tela 29 - Metricas e aprendizado, wf §31, ADR-0052): investigacao previa confirmou que a maior parte ja tinha fonte real -- observability/aprendizado.py (ADR-0025) ja agregava por executor/modelo (execucoes, falhas, retrabalho, tempo medio, custo) e list_orchestrations (ADR-0038) ja filtrava por projeto/periodo em SQL real indexado; a tabela de comparacao de modelos (wf §31.2) ja estava 100% coberta. O card cita aprendizado.py como origem das 8 recomendacoes, mas o modulo produzia so 1 frase de texto livre -- nenhuma das 8 categorias existia como logica distinta. Nova recomendacoes_estruturadas(): 6 categorias com regra deterministica e limiar fixo documentado (aumentar effort/evitar modelo/adicionar teste/modificar aprovacao/alterar limite de tentativas/ajustar roteamento); 'criar agente especializado' e 'criar template de card' ficam PERMANENTEMENTE desabilitadas -- nenhum sinal nos dados sustenta essas duas, mesmo padrao de 'criar investigacao separada' desabilitada no FID-21/ADR-0048. 'Cobertura de testes' e SEMPRE None, nunca calculado -- sem fonte real no runtime, mostrado honestamente como 'nao disponivel'. get_learning_report_global ganhou project_id/data_de/data_ate -- filtro SQL real aplicado ANTES de hidratar qualquer orquestracao (mesmo cuidado de escala de audit_page/ADR-0051). 4 indicadores novos (tempo/custo medio por demanda, numero medio de tentativas, falhas por agente) -- consolidar() ganhou parametros de CONTAGEM BRUTA somados pelo coletor antes de dividir (nunca uma media-de-medias); 'primeiro ciclo'/'tentativas' usam tentativa_atual (contador autoritativo sem limite de ring, ADR-0031); 'falhas por agente' usa novo CardSnapshot.agente (papel), agrupamento diferente de desempenho_por_executor (modelo). /ui/metricas deixou de ser placeholder: pagina unica cross-demanda (mesmo padrao de /ui/auditoria), 15 indicadores, comparacao de modelos, 8 recomendacoes com justificativa. Nenhuma migration necessaria -- tudo em dataclasses puras computadas na leitura. 27 testes novos; ruff+format+mypy --strict OK; alembic sem novas operacoes; pytest com cobertura >=80% (1307 testes, 93.27%).",
@@ -1400,6 +1404,10 @@
     "MEL-55 — consolidação do console (ADR-0078): páginas legadas removidas e rotas redirecionando, sidebar sem placeholder (esteira = sala de controle, modelos = catálogo de executores, incidentes cross-demanda com GET /v1/incidents, configurações = hub com projetos), aba Governança na demanda e módulo aso-api.js compartilhado; 1821 testes / 94.75%",
     "MEL-06 — referências de seção qualificadas (req/fluxo/wf/ADR/MEL) em todo o src, referências a plano4–plano7 substituídas pelas ADRs correspondentes e teste que trava a convenção (inclusive verificando que a seção citada existe no documento); 1826 testes / 94.75%",
     "MEL-45 — demandas parecidas por BM25 em processo (ADR-0079): control/similaridade.py puro, consulta enxuta de textos, desfecho só das vencedoras, recomendações com os ids da fonte e recusa honesta sem histórico; validado em SQLite e Postgres; 1842 testes / 94.79%",
-    "MEL-57 — governança e visibilidade do cache por commit (adendo ADR-0077): origem do índice (novo|disco|memoria) no relatório de discovery, no evento, no AgentRun e no console; limpeza por quantidade/idade; ganho medido de 1.070 ms para 28 ms (~38x); 1851 testes / 94.77%"
+    "MEL-57 — governança e visibilidade do cache por commit (adendo ADR-0077): origem do índice (novo|disco|memoria) no relatório de discovery, no evento, no AgentRun e no console; limpeza por quantidade/idade; ganho medido de 1.070 ms para 28 ms (~38x); 1851 testes / 94.77%",
+    "MEL-58 — redação de segredos como invariante do estado governado (ADR-0080): eventos, card, log ao vivo e log do processo; 1859 testes / 94.77%",
+    "MEL-59 — fase_gate de fase já passada não avança a fase corrente (DISCOVERED-04); 1861 testes / 94.78%",
+    "MEL-60 — imagem Docker leva o wrapper dos agentes CLI (DISCOVERED-02); 1864 testes / 94.78%",
+    "MEL-61 — docs só citam rotas do contrato gerado (DISCOVERED-05), com teste que varre 6 documentos; 1866 testes / 94.79%"
   ]
 }

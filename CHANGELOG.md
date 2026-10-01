@@ -30,6 +30,16 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   arquivos citados. Sem embeddings nem banco vetorial — a ADR registra por quê.
 
 ### Alterado
+- **MEL-61 — documentação de API fiel ao contrato:** `docs/api.md` deixou de listar rotas que nunca
+  existiram (a API plana do requisito) e um teste confere toda rota citada nos documentos contra o
+  OpenAPI gerado.
+- **MEL-60 — wrapper dos agentes na imagem Docker:** `/app/scripts/aso-agent-wrapper.sh` agora existe
+  no container, como os perfis Codex gerenciados e o README pressupõem.
+- **MEL-59 — aprovação antiga não arrasta a esteira:** aprovar um `fase_gate` de uma fase que já ficou
+  para trás não avança mais a fase corrente; o runtime registra `PhaseAdvanceRefused` com o motivo.
+- **MEL-58 — segredos redigidos em toda saída de agente (ADR-0080):** eventos, motivo de
+  bloqueio, falhas e histórico do card, log ao vivo e log do processo passam a trocar valores de
+  variáveis sensíveis e padrões de credencial por `[SEGREDO REMOVIDO]` no ponto de entrada (regra 9).
 - **MEL-57 — cache por commit com governança e visibilidade (ADR-0077):** o índice estrutural
   declara de onde veio (`novo`, `disco`, `memoria`) no relatório de discovery, no evento
   `DiscoveryRun`, no registro da execução e na aba Discovery do console; `.aso/index/` passa a ser

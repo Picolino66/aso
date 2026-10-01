@@ -9,7 +9,7 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
 * Task atual: nenhuma
-* Última task concluída: MEL-57
+* Última task concluída: MEL-61
 * Próxima task candidata: MEL-56 (P3, só se necessário) · MEL-04 (bloqueada: decisão do operador)
 * Estado: idle
 
@@ -639,10 +639,16 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
     (sem migration) · pytest 1851 passed / 9 skipped / 94.77%. Docker não exigido (arquivo derivado
     no repositório-alvo, coberto por integração com git real).
 
+* MEL-58 — redação de segredos em toda saída de agente (ADR-0080; nasceu da DISCOVERED-03).
+  * `shared/segredos.py` + redação em EventLog.append, FailureRecord, move_card, block_reason,
+    AgentLogBus (linha e desfecho) e processador do structlog. Teste com agente real que vaza o
+    segredo achou 2 vazamentos extras (log do processo, desfecho da sessão) — corrigidos.
+  * Validação: pytest 1859 passed / 9 skipped / 94.77% · Docker: smoke OK e log redigido no container.
+
 ## Task em andamento
 
-* nenhuma. Backlog `MEL-*` esgotado, com duas exceções registradas abaixo (MEL-56 sem gatilho,
-  MEL-04 bloqueada); segue o trabalho pelas descobertas (DISCOVERED-NN).
+* nenhuma. Backlog MEL-* e todas as DISCOVERED-NN fechados; restam só MEL-56 (gatilho não
+  disparou, medição registrada) e MEL-04 (aguarda decisão do operador).
 
 ## MEL-56 — gatilho avaliado, task NÃO iniciada
 
@@ -668,7 +674,7 @@ workers ajustados, ou requisito de alta disponibilidade") e pede a medição reg
   para `docs/historico/`). Ação necessária: operador confirmar a mudança de caminhos. Não
   bloqueia MEL-03/MEL-05/MEL-3x.
 
-* DISCOVERED-05 — `docs/api.md` ainda lista 29 endpoints que não existem no contrato gerado
+* DISCOVERED-05 — **FECHADA na MEL-61** — `docs/api.md` ainda lista 29 endpoints que não existem no contrato gerado
   (ex.: `/v1/agents/{id}/run`, `/v1/agent-runs/{id}/cancel`, `/v1/cards/{id}/run`,
   `/v1/boards`, `/v1/providers`, `/v1/cli-agents`, `/v1/snapshots/{id}/restore`).
   * Impacto: leitor procura cancelamento/execução em rotas inexistentes; contradiz ADR-0064.
@@ -694,21 +700,21 @@ workers ajustados, ou requisito de alta disponibilidade") e pede a medição reg
 
 ## Descobertas fora de escopo (DISCOVERED-NN)
 
-* DISCOVERED-04 — `_advance_after_phase_gate` usa `approval.payload["phase"]` só para achar a
+* DISCOVERED-04 — **FECHADA na MEL-59** — `_advance_after_phase_gate` usa `approval.payload["phase"]` só para achar a
   próxima fase, mas `advance_phase` avança a `current_phase`. Uma aprovação `fase_gate` antiga
   (de uma fase já passada) aprovada depois avançaria a fase corrente. Mitigado pela MEL-10
   (exige gate liberado da fase corrente), mas a aprovação continua sem conferir a fase.
   Sugestão: recusar/cancelar aprovação `fase_gate` cuja `phase` ≠ `current_phase` (MEL-20 ou
   MEL-32). Não corrigido.
 
-* DISCOVERED-03 — **PARCIAL (MEL-30 mascara `agent_runs`)** — saída de agente (stdout/stderr em eventos, `block_reason`, logs de execução)
+* DISCOVERED-03 — **FECHADA na MEL-58 (ADR-0080)** — saída de agente (stdout/stderr em eventos, `block_reason`, logs de execução)
   não é mascarada: um agente que imprimir o valor de um segredo (ex.: variável de ambiente)
   o persiste no banco/timeline. Impacto: regra 9. Evidência: nenhuma função de redação em
   `src/aso` (`grep -rn "redact\|mascar" src/aso` vazio). Sugestão: task nova de redação de
   segredos conhecidos (valores de `api_key_env`, `ASO_API_KEYS`) antes de persistir saída —
   candidata a incorporar em MEL-30 (agent_runs). Não corrigido.
 
-* DISCOVERED-02 — `Dockerfile` não copia `scripts/` para a imagem, mas o README orienta usar
+* DISCOVERED-02 — **FECHADA na MEL-60** — `Dockerfile` não copia `scripts/` para a imagem, mas o README orienta usar
   `/app/scripts/aso-agent-wrapper.sh` no comando CLI do executor. Impacto: perfil CLI via
   wrapper não funciona dentro do container sem volume. Evidência: `grep COPY Dockerfile`
   (só pyproject, src, migrations, alembic.ini, entrypoint). Sugestão: copiar `scripts/` na

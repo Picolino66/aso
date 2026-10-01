@@ -81,3 +81,41 @@ def test_autopilot_endpoint() -> None:
     res = client.post(f"/v1/orchestrations/{oid}/autopilot")
     assert res.status_code == 200
     assert res.json()["approval_id"]
+
+
+def test_aprovacao_de_fase_ja_passada_nao_avanca_a_fase_corrente() -> None:
+    """DISCOVERED-04 (regra 3/4): aprovar um `fase_gate` antigo não pode arrastar a esteira.
+
+    A aprovação diz qual fase liberou; avançar a fase CORRENTE com ela seria avançar sem que
+    ninguém tivesse aprovado a fase atual."""
+    svc = OrchestrationService()
+    oid = _multifase(svc)
+    primeira = svc.start_autopilot(oid)  # gate real de F2 aberto
+    antiga = str(primeira["approval_id"])
+
+    # Simula uma aprovação esquecida na fila: ela libera F1, mas a esteira já está em F2.
+    b = svc._bundle(oid)  # noqa: SLF001
+    velha = next(a for a in b.approvals if a.id == antiga)
+    velha.payload = {**velha.payload, "phase": "F1"}  # fase já deixada para trás
+    svc._persist(b)  # noqa: SLF001
+
+    svc.decide_approval(antiga, approved=True)
+
+    assert svc.get(oid).current_phase == Phase.F2  # não avançou
+    recusas = [e for e in svc.timeline(oid) if e.type == "PhaseAdvanceRefused"]
+    assert recusas and "já passada" in str(recusas[-1].payload["reason"])
+    assert svc.get_approval(antiga).status == "approved"  # a decisão humana fica registrada
+
+
+def test_aprovacao_da_fase_corrente_continua_avancando() -> None:
+    """Contraprova: o caminho normal (aprovar o gate da fase atual) não mudou."""
+    svc = OrchestrationService()
+    oid = _multifase(svc)
+    primeira = svc.start_autopilot(oid)
+    svc.decide_approval(str(primeira["approval_id"]), approved=True)
+    assert svc.get(oid).current_phase == Phase.F5
+    assert not [
+        e
+        for e in svc.timeline(oid)
+        if e.type == "PhaseAdvanceRefused" and "já passada" in str(e.payload.get("reason"))
+    ]

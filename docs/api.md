@@ -478,39 +478,49 @@ didática de cada etapa, para a UI montar a esteira sem duplicar texto.
 `GET /v1/orchestrations/{id}/timeline` aceita `newest_first=true`, aplicado na consulta ao
 banco. Sem ele, pedir "as N últimas atividades" devolvia as N **mais antigas**.
 
-### Kanban (§28.2)
+### Kanban (req §28.2)
+
+O requisito descreve rotas planas (`/v1/boards`, `/v1/cards/{id}`); a API real é **aninhada por
+orquestração** — cada orquestração tem um board só, então não existe recurso `board` próprio.
 ```
-GET    /v1/boards
-POST   /v1/boards
-GET    /v1/boards/{id}
-GET    /v1/boards/{id}/cards
-POST   /v1/boards/{id}/cards
-PATCH  /v1/cards/{id}
-POST   /v1/cards/{id}/move          # body: { to_column }
-POST   /v1/cards/{id}/assign-agent  # body: { agent_role | executor }
-POST   /v1/cards/{id}/run
-POST   /v1/cards/{id}/block         # body: { reason }
-POST   /v1/cards/{id}/unblock
-POST   /v1/cards/{id}/cancel        # body: { reason }; coluna Cancelled (ADR-0018)
-GET    /v1/cards/{id}/failures      # histórico de falhas do card (ADR-0019, §13)
-POST   /v1/cards/{id}/route         # aplica o roteamento de falha manualmente (ADR-0019)
-GET    /v1/cards/{id}/closure       # ficha de encerramento (ADR-0021, §23) — vazio até o merge
+GET    /v1/orchestrations/{id}/kanban                    # colunas + cards + transições permitidas
+GET    /v1/orchestrations/{id}/cards                     # filtros: status, type, assignee
+POST   /v1/orchestrations/{id}/cards                     # cria item da hierarquia (Tela 10)
+GET    /v1/orchestrations/{id}/cards/tree                # árvore Epic/Feature/Task
+GET    /v1/orchestrations/{id}/cards/{card}
+POST   /v1/orchestrations/{id}/cards/{card}/move         # body: { to_column } — valida a transição
+POST   /v1/orchestrations/{id}/cards/{card}/assign-agent # body: { agent }
+POST   /v1/orchestrations/{id}/cards/{card}/run          # 202 + job com ASO_EXECUCAO_ASSINCRONA=1
+POST   /v1/orchestrations/{id}/cards/{card}/block        # body: { reason }
+POST   /v1/orchestrations/{id}/cards/{card}/unblock
+POST   /v1/orchestrations/{id}/cards/{card}/cancel       # coluna Cancelled (ADR-0018)
+POST   /v1/orchestrations/{id}/cards/{card}/pause
+GET    /v1/orchestrations/{id}/cards/{card}/failures     # histórico de falhas (ADR-0019, fluxo §13)
+GET    /v1/orchestrations/{id}/cards/{card}/failure-diagnostics
+POST   /v1/orchestrations/{id}/cards/{card}/route        # roteamento de falha manual (ADR-0019)
+GET    /v1/orchestrations/{id}/cards/{card}/closure      # ficha de encerramento (fluxo §23)
+GET    /v1/orchestrations/{id}/cards/{card}/events       # histórico de movimentações (ADR-0041)
 ```
 
-### Agents & execução (§28.3, §26A.8)
-```
-GET    /v1/agents
-GET    /v1/agents/{id}
-GET    /v1/agents/{id}/runs
-POST   /v1/agents/{id}/run
-POST   /v1/agent-runs/{id}/cancel
-POST   /v1/agent-runs/{id}/nudge
+### Agentes e execução (req §28.3)
 
-GET/POST/PATCH/DELETE  /v1/providers ; POST /v1/providers/{id}/test ; GET /v1/providers/{id}/models
-GET/POST/PATCH/DELETE  /v1/cli-agents ; POST /v1/cli-agents/{id}/detect ; POST /v1/cli-agents/{id}/test
-GET/POST/PATCH/DELETE  /v1/agent-role-bindings
-POST   /v1/agent-router/preview
-POST   /v1/agent-router/select
+Também aqui o requisito previa recursos que o runtime resolveu de outro jeito: não há
+`/v1/providers`, `/v1/cli-agents`, `/v1/agent-role-bindings` nem `/v1/agent-router` — provider e
+agente CLI são **perfis do catálogo de executores** (ADR-0076), o vínculo papel→executor é a
+**atribuição por etapa** (ADR-0014) e o "roteador" são as **regras de roteamento** (ADR-0028). Não
+existe "rodar um agente solto" (`/v1/agents/{id}/run`): agente só executa um card, sob claim
+(ADR-0058); cancelamento é do **job** (ADR-0067).
+```
+GET    /v1/agent-definitions ; POST /v1/agent-definitions          # catálogo de papéis (ADR-0053)
+GET    /v1/agent-definitions/{id} ; PUT ; DELETE
+GET    /v1/agent-definitions/roles ; GET /v1/agent-definitions/roles/reservados
+GET    /v1/executors ; POST /v1/executors ; DELETE /v1/executors/{name} ; POST /v1/executors/sync
+PUT    /v1/orchestrations/{id}/agents/{etapa} ; DELETE …             # executor por etapa (ADR-0014)
+GET    /v1/routing-rules ; POST ; PUT /{rule_id} ; DELETE /{rule_id}
+POST   /v1/routing-rules/preview ; PUT /v1/routing-rules/reorder
+GET    /v1/orchestrations/{id}/runs ; GET /v1/runs/{run_id}         # registro de execução (ADR-0065)
+GET    /v1/orchestrations/{id}/agent-log                            # saída ao vivo (ADR-0015)
+POST   /v1/jobs/{job_id}/cancel                                     # cancela a execução (ADR-0067)
 ```
 
 ### Jobs de execução assíncrona (ADR-0067)
@@ -528,11 +538,10 @@ GET    /v1/orchestrations/{id}/quality-gates
 POST   /v1/orchestrations/{id}/quality-gates/run   # body: { phase }
 GET    /v1/quality-gates/{id}
 
-GET    /v1/orchestrations/{id}/adrs
-POST   /v1/orchestrations/{id}/adrs
-GET    /v1/adrs/{id}
-PATCH  /v1/adrs/{id}
+GET    /v1/orchestrations/{id}/adrs                 # ADRs da orquestração (ids sequenciais POR orquestração)
 ```
+ADR não tem rota própria de criação nem de edição: é registrada pelo runtime (decisão do motor,
+planejamento, restauração de ledger) e, depois de aceita, só é superada por outra — não editada.
 
 ### Consultas (lado de leitura / CQRS-lite)
 ```
@@ -541,28 +550,29 @@ GET    /v1/orchestrations/{id}/cards/by-status/{status}     # ids de cards por s
 GET    /v1/orchestrations/{id}/adrs/by-status/{status}      # ids de ADRs por status
 GET    /v1/orchestrations/{id}/adrs/{adr_id}/linked-cards   # consulta reversa (card_links)
 
-GET    /v1/orchestrations/{id}/snapshots
-POST   /v1/orchestrations/{id}/snapshots
-GET    /v1/snapshots/{id}
-POST   /v1/snapshots/{id}/restore
-GET    /v1/snapshots/{a}/diff/{b}
+GET    /v1/orchestrations/{id}/snapshots                        # gerados pelo gate aprovado (O1..O7)
+GET    /v1/orchestrations/{id}/snapshots/{a}/diff/{b}
+GET    /v1/orchestrations/{id}/snapshots/{v}/restore-section/preview?section=   # dry-run
+POST   /v1/orchestrations/{id}/snapshots/{v}/restore-section    # admin (ADR-0061)
+POST   /v1/orchestrations/{id}/restaurar-ledger                 # admin; `rollback` é alias (ADR-0061)
 
 GET    /v1/approvals ; GET /v1/approvals/{id}   # filtros status/project_id vão para a consulta
 POST   /v1/approvals/{id}/approve ; POST /v1/approvals/{id}/reject
 
-POST   /v1/context-patches            # submete patch ao ContextBus
-GET    /v1/orchestrations/{id}/conflicts
+POST   /v1/orchestrations/{id}/context-patches   # submete patch ao ContextBus
+GET    /v1/orchestrations/{id}/patches ; GET /v1/orchestrations/{id}/patches/{patch_id}
+GET    /v1/orchestrations/{id}/conflicts ; POST …/conflicts/{conflict_id}/resolve
 ```
 
 ## Regras de contrato relevantes
 
-- `POST /v1/context-patches` nunca escreve direto: enfileira no ContextBus, que roda as 6 etapas de validação (§19) e responde `applied | rejected | pending`.
-- `POST /v1/cards/{id}/run` recusa (`409`) e move o card para `Blocked` se alguma
+- `POST /v1/orchestrations/{id}/context-patches` nunca escreve direto: enfileira no ContextBus, que roda as 6 etapas de validação (§19) e responde `applied | rejected | pending`.
+- `POST /v1/orchestrations/{id}/cards/{card}/run` recusa (`409`) e move o card para `Blocked` se alguma
   dependência (`card.dependencies`, populado do `depends_on` do plano multiagente —
   [ADR-0018](adrs/ADR-0018-kanban-fiel-colunas-e-dependencias.md)) ainda não estiver
   `Done`; a execução automática via `run_plan` monta ondas pelas `card.dependencies` de
   cada card `Ready` (MEL-20) e não roda card com dependência externa pendente.
-- `POST /v1/cards/{id}/run` também re-tenta internamente em falha (ADR-0019, §13): se
+- `POST /v1/orchestrations/{id}/cards/{card}/run` também re-tenta internamente em falha (ADR-0019, §13): se
   o roteamento decidir `mesmo_agente`/`aumentar_effort`/`trocar_executor`, o mesmo
   `run_card` já tenta de novo antes de devolver a resposta; só `bloquear`/
   `escalar_humano` encerram sem sucesso (`Blocked`/`Failed`). `POST .../route` refaz
