@@ -4,7 +4,7 @@
 
 ## 1. CI/CD (TASK-19)
 
-Pipeline GitHub Actions ([.github/workflows/ci.yml](../../.github/workflows/ci.yml)) executa, em push/PR:
+Pipeline GitHub Actions ([.github/workflows/ci.yml](../../../.github/workflows/ci.yml)) executa, em push/PR:
 `ruff check` + `ruff format --check` → `mypy src` → `pytest --cov-fail-under=80` → `alembic upgrade head` + `alembic check` → `bandit` (SAST) → `pip-audit` (SCA).
 
 Todos os passos validados localmente: 55 testes, cobertura **98,1%**, ruff/mypy limpos, alembic check limpo.
@@ -17,10 +17,10 @@ Todos os passos validados localmente: 55 testes, cobertura **98,1%**, ruff/mypy 
 
 ## 3. Documentação & Deploy (TASK-21)
 
-- [operations.md](../operations.md) — runbook (executar, banco, migrations, gates, observabilidade, incidentes).
-- [deploy.md](../deploy.md) — plano de deploy + **rollback** (imagem anterior, `alembic downgrade`, restore de snapshot, restore de backup).
-- [Dockerfile](../../Dockerfile) + [docker-entrypoint.sh](../../docker-entrypoint.sh) — imagem que migra e sobe a API.
-- [CHANGELOG.md](../../CHANGELOG.md).
+- [operations.md](../../operations.md) — runbook (executar, banco, migrations, gates, observabilidade, incidentes).
+- [deploy.md](../../deploy.md) — plano de deploy + **rollback** (imagem anterior, `alembic downgrade`, restore de snapshot, restore de backup).
+- [Dockerfile](../../../Dockerfile) + [docker-entrypoint.sh](../../../docker-entrypoint.sh) — imagem que migra e sobe a API.
+- [CHANGELOG.md](../../../CHANGELOG.md).
 
 ## 4. Quality Gate F6 → F7
 

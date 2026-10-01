@@ -81,7 +81,7 @@ def test_imports_respeitam_as_camadas_do_import_linter() -> None:
 
 def test_module_map_documentado_e_o_grafo_real() -> None:
     contexto = json.loads(
-        (RAIZ / ".aso/context/orchestrator-context.json").read_text(encoding="utf-8")
+        (RAIZ / "governanca/context/orchestrator-context.json").read_text(encoding="utf-8")
     )
     documentado = {k: set(v) for k, v in contexto["engineering"]["module_map"].items()}
     real = {k: v for k, v in _grafo_real().items()}

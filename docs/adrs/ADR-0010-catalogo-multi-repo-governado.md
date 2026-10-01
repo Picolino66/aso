@@ -70,7 +70,7 @@ canônico; metadados de catálogo têm ciclo de vida e auditoria próprios.
 
 ## Evidências
 
-- Spec: [`specs/catalogo-multi-repo.md`](../../specs/catalogo-multi-repo.md).
+- Spec: [`docs/historico/specs-mvp1/catalogo-multi-repo.md`](../historico/specs-mvp1/catalogo-multi-repo.md).
 - Card: `TASK-84`.
 - Testes: domínio/concorrência, adapters, migração, API/RBAC, FKs e regressão de retenção.
 - Migration: `f84c2a1d9e30_projects_catalog.py`.

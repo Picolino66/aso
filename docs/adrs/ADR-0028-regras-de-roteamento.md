@@ -12,7 +12,7 @@
 
 ## Contexto
 
-`docs/plano-fidelidade-fluxo.md` aponta a maior lacuna funcional das duas specs:
+`docs/historico/plano-fidelidade-fluxo.md` aponta a maior lacuna funcional das duas specs:
 o `MultiAgentDecisionEngine` (`control/decision_engine.py`) decide agente/estratégia
 só por heurística compilada (`_DOMAIN_AGENT`, sinais de risco/domínio/impacto) e
 `control/selecao.py` decide o effort por uma tabela fixa complexidade×risco. O
@@ -170,7 +170,7 @@ incremento.
 ## Consequências
 
 **Positivas**
-- Fecha a maior lacuna funcional apontada em `docs/plano-fidelidade-fluxo.md`: o
+- Fecha a maior lacuna funcional apontada em `docs/historico/plano-fidelidade-fluxo.md`: o
   operador declara política SE/ENTÃO sem precisar alterar código.
 - Avaliação determinística e testável isoladamente (`routing_rules.py` não tem
   I/O) — mesma garantia de auditabilidade de `control/failure.py`.

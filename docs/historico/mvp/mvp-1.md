@@ -1,7 +1,7 @@
 # MVP-1 — Core de governança
 
 > Escopo, entregáveis, critérios de aceite e backlog do MVP-1.
-> Requisito: [`requerimentos.md` §35–§36](../../requerimentos.md). Planejamento: [F4 — UX/UI & Planning](../phases/F4-planning.md).
+> Requisito: [`requerimentos.md` §35–§36](../../../requerimentos.md). Planejamento: [F4 — UX/UI & Planning](../phases/F4-planning.md).
 
 ## 1. Objetivo
 
@@ -35,7 +35,7 @@ O MVP-1 será aceito quando o sistema conseguir:
 
 ## 4. Backlog (épicos e tasks)
 
-Materializado como cards em [`.aso/kanban/board.json`](../../.aso/kanban/board.json) e detalhado em [`tasks/README.md`](../../tasks/README.md). O Kanban é o **plano de execução** (ADR-0002), não apenas visual.
+Materializado como cards em [`.aso/kanban/board.json`](../../../governanca/kanban/board.json) e detalhado em [`tasks/README.md`](../../../tasks/README.md). O Kanban é o **plano de execução** (ADR-0002), não apenas visual.
 
 | Épico | Tasks | Prioridade |
 |---|---|---|
@@ -60,7 +60,7 @@ MVP-2 Multiagente real · MVP-3 Execution Plane (worktrees, terminal, git, teste
 
 ## Referências
 
-- Requisitos: [`requerimentos.md` §35–§36](../../requerimentos.md)
-- Backlog: [`tasks/README.md`](../../tasks/README.md) · [`.aso/kanban/board.json`](../../.aso/kanban/board.json)
+- Requisitos: [`requerimentos.md` §35–§36](../../../requerimentos.md)
+- Backlog: [`tasks/README.md`](../../../tasks/README.md) · [`.aso/kanban/board.json`](../../../governanca/kanban/board.json)
 - Planejamento: [F4 — UX/UI & Planning](../phases/F4-planning.md)
-- Índice: [`docs/index.md`](../index.md)
+- Índice: [`docs/index.md`](../../index.md)

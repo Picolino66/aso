@@ -4,7 +4,7 @@
 
 ## 1. Observabilidade & métricas (observability-engine)
 
-`MetricsService` ([observability/metrics.py](../../src/aso/observability/metrics.py)) calcula métricas a partir das consultas indexadas e da timeline:
+`MetricsService` ([observability/metrics.py](../../../src/aso/observability/metrics.py)) calcula métricas a partir das consultas indexadas e da timeline:
 
 - **Por orquestração:** fase, snapshot, cards por status, totais de ADRs/snapshots, conflitos abertos, eventos.
 - **Global:** total de orquestrações, agregação de cards por status, ADRs, snapshots, conflitos abertos.

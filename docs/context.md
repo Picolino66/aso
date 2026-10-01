@@ -1,7 +1,7 @@
 # Contexto e Governança — ASO Runtime
 
 > Explica o `OrchestratorContext` (§17), o protocolo `ContextPatch` → `ContextBus` (ADR-0003) e o versionamento do estado.
-> **Estado canônico vive em:** [`.aso/context/orchestrator-context.json`](../.aso/context/orchestrator-context.json).
+> **Estado canônico vive em:** [`governanca/context/orchestrator-context.json`](../governanca/context/orchestrator-context.json).
 > Requisito: [`requerimentos.md` §17–§19](../requerimentos.md). Decisão: [ADR-0003 — ContextBus como governança soberana](adrs/ADR-0003-contextbus-governance.md).
 
 ## 1. OrchestratorContext (§17)
@@ -55,8 +55,8 @@ Concorrência: `threading.RLock` **por orquestração** (`OrchestrationService._
 ## 4. Versionamento e persistência
 
 - A versão do contexto **incrementa a cada escrita** aprovada; histórico append-only.
-- Persistência em **JSONB** no PostgreSQL (ver [`architecture.md`](architecture.md) e [F3](phases/F3-contracts.md)).
-- Estado materializado do runtime: [`.aso/context/orchestrator-context.json`](../.aso/context/orchestrator-context.json).
+- Persistência em **JSONB** no PostgreSQL (ver [`architecture.md`](architecture.md) e [F3](historico/phases/F3-contracts.md)).
+- Estado materializado do runtime: [`governanca/context/orchestrator-context.json`](../governanca/context/orchestrator-context.json).
 
 ## Referências
 

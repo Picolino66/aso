@@ -22,7 +22,7 @@ A investigação confirmou: o bloqueio por dependência já existe desde a ADR-0
 (`run_card` → `_pending_dependencies` → `Blocked` com os títulos citados) — mas
 os 8 itens do checklist não tinham forma alguma no código (nem campo, nem
 validação, nem UI), e nenhuma tarefa vinculada era criada automaticamente.
-`docs/plano-fidelidade-fluxo.md:76-77` já registrava isso como "10% coberto —
+`docs/historico/plano-fidelidade-fluxo.md:76-77` já registrava isso como "10% coberto —
 os 8 itens são executados implicitamente; não há registro auditável".
 
 ## Decisão

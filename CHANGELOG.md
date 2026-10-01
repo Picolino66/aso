@@ -9,7 +9,7 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   em ≈55% de aderência — funcionalidade da esteira em 85%, modelo de dados em 78%, mas
   cobertura de telas em 42%, navegação em 15% e estilo visual em 25% (a spec pede
   wireframe claro; a UI é um console escuro sem sidebar). Registrado em
-  [docs/plano-fidelidade-fluxo.md](docs/plano-fidelidade-fluxo.md) com 27 cards
+  [docs/plano-fidelidade-fluxo.md](docs/historico/plano-fidelidade-fluxo.md) com 27 cards
   (FID-01…FID-27) no Backlog do board, sob os épicos EPIC-9 (lacunas da esteira) e
   EPIC-10 (shell e telas).
 
@@ -30,6 +30,10 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   arquivos citados. Sem embeddings nem banco vetorial — a ADR registra por quê.
 
 ### Alterado
+- **MEL-04 — `.aso/` só com estado de runtime (ADR-0081):** o contexto e o board da construção do
+  ASO foram para `governanca/`; snapshots, gates, reviews, specs, fases e o plano de fidelidade, que
+  não mudam mais, para `docs/historico/`. Instruções, docs e links acompanham; `.aso/` passa a ser
+  ignorada pelo git.
 - **MEL-61 — documentação de API fiel ao contrato:** `docs/api.md` deixou de listar rotas que nunca
   existiram (a API plana do requisito) e um teste confere toda rota citada nos documentos contra o
   OpenAPI gerado.
@@ -1112,7 +1116,7 @@ Formato baseado em Keep a Changelog. Versionamento semântico.
   aprovação humana já exigida pela heurística. CRUD via
   `GET/POST/PUT/DELETE /v1/routing-rules`, escrita restrita a `admin`. Fecha a
   maior lacuna funcional apontada em
-  [docs/plano-fidelidade-fluxo.md](docs/plano-fidelidade-fluxo.md).
+  [docs/plano-fidelidade-fluxo.md](docs/historico/plano-fidelidade-fluxo.md).
 - **Custo real, orçamento com freio e sobrevivência a crash (ADR-0026,
   ADR-0027):** o runtime jogava fora o custo real que os agentes já
   informam (`observability/metrics.py` aproximava custo por tempo de

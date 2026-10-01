@@ -7,7 +7,7 @@
 
 **Modular Monolith + Clean/Hexagonal Architecture (Ports & Adapters) + DDD.**
 
-Os 6 *planes* do §10 do requisito são mapeados como **bounded contexts (módulos de domínio)** dentro de um único deployable. Ver [ADR-0001](../adrs/ADR-0001-runtime-architecture.md).
+Os 6 *planes* do §10 do requisito são mapeados como **bounded contexts (módulos de domínio)** dentro de um único deployable. Ver [ADR-0001](../../adrs/ADR-0001-runtime-architecture.md).
 
 | Plane (requisito §10) | Módulo de domínio | Responsabilidade |
 |---|---|---|
@@ -34,7 +34,7 @@ driven adapters:    db (SQLAlchemy/Postgres) · llm_providers (httpx) · cli_age
 
 ## 3. Stack técnica (locked)
 
-Ver [ADR-0004](../adrs/ADR-0004-tech-stack-python.md).
+Ver [ADR-0004](../../adrs/ADR-0004-tech-stack-python.md).
 
 | Camada | Escolha |
 |---|---|
@@ -129,10 +129,10 @@ aso-runtime/
 
 ## 11. ADRs registrados nesta fase
 
-- [ADR-0001 — Arquitetura do runtime (Modular Monolith + Hexagonal + planes como bounded contexts)](../adrs/ADR-0001-runtime-architecture.md)
-- [ADR-0002 — Kanban como plano de execução](../adrs/ADR-0002-kanban-as-execution-plane.md)
-- [ADR-0003 — ContextBus como governança soberana do contexto](../adrs/ADR-0003-contextbus-governance.md)
-- [ADR-0004 — Stack de implementação: Python](../adrs/ADR-0004-tech-stack-python.md)
+- [ADR-0001 — Arquitetura do runtime (Modular Monolith + Hexagonal + planes como bounded contexts)](../../adrs/ADR-0001-runtime-architecture.md)
+- [ADR-0002 — Kanban como plano de execução](../../adrs/ADR-0002-kanban-as-execution-plane.md)
+- [ADR-0003 — ContextBus como governança soberana do contexto](../../adrs/ADR-0003-contextbus-governance.md)
+- [ADR-0004 — Stack de implementação: Python](../../adrs/ADR-0004-tech-stack-python.md)
 
 ## 12. Quality Gate F2 → F3
 

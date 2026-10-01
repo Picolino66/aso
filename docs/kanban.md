@@ -1,6 +1,6 @@
 # Kanban — ASO Runtime
 
-> Fase F4. O Kanban é o **plano de execução** (ADR-0002), não apenas visual. Board inicial em [`.aso/kanban/board.json`](../.aso/kanban/board.json).
+> Fase F4. O Kanban é o **plano de execução** (ADR-0002), não apenas visual. Board inicial em [`governanca/kanban/board.json`](../governanca/kanban/board.json).
 
 ## Colunas (§16.2)
 

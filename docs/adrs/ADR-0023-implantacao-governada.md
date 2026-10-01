@@ -35,7 +35,7 @@ ambiente" — a mesma que esta ADR implementa).
 `fluxo.md` §18-22 descreve implantação real — múltiplos ambientes, health
 checks pós-deploy, rollback de aplicação no ar. Mas `requerimentos.md` exclui
 explicitamente "deploy automático em produção" e "provisionamento cloud
-automático" do MVP, e `.aso/context/orchestrator-context.json`
+automático" do MVP, e `governanca/context/orchestrator-context.json`
 (`scope.excluded`) registra o mesmo. A decisão tomada: **governança do gate +
 comando configurável** — o mesmo padrão que `validation_checks` (ADR-0022) já
 usa para testes/lint. O runtime não provisiona infraestrutura nenhuma; ele

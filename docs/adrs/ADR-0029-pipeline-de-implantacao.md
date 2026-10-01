@@ -20,7 +20,7 @@ suas próprias "Consequências negativas" já registram a lacuna:
 > vezes quiser com `environment` diferente; não há progressão automática entre
 > estágios."*
 
-`docs/plano-fidelidade-fluxo.md` nomeia essa lacuna como FID-02, dependente da
+`docs/historico/plano-fidelidade-fluxo.md` nomeia essa lacuna como FID-02, dependente da
 FID-01 (regras de roteamento) só pela ordem do backlog, sem acoplamento técnico
 real. O `fluxo.md` §19 exige cinco estágios sequenciais (desenvolvimento → testes
 → homologação → staging → produção) com estado, logs e gate por estágio, e uma

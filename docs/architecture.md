@@ -1,6 +1,6 @@
 # Arquitetura — ASO Runtime
 
-> Resumo da arquitetura. **Fonte completa:** [F2 — Architecture & Design](phases/F2-architecture.md).
+> Resumo da arquitetura. **Fonte completa:** [F2 — Architecture & Design](historico/phases/F2-architecture.md).
 > Decisões: [ADR-0001 — Arquitetura do runtime](adrs/ADR-0001-runtime-architecture.md) · [ADR-0004 — Stack Python](adrs/ADR-0004-tech-stack-python.md).
 
 ## 1. Padrão arquitetural
@@ -84,7 +84,7 @@ capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
 
 ## 4. Persistência, segurança e infra (resumo)
 
-- **Dados:** `OrchestratorContext` e snapshots em **JSONB** (escrita atômica, histórico append-only, consistência **forte** por orquestração); entidades operacionais em tabelas relacionais. Detalhe em [F3 — Contracts](phases/F3-contracts.md) e [`domain-model.md`](domain-model.md).
+- **Dados:** `OrchestratorContext` e snapshots em **JSONB** (escrita atômica, histórico append-only, consistência **forte** por orquestração); entidades operacionais em tabelas relacionais. Detalhe em [F3 — Contracts](historico/phases/F3-contracts.md) e [`domain-model.md`](domain-model.md).
 - **Gravação:** incremental por unidade (entidade → `UPDATE`, grupo de junção → reescrita só do dono, `events`/`context_history` → só a cauda) com **versão otimista** em `orchestrations.versao` (conflito → 409); cache LRU de agregados com sonda de versão; schema só por Alembic (ADR-0068).
 - **Catálogo multi-repo:** `Project` usa porta própria com adapters in-memory e SQLAlchemy;
   tabelas `projects`/`project_events` e FKs restritivas separam metadados de catálogo do
@@ -94,6 +94,6 @@ capacidades normalizadas e bloqueia incompatibilidades antes de criar worktrees.
 
 ## Referências
 
-- Arquitetura completa: [F2 — Architecture & Design](phases/F2-architecture.md)
+- Arquitetura completa: [F2 — Architecture & Design](historico/phases/F2-architecture.md)
 - Governança de contexto: [`context.md`](context.md)
 - ADRs: [ADR-0001](adrs/ADR-0001-runtime-architecture.md) · [ADR-0003](adrs/ADR-0003-contextbus-governance.md) · [ADR-0004](adrs/ADR-0004-tech-stack-python.md) · [ADR-0005](adrs/ADR-0005-data-consistency-and-api-versioning.md) · [ADR-0010](adrs/ADR-0010-catalogo-multi-repo-governado.md)

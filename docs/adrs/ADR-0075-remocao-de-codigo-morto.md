@@ -40,5 +40,5 @@ persistidos e nunca lidos, papéis sem card, tipos de conflito nunca levantados 
   plano LLM, da especificação ou do operador.
 - Testes que usavam o card do `ReviewAgent` como exemplo de dependência passaram a criar a
   dependência explicitamente (plano com `TestingAgent` dependente, ou card adicionado).
-- Documentos de fase e de MVP antigos (`docs/phases`, `docs/mvp`) continuam citando os nomes
+- Documentos de fase e de MVP antigos (`docs/historico/phases`, `docs/mvp`) continuam citando os nomes
   removidos como histórico de planejamento.

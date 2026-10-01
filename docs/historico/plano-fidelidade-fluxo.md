@@ -117,8 +117,8 @@ correto — a spec usa nomes ilustrativos. **Nenhuma task foi criada para isso.*
 
 > **Histórico.** Este diagnóstico descreve o console de quatro arquivos que existia quando o
 > plano foi escrito. As quatro páginas foram consolidadas nas seções da sidebar pela MEL-55
-> ([ADR-0078](adrs/ADR-0078-consolidacao-do-console.md)) e suas rotas hoje redirecionam; o mapa
-> atual está em [mapa-paginas.md](mapa-paginas.md).
+> ([ADR-0078](../adrs/ADR-0078-consolidacao-do-console.md)) e suas rotas hoje redirecionam; o mapa
+> atual está em [mapa-paginas.md](../mapa-paginas.md).
 
 Quatro arquivos em `src/aso/api/static/` (removidos na ADR-0078):
 

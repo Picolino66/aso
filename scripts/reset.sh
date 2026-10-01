@@ -8,8 +8,8 @@
 #   - `.aso/run/` (pid/log da API local).
 #
 # O QUE **NÃO** APAGA (de propósito):
-#   - `.aso/context/`, `.aso/kanban/`, `.aso/quality-gates/`, `.aso/snapshots/`,
-#     `.aso/reviews/` — governança versionada do PRÓPRIO ASO, não estado de runtime;
+#   - `governanca/` e `docs/historico/` — governança versionada do PRÓPRIO ASO (ADR-0081); desde
+#     a MEL-04 ela nem mora mais em `.aso/`, que guarda só estado de runtime;
 #   - `.aso/executors.json` — o catálogo de executores vive em arquivo, fora do banco,
 #     então seus perfis Claude/Codex sobrevivem (use --executores para apagá-lo também);
 #   - os repositórios-alvo das orquestrações. Eles são listados no fim para você decidir.

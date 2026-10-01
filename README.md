@@ -311,17 +311,18 @@ O número de testes e a cobertura atuais são reportados pelo CI (mínimo exigid
 
 ```
 src/aso/          # runtime (planes control/kanban/agents/execution/governance/observability + api/cli/db)
-docs/             # documentação canônica (fonte de verdade) — adrs/, phases/
-specs/            # specs executáveis por task
+docs/             # documentação canônica (fonte de verdade) — adrs/, operação, contratos
+docs/historico/   # o que não muda mais: fases F1–F7, MVP-1, specs do MVP-1, gates/snapshots antigos
+governanca/       # governança VIVA da construção do ASO: context/orchestrator-context.json, kanban/board.json
 tasks/ agents/ skills/   # backlog, mapa de agentes, mapa de skills
 contracts/        # openapi.json gerado das rotas (python scripts/export-openapi.py; ADR-0064)
 migrations/       # Alembic
 tests/            # unit/ + integration/
-.aso/             # estado do runtime: context, kanban/board.json, snapshots, quality-gates
+.aso/             # SÓ estado de runtime (ignorado pelo git): run/, executors.json, worktrees/, index/
 ```
 
-Contexto canônico de governança: [.aso/context/orchestrator-context.json](.aso/context/orchestrator-context.json).
-Board Kanban: [.aso/kanban/board.json](.aso/kanban/board.json).
+Governança da construção (ADR-0081): [governanca/context/orchestrator-context.json](governanca/context/orchestrator-context.json).
+Board Kanban: [governanca/kanban/board.json](governanca/kanban/board.json).
 
 ## Documentação
 
@@ -329,7 +330,7 @@ Board Kanban: [.aso/kanban/board.json](.aso/kanban/board.json).
 - Histórico de mudanças: [CHANGELOG.md](CHANGELOG.md)
 - Guia para agentes de IA neste repositório: [CLAUDE.md](CLAUDE.md)
 - Índice de docs: [docs/index.md](docs/index.md) · ADRs: [docs/adrs/](docs/adrs/) ·
-  fases F1–F7: [docs/phases/](docs/phases/) · operação/deploy:
+  fases F1–F7: [docs/historico/phases/](docs/historico/phases/) · operação/deploy:
   [docs/operations.md](docs/operations.md), [docs/deploy.md](docs/deploy.md)
 
 ## Roadmap

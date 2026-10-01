@@ -100,7 +100,7 @@ _SEVERITY_RANK = {
     SEVERITY_INFO: 3,
 }
 
-# Nomes das fases (mesma nomenclatura de docs/phases/) — a UI monta a esteira com isto.
+# Nomes das fases (mesma nomenclatura de docs/historico/phases/) — a UI monta a esteira com isto.
 PHASE_LABELS: dict[Phase, str] = {
     Phase.F1: "Discovery & Strategy",
     Phase.F2: "Architecture & Design",
@@ -121,14 +121,14 @@ class PhaseInfo(BaseModel):
     """
 
     id: str
-    label: str  # nome técnico (docs/phases/)
+    label: str  # nome técnico (docs/historico/phases/)
     nome: str  # nome curto em pt-BR
     resumo: str  # o que se faz nesta etapa
     entrega: str  # o artefato que ela produz
 
 
 # Descrições genéricas — valem para qualquer projeto orquestrado, não para o
-# desenvolvimento do próprio ASO (que é o que os `docs/phases/*.md` documentam).
+# desenvolvimento do próprio ASO (que é o que os `docs/historico/phases/*.md` documentam).
 PHASE_INFO: dict[Phase, PhaseInfo] = {
     Phase.F1: PhaseInfo(
         id="F1",

@@ -301,7 +301,7 @@
       "governance",
       "observability"
     ],
-    "component_diagram": "docs/phases/F2-architecture.md",
+    "component_diagram": "docs/historico/phases/F2-architecture.md",
     "data_flows": [
       "Agente -> ContextPatch -> ContextBus (validação 7 etapas) -> OrchestratorContext",
       "Evento de runtime -> CardEventService -> automação de colunas do Kanban",
@@ -641,7 +641,7 @@
         "id": "TASK-01",
         "epic": "EPIC-1",
         "title": "Estrutura base + tooling",
-        "spec": "specs/project-setup.md",
+        "spec": "docs/historico/specs-mvp1/project-setup.md",
         "priority": "critical",
         "depends_on": []
       },
@@ -649,7 +649,7 @@
         "id": "TASK-02",
         "epic": "EPIC-2",
         "title": "Modelos de domínio",
-        "spec": "specs/domain-models.md",
+        "spec": "docs/historico/specs-mvp1/domain-models.md",
         "priority": "critical",
         "depends_on": [
           "TASK-01"
@@ -659,7 +659,7 @@
         "id": "TASK-03",
         "epic": "EPIC-2",
         "title": "OrchestratorContext versionado",
-        "spec": "specs/orchestrator-context.md",
+        "spec": "docs/historico/specs-mvp1/orchestrator-context.md",
         "priority": "critical",
         "depends_on": [
           "TASK-02"
@@ -669,7 +669,7 @@
         "id": "TASK-04",
         "epic": "EPIC-3",
         "title": "Kanban básico + automação",
-        "spec": "specs/kanban.md",
+        "spec": "docs/historico/specs-mvp1/kanban.md",
         "priority": "high",
         "depends_on": [
           "TASK-02"
@@ -679,7 +679,7 @@
         "id": "TASK-05",
         "epic": "EPIC-4",
         "title": "ExecutionPlan",
-        "spec": "specs/execution-plan.md",
+        "spec": "docs/historico/specs-mvp1/execution-plan.md",
         "priority": "high",
         "depends_on": [
           "TASK-03"
@@ -689,7 +689,7 @@
         "id": "TASK-06",
         "epic": "EPIC-4",
         "title": "MultiAgentDecisionEngine",
-        "spec": "specs/multiagent-decision-engine.md",
+        "spec": "docs/historico/specs-mvp1/multiagent-decision-engine.md",
         "priority": "high",
         "depends_on": [
           "TASK-03"
@@ -699,7 +699,7 @@
         "id": "TASK-07",
         "epic": "EPIC-5",
         "title": "AgentRegistry",
-        "spec": "specs/agent-registry.md",
+        "spec": "docs/historico/specs-mvp1/agent-registry.md",
         "priority": "high",
         "depends_on": [
           "TASK-02"
@@ -709,7 +709,7 @@
         "id": "TASK-08",
         "epic": "EPIC-5",
         "title": "AgentExecutor mock",
-        "spec": "specs/agent-executor-mock.md",
+        "spec": "docs/historico/specs-mvp1/agent-executor-mock.md",
         "priority": "high",
         "depends_on": [
           "TASK-07"
@@ -719,7 +719,7 @@
         "id": "TASK-09",
         "epic": "EPIC-6",
         "title": "ContextPatch + ContextBus",
-        "spec": "specs/context-patch-contextbus.md",
+        "spec": "docs/historico/specs-mvp1/context-patch-contextbus.md",
         "priority": "critical",
         "depends_on": [
           "TASK-03"
@@ -729,7 +729,7 @@
         "id": "TASK-10",
         "epic": "EPIC-6",
         "title": "ADRRegistry",
-        "spec": "specs/adr-registry.md",
+        "spec": "docs/historico/specs-mvp1/adr-registry.md",
         "priority": "high",
         "depends_on": [
           "TASK-02"
@@ -739,7 +739,7 @@
         "id": "TASK-11",
         "epic": "EPIC-6",
         "title": "QualityGateEngine",
-        "spec": "specs/quality-gate-engine.md",
+        "spec": "docs/historico/specs-mvp1/quality-gate-engine.md",
         "priority": "critical",
         "depends_on": [
           "TASK-03"
@@ -749,7 +749,7 @@
         "id": "TASK-12",
         "epic": "EPIC-6",
         "title": "SnapshotEngine",
-        "spec": "specs/snapshot-engine.md",
+        "spec": "docs/historico/specs-mvp1/snapshot-engine.md",
         "priority": "high",
         "depends_on": [
           "TASK-11"
@@ -759,7 +759,7 @@
         "id": "TASK-13",
         "epic": "EPIC-7",
         "title": "API mínima",
-        "spec": "specs/api-minimal.md",
+        "spec": "docs/historico/specs-mvp1/api-minimal.md",
         "priority": "medium",
         "depends_on": [
           "TASK-09",
@@ -771,7 +771,7 @@
         "id": "TASK-14",
         "epic": "EPIC-7",
         "title": "CLI mínima",
-        "spec": "specs/cli-minimal.md",
+        "spec": "docs/historico/specs-mvp1/cli-minimal.md",
         "priority": "medium",
         "depends_on": [
           "TASK-13"
@@ -781,7 +781,7 @@
         "id": "TASK-15",
         "epic": "EPIC-8",
         "title": "Observabilidade + docs",
-        "spec": "specs/observability-basic.md",
+        "spec": "docs/historico/specs-mvp1/observability-basic.md",
         "priority": "medium",
         "depends_on": [
           "TASK-13"
@@ -800,8 +800,8 @@
     ],
     "test_coverage_threshold": 80,
     "coverage_report": {
-      "tests": 1866,
-      "coverage": "94.79%",
+      "tests": 1872,
+      "coverage": "94.78%",
       "status": "green",
       "lint": "ruff OK",
       "typecheck": "mypy strict OK",
@@ -963,7 +963,7 @@
       "TASK-91 — Executor por etapa (ADR-0014): agent_assignments (JSONB) guarda um executor por fase F1..F7 e um para o nomeador; resolução vira chamada explícita → etapa → padrão da orquestração → default do catálogo → provider global, resolvida pela fase DO CARD (retry em F5 com a esteira em F6 mantém o agente de F5). Etapa com executor próprio não herda o esforço global (esforço casa com o modelo). Fase já concluída recusa troca; naming sempre editável. PUT/DELETE /v1/orchestrations/{id}/agents/{key} + AgentAssignmentUpdated. 355 testes / 91.19% / ruff+mypy OK.",
       "TASK-92 — Branch e commit derivados do card (ADR-0014): o agente executava cego (só o user_request global chegava até ele); agora recebe título, descrição, tipo e critérios de aceite, e a branch sai do título — feat/calculadora-basica-a1b2c3d4 em vez de aso/BackendDevelopmentAgent-claude-sonnet-medium-c6950ea8…. Raiz semântica no card, sufixo de unicidade em quem cria o worktree. Nomeador opcional (control/naming.py) com fallback determinístico obrigatório: timeout, JSON inválido, exit≠0 ou executor removido caem no nome do card e registram NamingFallback.",
       "TASK-93 — scripts/reset.sh: zera volume do Postgres (schema por Alembic), aso.db residual, worktrees órfãos (git worktree remove + prune) e .aso/run, preservando a governança versionada do próprio ASO e .aso/executors.json (catálogo vive em arquivo, fora do banco). Lista os target_path antes do drop e não toca nos repositórios-alvo.",
-      "TASK-94 — Estado de runtime fora do versionamento: aso.db (356 KB, binário, 6 commits de churn, criado pelo fallback sqlite:///aso.db de migrations/env.py) saiu do índice via git rm --cached e entrou no .gitignore com *.sqlite/*.sqlite3; .aso/worktrees/ também passou a ser ignorado no próprio ASO — o runtime já injetava essa linha nos repos-alvo (WorkspaceService.ensure_git), mas o ASO, que também já foi alvo, tinha 23 MB de worktree órfão em '??'. Varredura confirmou que a governança versionada (.aso/context, kanban, quality-gates, snapshots, reviews) é o único conteúdo .aso rastreado, de propósito.",
+      "TASK-94 — Estado de runtime fora do versionamento: aso.db (356 KB, binário, 6 commits de churn, criado pelo fallback sqlite:///aso.db de migrations/env.py) saiu do índice via git rm --cached e entrou no .gitignore com *.sqlite/*.sqlite3; .aso/worktrees/ também passou a ser ignorado no próprio ASO — o runtime já injetava essa linha nos repos-alvo (WorkspaceService.ensure_git), mas o ASO, que também já foi alvo, tinha 23 MB de worktree órfão em '??'. Varredura confirmou que a governança versionada (governanca/context, kanban, quality-gates, snapshots, reviews) é o único conteúdo .aso rastreado, de propósito.",
       "TASK-95 — Saída do agente ao vivo (ADR-0015): Popen + thread de bombeamento por pipe substitui subprocess.run(capture_output), que só entregava os pipes depois da morte do processo; ring de 2000 linhas por orquestração em observability/agent_log.py com cursor monotônico e Lock, porta declarada em shared/agent_output.py (module_map proíbe execution->observability). Leitura por polling com cursor, não pelo EventBroker (asyncio sem lock, descarta em QueueFull); o cursor dá replay ao recarregar a página no meio da execução. Log vive em memória e não sobrevive a restart — é telemetria. 404 testes / 91.43%.",
       "TASK-96 — Feed interpretado do NDJSON (ADR-0015): claude -p imprime só a resposta final, então streaming do nosso lado não cria narração — quem emite evento por evento é o CLI com --output-format stream-json (Claude) ou --json (Codex), ligados por scripts/enable-agent-stream.sh (16 perfis, idempotente). agent_stream.py traduz cada linha em fala/ferramenta/resultado, ajustado contra a saída REAL capturada: system e rate_limit_event vazavam como JSON cru e thinking sai longo em inglês (cortado em 140). Schema desconhecido degrada para bruto, nunca linha perdida.",
       "TASK-97 — Esteira didática (ADR-0015): PHASE_INFO + GET /v1/phases dão nome, resumo e entrega de cada fase em pt-BR; a esteira virou cartões com chip de agente clicável, tirando a escolha por etapa da ADR-0014 de dentro do modal ⚙ Config, onde era invisível.",
@@ -985,8 +985,8 @@
     "project_structure": {
       "docs/": "documentação canônica (fonte de verdade)",
       "docs/adrs/": "ADR-0001..0010",
-      "docs/phases/": "F1-discovery, F2-architecture, F3-contracts, F4-planning",
-      "specs/": "16 specs (MVP-1 + catálogo multi-repo) + README",
+      "docs/historico/phases/": "F1-discovery, F2-architecture, F3-contracts, F4-planning",
+      "docs/historico/specs-mvp1/": "16 specs (MVP-1 + catálogo multi-repo) + README",
       "tasks/": "backlog executável (README)",
       "agents/": "mapa de agentes/ownership (README)",
       "skills/": "mapa de skills (README)",
@@ -1004,31 +1004,31 @@
       "docs/context.md": "OrchestratorContext e ContextBus",
       "docs/quality-gates.md": "Quality gates F1–F7",
       "docs/snapshots.md": "Snapshots O1–O7",
-      "docs/mvp/mvp-1.md": "Escopo do MVP-1",
-      "docs/phases/F1-discovery.md": "F1",
-      "docs/phases/F2-architecture.md": "F2",
-      "docs/phases/F3-contracts.md": "F3",
-      "docs/phases/F4-planning.md": "F4"
+      "docs/historico/mvp/mvp-1.md": "Escopo do MVP-1",
+      "docs/historico/phases/F1-discovery.md": "F1",
+      "docs/historico/phases/F2-architecture.md": "F2",
+      "docs/historico/phases/F3-contracts.md": "F3",
+      "docs/historico/phases/F4-planning.md": "F4"
     },
     "specs_map": {
-      "TASK-01": "specs/project-setup.md",
-      "TASK-02": "specs/domain-models.md",
-      "TASK-03": "specs/orchestrator-context.md",
-      "TASK-04": "specs/kanban.md",
-      "TASK-05": "specs/execution-plan.md",
-      "TASK-06": "specs/multiagent-decision-engine.md",
-      "TASK-07": "specs/agent-registry.md",
-      "TASK-08": "specs/agent-executor-mock.md",
-      "TASK-09": "specs/context-patch-contextbus.md",
-      "TASK-10": "specs/adr-registry.md",
-      "TASK-11": "specs/quality-gate-engine.md",
-      "TASK-12": "specs/snapshot-engine.md",
-      "TASK-13": "specs/api-minimal.md",
-      "TASK-14": "specs/cli-minimal.md",
-      "TASK-15": "specs/observability-basic.md"
+      "TASK-01": "docs/historico/specs-mvp1/project-setup.md",
+      "TASK-02": "docs/historico/specs-mvp1/domain-models.md",
+      "TASK-03": "docs/historico/specs-mvp1/orchestrator-context.md",
+      "TASK-04": "docs/historico/specs-mvp1/kanban.md",
+      "TASK-05": "docs/historico/specs-mvp1/execution-plan.md",
+      "TASK-06": "docs/historico/specs-mvp1/multiagent-decision-engine.md",
+      "TASK-07": "docs/historico/specs-mvp1/agent-registry.md",
+      "TASK-08": "docs/historico/specs-mvp1/agent-executor-mock.md",
+      "TASK-09": "docs/historico/specs-mvp1/context-patch-contextbus.md",
+      "TASK-10": "docs/historico/specs-mvp1/adr-registry.md",
+      "TASK-11": "docs/historico/specs-mvp1/quality-gate-engine.md",
+      "TASK-12": "docs/historico/specs-mvp1/snapshot-engine.md",
+      "TASK-13": "docs/historico/specs-mvp1/api-minimal.md",
+      "TASK-14": "docs/historico/specs-mvp1/cli-minimal.md",
+      "TASK-15": "docs/historico/specs-mvp1/observability-basic.md"
     },
     "tasks_workflow": {
-      "board": ".aso/kanban/board.json",
+      "board": "governanca/kanban/board.json",
       "index": "tasks/README.md",
       "order": "respeita depends_on"
     },
@@ -1351,7 +1351,8 @@
     "MEL-58",
     "MEL-59",
     "MEL-60",
-    "MEL-61"
+    "MEL-61",
+    "MEL-04"
   ],
   "increments_post_o5": [
     "FID-25 (Tela 29 - Metricas e aprendizado, wf §31, ADR-0052): investigacao previa confirmou que a maior parte ja tinha fonte real -- observability/aprendizado.py (ADR-0025) ja agregava por executor/modelo (execucoes, falhas, retrabalho, tempo medio, custo) e list_orchestrations (ADR-0038) ja filtrava por projeto/periodo em SQL real indexado; a tabela de comparacao de modelos (wf §31.2) ja estava 100% coberta. O card cita aprendizado.py como origem das 8 recomendacoes, mas o modulo produzia so 1 frase de texto livre -- nenhuma das 8 categorias existia como logica distinta. Nova recomendacoes_estruturadas(): 6 categorias com regra deterministica e limiar fixo documentado (aumentar effort/evitar modelo/adicionar teste/modificar aprovacao/alterar limite de tentativas/ajustar roteamento); 'criar agente especializado' e 'criar template de card' ficam PERMANENTEMENTE desabilitadas -- nenhum sinal nos dados sustenta essas duas, mesmo padrao de 'criar investigacao separada' desabilitada no FID-21/ADR-0048. 'Cobertura de testes' e SEMPRE None, nunca calculado -- sem fonte real no runtime, mostrado honestamente como 'nao disponivel'. get_learning_report_global ganhou project_id/data_de/data_ate -- filtro SQL real aplicado ANTES de hidratar qualquer orquestracao (mesmo cuidado de escala de audit_page/ADR-0051). 4 indicadores novos (tempo/custo medio por demanda, numero medio de tentativas, falhas por agente) -- consolidar() ganhou parametros de CONTAGEM BRUTA somados pelo coletor antes de dividir (nunca uma media-de-medias); 'primeiro ciclo'/'tentativas' usam tentativa_atual (contador autoritativo sem limite de ring, ADR-0031); 'falhas por agente' usa novo CardSnapshot.agente (papel), agrupamento diferente de desempenho_por_executor (modelo). /ui/metricas deixou de ser placeholder: pagina unica cross-demanda (mesmo padrao de /ui/auditoria), 15 indicadores, comparacao de modelos, 8 recomendacoes com justificativa. Nenhuma migration necessaria -- tudo em dataclasses puras computadas na leitura. 27 testes novos; ruff+format+mypy --strict OK; alembic sem novas operacoes; pytest com cobertura >=80% (1307 testes, 93.27%).",
@@ -1408,6 +1409,7 @@
     "MEL-58 — redação de segredos como invariante do estado governado (ADR-0080): eventos, card, log ao vivo e log do processo; 1859 testes / 94.77%",
     "MEL-59 — fase_gate de fase já passada não avança a fase corrente (DISCOVERED-04); 1861 testes / 94.78%",
     "MEL-60 — imagem Docker leva o wrapper dos agentes CLI (DISCOVERED-02); 1864 testes / 94.78%",
-    "MEL-61 — docs só citam rotas do contrato gerado (DISCOVERED-05), com teste que varre 6 documentos; 1866 testes / 94.79%"
+    "MEL-61 — docs só citam rotas do contrato gerado (DISCOVERED-05), com teste que varre 6 documentos; 1866 testes / 94.79%",
+    "MEL-04 — governança da construção fora de .aso/ (ADR-0081): governanca/ (vivo) e docs/historico/ (congelado); .aso/ só runtime; 1872 testes / 94.78%"
   ]
 }

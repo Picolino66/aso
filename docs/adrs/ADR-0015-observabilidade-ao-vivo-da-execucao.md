@@ -116,7 +116,7 @@ nada ao operador, é excluído.
 ### (4) Esteira que ensina e configura
 
 `PHASE_INFO` (ao lado de `PHASE_LABELS`, que permanece) dá a cada fase `nome`, `resumo` e
-`entrega` em pt-BR, genéricos para qualquer projeto — os `docs/phases/*.md` documentam o
+`entrega` em pt-BR, genéricos para qualquer projeto — os `docs/historico/phases/*.md` documentam o
 desenvolvimento do próprio ASO, não o significado das etapas. Exposto em `GET /v1/phases`
 para a UI não duplicar texto.
 

@@ -1,7 +1,7 @@
 # Quality Gates — ASO Runtime
 
 > Explica o `QualityGateEngine` (§22) e lista os gates por fase.
-> **Resultados materializados em:** [`.aso/quality-gates/`](../.aso/quality-gates/).
+> **Resultados materializados em:** [`docs/historico/governanca-construcao/quality-gates/`](../docs/historico/governanca-construcao/quality-gates/).
 > Requisito: [`requerimentos.md` §22](../requerimentos.md).
 
 ## 1. QualityGateEngine (§22)
@@ -60,7 +60,7 @@ snapshot nem aprovação humana; `advance_phase` o aceita como `PASSED`; o autop
 ## 2. Estado do processo de construção do ASO
 
 As tabelas "F1–F4 PASSED / F5 pendente" que existiam aqui descreviam o **processo de
-construção do próprio ASO** (artefatos mantidos à mão em `.aso/quality-gates/`), não o
+construção do próprio ASO** (artefatos mantidos à mão em `docs/historico/governanca-construcao/quality-gates/`), não o
 estado de uma orquestração do runtime. O estado real de cada orquestração vem de
 `GET /v1/orchestrations/{id}/quality-gates`. A separação dos artefatos de construção é a
 MEL-04 (aguardando decisão do operador).

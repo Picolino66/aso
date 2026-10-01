@@ -9,19 +9,11 @@ __pycache__/
 dist/
 build/
 
-# Runtime do manager.sh (PID/log da API local)
-.aso/run/
-
-# Perfis de executor (config local, contém caminhos absolutos da máquina)
-.aso/executors.json
-# Cópia do catálogo antes da migração da ADR-0076 (mesmo conteúdo local)
-.aso/executors.json.antes-adr-0076
-
-# Worktrees dos cards. O runtime injeta esta mesma linha no .gitignore dos repos-alvo
-# (WorkspaceService.ensure_git); faltava aqui, e o próprio ASO já foi alvo de orquestração.
-.aso/worktrees/
-# Índice estrutural por commit (ADR-0077) — derivado, recalculável
-.aso/index/
+# `.aso/` é SÓ estado de runtime desde a MEL-04 (ADR-0081): PID/log da API local (`run/`),
+# catálogo de executores (`executors.json`, com caminhos absolutos da máquina), worktrees dos
+# cards e o índice estrutural por commit (ADR-0077). A governança do processo de construção do
+# próprio ASO mora em `governanca/` (vivo) e `docs/historico/` (congelado), versionados.
+.aso/
 
 # Banco SQLite local. `alembic` sem ASO_DATABASE_URL cai no fallback `sqlite:///aso.db`
 # (migrations/env.py) e cria este arquivo na raiz — é estado de runtime, não código.

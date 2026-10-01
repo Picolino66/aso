@@ -38,10 +38,10 @@ Regra de dependência aponta para dentro (Clean Architecture). Verificável por 
 |---|---|
 | `docs/` | Documentação canônica (fonte de verdade) — índice, fases, domínio, api, kanban, agents, gates, snapshots |
 | `docs/adrs/` | ADRs (ADR-0001..0005) |
-| `specs/` | Specs por feature planejada (MVP-1) — ver [`specs/README.md`](../../specs/README.md) |
-| `tasks/` | Decomposição de tarefas / backlog executável — ver [`tasks/README.md`](../../tasks/README.md) |
-| `agents/` | Mapa de agentes e ownership — ver [`agents/README.md`](../../agents/README.md) |
-| `skills/` | Mapa de skills reutilizáveis — ver [`skills/README.md`](../../skills/README.md) |
+| `specs/` | Specs por feature planejada (MVP-1) — ver [`specs/README.md`](../specs-mvp1/README.md) |
+| `tasks/` | Decomposição de tarefas / backlog executável — ver [`tasks/README.md`](../../../tasks/README.md) |
+| `agents/` | Mapa de agentes e ownership — ver [`agents/README.md`](../../../agents/README.md) |
+| `skills/` | Mapa de skills reutilizáveis — ver [`skills/README.md`](../../../skills/README.md) |
 | `.aso/` | Estado do runtime: contexto, snapshots, gates, kanban |
 
 ## 4. Convenção de rastreabilidade
@@ -54,7 +54,7 @@ Regra de dependência aponta para dentro (Clean Architecture). Verificável por 
 
 ## 5. Backlog (MVP-1 — Core de governança)
 
-Épicos e tasks materializados como cards em [`.aso/kanban/board.json`](../../.aso/kanban/board.json) e detalhados em [`tasks/README.md`](../../tasks/README.md).
+Épicos e tasks materializados como cards em [`.aso/kanban/board.json`](../../../governanca/kanban/board.json) e detalhados em [`tasks/README.md`](../../../tasks/README.md).
 
 | Épico | Tasks | Prioridade |
 |---|---|---|

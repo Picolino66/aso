@@ -1,6 +1,6 @@
 # F1 — Discovery & Strategy — ASO Runtime
 
-> Documento canônico da fase F1. Consolida e valida o discovery a partir de [requerimentos.md](../../requerimentos.md).
+> Documento canônico da fase F1. Consolida e valida o discovery a partir de [requerimentos.md](../../../requerimentos.md).
 > Estado: **F1 concluída — snapshot O1 gerado**.
 
 ## 1. Visão do produto

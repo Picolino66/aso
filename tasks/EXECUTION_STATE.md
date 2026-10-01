@@ -9,8 +9,8 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
 * Branch/base: `main`
 * Commit base: `164c6ab` (nenhum commit feito por agente — regra 7)
 * Task atual: nenhuma
-* Última task concluída: MEL-61
-* Próxima task candidata: MEL-56 (P3, só se necessário) · MEL-04 (bloqueada: decisão do operador)
+* Última task concluída: MEL-04
+* Próxima task candidata: nenhuma (MEL-56 só com gatilho)
 * Estado: idle
 
 ## Tasks concluídas
@@ -645,10 +645,14 @@ Leia depois de [tasks/README.md](README.md). Código e Git prevalecem sobre este
     segredo achou 2 vazamentos extras (log do processo, desfecho da sessão) — corrigidos.
   * Validação: pytest 1859 passed / 9 skipped / 94.77% · Docker: smoke OK e log redigido no container.
 
+* MEL-04 — governança da construção fora de `.aso/` (ADR-0081), aprovada pelo operador com ajuste.
+  * `governanca/context` e `governanca/kanban` (vivos); `docs/historico/` (congelado); `.aso/` só
+    runtime e ignorada; 61 links recalculados (sobraram só os 47 já quebrados antes);
+    `test_governanca_fora_do_runtime.py` (6). pytest 1872 passed / 94.78%.
+
 ## Task em andamento
 
-* nenhuma. Backlog MEL-* e todas as DISCOVERED-NN fechados; restam só MEL-56 (gatilho não
-  disparou, medição registrada) e MEL-04 (aguarda decisão do operador).
+* nenhuma. **Backlog MEL-* concluído**, exceto a MEL-56 (gatilho não disparou — ver abaixo).
 
 ## MEL-56 — gatilho avaliado, task NÃO iniciada
 
@@ -668,7 +672,7 @@ workers ajustados, ou requisito de alta disponibilidade") e pede a medição reg
 
 ## Bloqueios
 
-* MEL-04 — **aguardando decisão do operador**. Causa: a própria task diz "muda o fluxo que o
+* MEL-04 — **RESOLVIDO: aprovada e concluída em 2026-10-01 (ADR-0081)**. Registro original: Causa: a própria task diz "muda o fluxo que o
   CLAUDE.md impõe aos agentes deste repositório — decisão do operador; confirmar antes de
   mover" (mover `.aso/context|kanban|snapshots|quality-gates|reviews`, `specs/`, `docs/phases`
   para `docs/historico/`). Ação necessária: operador confirmar a mudança de caminhos. Não
@@ -728,6 +732,10 @@ workers ajustados, ou requisito de alta disponibilidade") e pede a medição reg
   de kill-switch/orçamento continuam ausentes ali. Não corrigido.
 
 ## Observações para o próximo agente
+
+* **Caminhos mudaram na MEL-04 (ADR-0081):** board em `governanca/kanban/board.json`, contexto em
+  `governanca/context/orchestrator-context.json`. `.aso/` é só runtime. Prompts antigos que citem
+  `.aso/kanban/board.json` estão desatualizados — o CLAUDE.md é a fonte do caminho.
 
 * Todas as MEL nasceram na mesma revisão (`164c6ab`); números de linha citados podem ter
   deslocado — localize pela função.

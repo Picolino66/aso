@@ -47,8 +47,8 @@ Apaga o volume do Postgres (schema recriado por Alembic), os worktrees órfãos 
 [migrations/env.py](../migrations/env.py), criado por qualquer `alembic` rodado sem
 `ASO_DATABASE_URL`.
 
-**Não apaga** a governança versionada do próprio ASO (`.aso/context`, `.aso/kanban`,
-`.aso/quality-gates`, `.aso/snapshots`, `.aso/reviews`) nem `.aso/executors.json` — o
+**Não apaga** a governança versionada do próprio ASO (`governanca/context`, `governanca/kanban`,
+`docs/historico/governanca-construcao/quality-gates`, `docs/historico/governanca-construcao/snapshots`, `docs/historico/governanca-construcao/reviews`) nem `.aso/executors.json` — o
 catálogo de executores vive em arquivo, fora do banco, então seus perfis Claude/Codex
 sobrevivem a qualquer reset. Os repositórios-alvo também ficam intactos: o script lista os
 `target_path` **antes** do drop (eles só existem no banco) e imprime o comando de limpeza

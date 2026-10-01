@@ -22,18 +22,18 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 
 ### Governança e contexto
 - Regras invioláveis → código → teste: [GOVERNANCE.md](GOVERNANCE.md)
-- Contexto canônico: [`.aso/context/orchestrator-context.json`](../.aso/context/orchestrator-context.json)
-- Snapshots: [`.aso/snapshots/`](../.aso/snapshots/)
-- Quality gates: [`.aso/quality-gates/`](../.aso/quality-gates/)
+- Contexto canônico: [`governanca/context/orchestrator-context.json`](../governanca/context/orchestrator-context.json)
+- Snapshots: [`docs/historico/governanca-construcao/snapshots/`](../docs/historico/governanca-construcao/snapshots/)
+- Quality gates: [`docs/historico/governanca-construcao/quality-gates/`](../docs/historico/governanca-construcao/quality-gates/)
 
 ### Fases
-- [F1 — Discovery & Strategy](phases/F1-discovery.md) ✅
-- [F2 — Architecture & Design](phases/F2-architecture.md) ✅
-- [F3 — Data & API Contracts](phases/F3-contracts.md) ✅
-- [F4 — UX/UI & Planning](phases/F4-planning.md) ✅
-- [F5 — Engineering Execution](phases/F5-execution.md) ✅ *(MVP-1 completo; 15/15 cards)*
-- [F6 — Quality, Docs & Deploy](phases/F6-quality.md) ✅ *(CI/CD, segurança, docs, deploy/rollback)*
-- [F7 — Operate & Evolve](phases/F7-operate.md) ✅ *(observabilidade, SLOs, feedback→backlog)*
+- [F1 — Discovery & Strategy](historico/phases/F1-discovery.md) ✅
+- [F2 — Architecture & Design](historico/phases/F2-architecture.md) ✅
+- [F3 — Data & API Contracts](historico/phases/F3-contracts.md) ✅
+- [F4 — UX/UI & Planning](historico/phases/F4-planning.md) ✅
+- [F5 — Engineering Execution](historico/phases/F5-execution.md) ✅ *(MVP-1 completo; 15/15 cards)*
+- [F6 — Quality, Docs & Deploy](historico/phases/F6-quality.md) ✅ *(CI/CD, segurança, docs, deploy/rollback)*
+- [F7 — Operate & Evolve](historico/phases/F7-operate.md) ✅ *(observabilidade, SLOs, feedback→backlog)*
 
 ### Documentação técnica
 - [Requisitos (resumo)](requirements.md) · [Requisitos completos](../requerimentos.md)
@@ -41,12 +41,12 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [Módulo de projetos](modules/projetos/index.md) · [Executores](modules/executores/index.md) · [Fluxo do console](modules/console/index.md)
 - [Kanban](kanban.md) · [Agentes](agents.md) · [Contexto](context.md) · [Quality Gates](quality-gates.md) · [Snapshots](snapshots.md)
 - [Operações (runbook)](operations.md) · [Deploy & Rollback](deploy.md) · [CHANGELOG](../CHANGELOG.md)
-- [MVP-1](mvp/mvp-1.md)
-- [Plano de fidelidade ao fluxo/wireframe](plano-fidelidade-fluxo.md) — diagnóstico ≈55% e backlog FID-01…FID-27
+- [MVP-1](historico/mvp/mvp-1.md)
+- [Plano de fidelidade ao fluxo/wireframe](historico/plano-fidelidade-fluxo.md) — diagnóstico ≈55% e backlog FID-01…FID-27
 - [Design system (`/ui/*`)](design-system.md) · [Mapa de páginas e rotas](mapa-paginas.md)
 
 ### Estrutura agentic
-- [`specs/`](../specs/README.md) · [`tasks/`](../tasks/README.md) · [`agents/`](../agents/README.md) · [`skills/`](../skills/README.md)
+- [`docs/historico/specs-mvp1/`](historico/specs-mvp1/README.md) · [`tasks/`](../tasks/README.md) · [`agents/`](../agents/README.md) · [`skills/`](../skills/README.md)
 
 ### ADRs
 - [ADR-0001 — Arquitetura do runtime: Modular Monolith + Hexagonal](adrs/ADR-0001-runtime-architecture.md)
@@ -129,3 +129,4 @@ Todo conteúdo é mantido em **português do Brasil (pt-BR)**.
 - [ADR-0078 — Consolidação do console: uma geração de páginas, uma navegação](adrs/ADR-0078-consolidacao-do-console.md)
 - [ADR-0079 — Demandas parecidas por BM25 em processo (e por que não `tsvector`/FTS5 nem embeddings)](adrs/ADR-0079-similaridade-de-demandas-por-bm25.md)
 - [ADR-0080 — Redação de segredos como invariante do estado governado](adrs/ADR-0080-redacao-de-segredos-na-saida-de-agente.md)
+- [ADR-0081 — Governança da construção do ASO fora de `.aso/`](adrs/ADR-0081-governanca-da-construcao-fora-do-runtime.md)

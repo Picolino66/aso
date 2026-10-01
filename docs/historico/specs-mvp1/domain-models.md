@@ -11,7 +11,7 @@
 
 Implementar as entidades canônicas do domínio do ASO Runtime, tanto como schemas Pydantic v2 (validação, DTOs, contexto) quanto como tabelas relacionais SQLAlchemy 2.x + migrations Alembic. Estas entidades são o vocabulário compartilhado por todos os planes e a base de rastreabilidade requisito → decisão → task → implementação.
 
-Segue o modelo de dados de [`docs/domain-model.md`](../docs/domain-model.md) (agregados por plane) e a lista de tabelas do §29. Consistência forte por orquestração (ADR-0005). Toda entidade relevante tem `id` (UUID) e `created_at`/`updated_at` (ISO8601 UTC), conforme §39.9.
+Segue o modelo de dados de [`docs/domain-model.md`](../../domain-model.md) (agregados por plane) e a lista de tabelas do §29. Consistência forte por orquestração (ADR-0005). Toda entidade relevante tem `id` (UUID) e `created_at`/`updated_at` (ISO8601 UTC), conforme §39.9.
 
 ## Escopo
 

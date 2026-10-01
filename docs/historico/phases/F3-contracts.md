@@ -4,16 +4,16 @@
 
 ## 1. Entidades e schemas
 
-Modelo de domínio completo em [domain-model.md](../domain-model.md): agregados por plane, atributos e relacionamentos. Todas as entidades têm `id` (UUID) e timestamps. Sem campos genéricos sem descrição.
+Modelo de domínio completo em [domain-model.md](../../domain-model.md): agregados por plane, atributos e relacionamentos. Todas as entidades têm `id` (UUID) e timestamps. Sem campos genéricos sem descrição.
 
 ## 2. Modelo de consistência
 
-**Forte** (transacional, um PostgreSQL). Ver [ADR-0005](../adrs/ADR-0005-data-consistency-and-api-versioning.md). `OrchestratorContext` versionado com histórico append-only; escrita serializada pelo ContextBus (ADR-0003) com locks por `target_keys`.
+**Forte** (transacional, um PostgreSQL). Ver [ADR-0005](../../adrs/ADR-0005-data-consistency-and-api-versioning.md). `OrchestratorContext` versionado com histórico append-only; escrita serializada pelo ContextBus (ADR-0003) com locks por `target_keys`.
 
 ## 3. Contratos de API
 
 - Versão base **v1** (prefixo de path).
-- Catálogo humano em [api.md](../api.md); spec de máquina em [`contracts/openapi.yaml`](../../contracts/openapi.yaml).
+- Catálogo humano em [api.md](../../api.md); spec de máquina em [`contracts/openapi.yaml`](../../contracts/openapi.yaml).
 - Erros padronizados (RFC 7807-like); idempotência via `Idempotency-Key`; paginação padrão.
 
 ## 4. DTOs principais

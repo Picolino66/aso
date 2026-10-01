@@ -5,7 +5,7 @@ Tasks derivadas da revisão arquitetural registrada em [feedback.md](../feedback
 cita as evidências no código.
 
 > O backlog histórico do MVP-1 (TASK-01…TASK-15) continua registrado em
-> [`.aso/kanban/board.json`](../.aso/kanban/board.json).
+> [`.aso/kanban/board.json`](../governanca/kanban/board.json).
 
 ## Convenções
 

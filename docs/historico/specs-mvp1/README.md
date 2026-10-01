@@ -1,15 +1,15 @@
 # SPECS — ASO Runtime (MVP-1)
 
-> Fase **F4 — UX/UI & Planning**. Especificações funcionais de cada feature do MVP-1 (Core de governança), derivadas dos cards `TASK-01..TASK-15` do [board](../.aso/kanban/board.json).
+> Fase **F4 — UX/UI & Planning**. Especificações funcionais de cada feature do MVP-1 (Core de governança), derivadas dos cards `TASK-01..TASK-15` do [board](../../../governanca/kanban/board.json).
 > Cada spec é a fonte de verdade funcional para a implementação em **F5 (Engineering Execution)**.
 
 ## Referências-base
 
-- Requisitos: [`requerimentos.md`](../requerimentos.md)
-- Domínio: [`docs/domain-model.md`](../docs/domain-model.md)
-- API: [`docs/api.md`](../docs/api.md) · contrato de máquina em `contracts/openapi.yaml`
-- Arquitetura: [`docs/phases/F2-architecture.md`](../docs/phases/F2-architecture.md)
-- ADRs: [`docs/adrs/`](../docs/adrs/)
+- Requisitos: [`requerimentos.md`](../../../requerimentos.md)
+- Domínio: [`docs/domain-model.md`](../../domain-model.md)
+- API: [`docs/api.md`](../../api.md) · contrato de máquina em `contracts/openapi.yaml`
+- Arquitetura: [`docs/phases/F2-architecture.md`](../phases/F2-architecture.md)
+- ADRs: [`docs/adrs/`](../../adrs/)
 
 ## Stack (locked — ADR-0004)
 

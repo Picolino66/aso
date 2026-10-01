@@ -1,7 +1,7 @@
 # Snapshots — ASO Runtime
 
 > Explica o `SnapshotEngine` (§23) e lista os snapshots O1–O7.
-> **Snapshots materializados em:** [`.aso/snapshots/`](../.aso/snapshots/).
+> **Snapshots materializados em:** [`docs/historico/governanca-construcao/snapshots/`](../docs/historico/governanca-construcao/snapshots/).
 > Requisito: [`requerimentos.md` §23](../requerimentos.md).
 
 ## 1. SnapshotEngine (§23)
@@ -48,7 +48,7 @@ O bloqueio de seções congeladas é aplicado pelo `ContextBus` na etapa 4 da va
 ## 2. Estado do processo de construção do ASO
 
 A tabela "O1–O4 existentes" que existia aqui descrevia o **processo de construção do próprio
-ASO** (arquivos em `.aso/snapshots/`), não o estado do runtime. Os snapshots de uma
+ASO** (arquivos em `docs/historico/governanca-construcao/snapshots/`), não o estado do runtime. Os snapshots de uma
 orquestração vêm de `GET /v1/orchestrations/{id}/snapshots`. A separação dos artefatos de
 construção é a MEL-04 (aguardando decisão do operador).
 

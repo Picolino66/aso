@@ -1,13 +1,13 @@
 # Requisitos — ASO Runtime
 
 > Resumo executivo dos requisitos. **Fonte completa e canônica:** [`requerimentos.md`](../requerimentos.md).
-> Consolidação de discovery: [F1 — Discovery & Strategy](phases/F1-discovery.md).
+> Consolidação de discovery: [F1 — Discovery & Strategy](historico/phases/F1-discovery.md).
 
 ## 1. Visão
 
 **ASO Runtime — Autonomous Software Orchestrator Runtime** é um runtime multiagente de engenharia de software com Kanban operacional que decompõe demandas, distribui tarefas entre agentes especializados, executa em paralelo com isolamento, valida por quality gates, registra ADRs, gera snapshots e conduz o ciclo completo da ideia à produção (fases F1–F7).
 
-**Personas:** Tech Lead / Dev sênior orquestrador; Engenheiro de Plataforma / Arquiteto; Product/Engineering Manager agentic (ver [F1 §3](phases/F1-discovery.md)).
+**Personas:** Tech Lead / Dev sênior orquestrador; Engenheiro de Plataforma / Arquiteto; Product/Engineering Manager agentic (ver [F1 §3](historico/phases/F1-discovery.md)).
 
 ## 2. Problema
 
@@ -38,11 +38,11 @@ SaaS multiempresa; marketplace de agentes; billing; deploy automático em produ�
 
 O MVP-1 será aceito quando o sistema conseguir: (1) criar uma orquestração; (2) gerar um `ExecutionPlan`; (3) criar um `OrchestratorContext`; (4) criar um Kanban board; (5) criar cards automaticamente; (6) decidir single-agent vs multi-agent; (7) executar ao menos um agente (simulado ou real); (8) produzir um `ContextPatch`; (9) validar e aplicar o patch pelo `ContextBus`; (10) registrar uma ADR; (11) rodar um quality gate simples; (12) gerar um snapshot; (13) exibir a timeline; (14) exibir o Kanban; (15) registrar logs básicos.
 
-Detalhamento do escopo e backlog do MVP-1 em [`mvp/mvp-1.md`](mvp/mvp-1.md).
+Detalhamento do escopo e backlog do MVP-1 em [`mvp/mvp-1.md`](historico/mvp/mvp-1.md).
 
 ## Referências
 
 - Requisitos completos: [`requerimentos.md`](../requerimentos.md)
-- Discovery: [F1 — Discovery & Strategy](phases/F1-discovery.md)
+- Discovery: [F1 — Discovery & Strategy](historico/phases/F1-discovery.md)
 - Arquitetura: [`architecture.md`](architecture.md)
 - Contexto/governança: [`context.md`](context.md)

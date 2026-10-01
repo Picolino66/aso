@@ -4,7 +4,7 @@
 - **Fase:** F4 (evolução pós-O5)
 - **Data:** 2026-08-08
 - **Relaciona-se com:** [ADR-0002](ADR-0002-kanban-as-execution-plane.md)
-  (TASK-04, `specs/kanban.md` — "movimentos inválidos são rejeitados" já era
+  (TASK-04, `docs/historico/specs-mvp1/kanban.md` — "movimentos inválidos são rejeitados" já era
   critério de aceite original, nunca implementado até aqui), [ADR-0040](ADR-0040-estrutura-da-demanda-em-arvore.md)/[ADR-0046](ADR-0046-documentos-e-revisao-documental.md)
   (páginas satélite `?id=`, mesmo padrão), [`wiframe-fluxo.md`](../../wiframe-fluxo.md)
   §13 (Tela 11) e §35 (máquina de estados)
@@ -26,7 +26,7 @@ prévia encontrou:
   no diagrama, não 14.
 - **Não existe HOJE nenhuma validação de transição** — `BoardService.move_card`
   aceita qualquer origem→destino, sem checagem. Mas isso **não é uma lacuna
-  nova**: `specs/kanban.md` (TASK-04, ADR-0002) já listava "movimentos
+  nova**: `docs/historico/specs-mvp1/kanban.md` (TASK-04, ADR-0002) já listava "movimentos
   inválidos (transição não permitida pela máquina) são rejeitados" como
   critério de aceite original, nunca implementado. Este card paga essa
   dívida, não inventa escopo novo.

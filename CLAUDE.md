@@ -59,12 +59,14 @@ docker compose down -v && docker compose up -d --build
 
 ## Ao concluir, atualize a governança (não pule)
 
-O estado do runtime é versionado em arquivos que precisam refletir a realidade:
+A governança do **processo de construção do ASO** é versionada em `governanca/` e precisa
+refletir a realidade (não é estado do runtime: o runtime nunca lê esses arquivos, e `.aso/`
+guarda só estado de runtime — ADR-0081). O que já não muda mais fica em `docs/historico/`.
 
-- [.aso/context/orchestrator-context.json](.aso/context/orchestrator-context.json)
+- [governanca/context/orchestrator-context.json](governanca/context/orchestrator-context.json)
   — `coverage_report` (nº de testes, cobertura, escopo), `cards_done`,
   `increments_post_o5`.
-- [.aso/kanban/board.json](.aso/kanban/board.json) — adicione o(s) card(s) do
+- [governanca/kanban/board.json](governanca/kanban/board.json) — adicione o(s) card(s) do
   incremento com `status: "Done"`, critérios de aceite e `evidence`.
 - [CHANGELOG.md](CHANGELOG.md) — uma linha por entrega, em pt-BR.
 

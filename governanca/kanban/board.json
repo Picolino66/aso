@@ -148,7 +148,7 @@
       "description": "Criar layout src/aso (control/kanban/agents/execution/governance/observability/shared/api/cli/db), pyproject.toml, ruff, mypy, pytest, docker-compose (Postgres).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/project-setup.md",
+      "spec": "docs/historico/specs-mvp1/project-setup.md",
       "acceptance_criteria": [
         "Projeto instala e roda",
         "ruff+mypy+pytest configurados",
@@ -177,7 +177,7 @@
       "description": "Implementar entidades \u00a729/\u00a740 Task 2 (Project, Orchestration, Phase, ExecutionPlan, KanbanBoard/Card, Agent, AgentRun, ContextPatch, QualityGateResult, Snapshot, ADR, Conflict, HumanApproval).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/domain-models.md",
+      "spec": "docs/historico/specs-mvp1/domain-models.md",
       "acceptance_criteria": [
         "Entidades com id+timestamps",
         "Schemas Pydantic validam",
@@ -206,7 +206,7 @@
       "description": "Schema \u00a717, persist\u00eancia JSONB, vers\u00e3o incremental, hist\u00f3rico append-only, context_hash.",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/orchestrator-context.md",
+      "spec": "docs/historico/specs-mvp1/orchestrator-context.md",
       "acceptance_criteria": [
         "Contexto criado e lido",
         "Vers\u00e3o incrementa a cada escrita",
@@ -236,7 +236,7 @@
       "description": "Board/colunas/cards \u00a716 + m\u00e1quina de estados dirigida por eventos (\u00a716.7).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/kanban.md",
+      "spec": "docs/historico/specs-mvp1/kanban.md",
       "acceptance_criteria": [
         "Board e cards criados",
         "Card move por evento",
@@ -265,7 +265,7 @@
       "description": "Gerar plano com strategy, agentes, success_criteria, fallback (\u00a714/\u00a740 Task 5).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/execution-plan.md",
+      "spec": "docs/historico/specs-mvp1/execution-plan.md",
       "acceptance_criteria": [
         "Plano gerado de user_request",
         "Cont\u00e9m agentes e crit\u00e9rios de sucesso"
@@ -291,7 +291,7 @@
       "description": "Decidir single vs multi-agent com justificativa e risco (\u00a714/\u00a740 Task 6).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/multiagent-decision-engine.md",
+      "spec": "docs/historico/specs-mvp1/multiagent-decision-engine.md",
       "acceptance_criteria": [
         "Decide modo com reason",
         "Marca requires_human_approval quando risco alto"
@@ -318,7 +318,7 @@
       "description": "Registrar agentes internos \u00a715 + capacidades e permiss\u00f5es (\u00a740 Task 7).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/agent-registry.md",
+      "spec": "docs/historico/specs-mvp1/agent-registry.md",
       "acceptance_criteria": [
         "16 agentes registr\u00e1veis",
         "Permiss\u00f5es de tool por agente"
@@ -345,7 +345,7 @@
       "description": "ExecutionProvider abstrato + LocalMockExecutionProvider retornando output estruturado (\u00a726/\u00a743/\u00a740 Task 8).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/agent-executor-mock.md",
+      "spec": "docs/historico/specs-mvp1/agent-executor-mock.md",
       "acceptance_criteria": [
         "Provider mock executa",
         "Retorna ContextPatch estruturado"
@@ -378,7 +378,7 @@
         "BackendDevelopmentAgent",
         "SecurityAgent"
       ],
-      "spec": "specs/context-patch-contextbus.md",
+      "spec": "docs/historico/specs-mvp1/context-patch-contextbus.md",
       "acceptance_criteria": [
         "Patch validado nas 7 etapas",
         "Aplica e incrementa vers\u00e3o",
@@ -408,7 +408,7 @@
       "description": "Criar e listar ADRs \u00a721 (\u00a740 Task 10).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/adr-registry.md",
+      "spec": "docs/historico/specs-mvp1/adr-registry.md",
       "acceptance_criteria": [
         "ADR criada e listada",
         "Numera\u00e7\u00e3o sequencial",
@@ -435,7 +435,7 @@
       "description": "Validar crit\u00e9rios simples \u00a722; gate falho bloqueia avan\u00e7o (\u00a740 Task 11).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/quality-gate-engine.md",
+      "spec": "docs/historico/specs-mvp1/quality-gate-engine.md",
       "acceptance_criteria": [
         "Gate roda e retorna PASSED/FAILED",
         "Falha bloqueia avan\u00e7o",
@@ -462,7 +462,7 @@
       "description": "Gerar snapshot ap\u00f3s gate aprovado; congelar se\u00e7\u00f5es \u00a723 (\u00a740 Task 12).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/snapshot-engine.md",
+      "spec": "docs/historico/specs-mvp1/snapshot-engine.md",
       "acceptance_criteria": [
         "Snapshot gerado ap\u00f3s gate",
         "Se\u00e7\u00f5es congeladas",
@@ -491,7 +491,7 @@
       "description": "Endpoints \u00a728 n\u00facleo conforme contracts/openapi.yaml (\u00a740 Task 13).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/api-minimal.md",
+      "spec": "docs/historico/specs-mvp1/api-minimal.md",
       "acceptance_criteria": [
         "Endpoints de orchestration/board/cards/context/gates/snapshots/adrs",
         "Aderente ao OpenAPI"
@@ -524,7 +524,7 @@
       "description": "Comandos \u00a731 (aso init/run/status/board/resume/rollback/approve/agents/snapshots/adrs) (\u00a740 Task 14).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/cli-minimal.md",
+      "spec": "docs/historico/specs-mvp1/cli-minimal.md",
       "acceptance_criteria": [
         "aso run cria orquestra\u00e7\u00e3o",
         "aso board mostra cards",
@@ -555,7 +555,7 @@
         "DevOpsAgent",
         "DocumentationAgent"
       ],
-      "spec": "specs/observability-basic.md",
+      "spec": "docs/historico/specs-mvp1/observability-basic.md",
       "acceptance_criteria": [
         "Logs com correlation IDs",
         "Timeline exib\u00edvel",
@@ -583,7 +583,7 @@
       "description": "Porta OrchestrationRepository + adapters in-memory e SQLAlchemy (SQLite/Postgres); estado sobrevive entre execu\u00e7\u00f5es.",
       "assignee_type": "agent",
       "assignee": "DatabaseAgent",
-      "spec": "specs/persistence.md",
+      "spec": "docs/historico/specs-mvp1/persistence.md",
       "acceptance_criteria": [
         "Dom\u00ednio depende s\u00f3 da porta",
         "Estado sobrevive a nova inst\u00e2ncia",
@@ -618,7 +618,7 @@
       "description": "Tabelas normalizadas por entidade (\u00a729) no adapter SQLAlchemy; contexto em JSONB; migrations Alembic (revis\u00e3o inicial + alembic check).",
       "assignee_type": "agent",
       "assignee": "DatabaseAgent",
-      "spec": "specs/persistence.md",
+      "spec": "docs/historico/specs-mvp1/persistence.md",
       "acceptance_criteria": [
         "11 tabelas normalizadas",
         "alembic upgrade head cria o schema",
@@ -648,7 +648,7 @@
       "description": "card_links, adr_links, board_columns, planned_agents; \u00edndices e consultas (por status, links reversos); migration Alembic 0002.",
       "assignee_type": "agent",
       "assignee": "DatabaseAgent",
-      "spec": "specs/persistence.md",
+      "spec": "docs/historico/specs-mvp1/persistence.md",
       "acceptance_criteria": [
         "Cole\u00e7\u00f5es de valor em tabelas de jun\u00e7\u00e3o",
         "\u00cdndices criados",
@@ -757,7 +757,7 @@
       "description": "Consultas indexadas expostas na porta, adapters, servi\u00e7o, API (stats, by-status, linked-cards) e CLI (stats).",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/persistence.md",
+      "spec": "docs/historico/specs-mvp1/persistence.md",
       "acceptance_criteria": [
         "Consultas na porta + 2 adapters",
         "Endpoints de leitura na API",
@@ -867,7 +867,7 @@
       "description": "QualityGateResult e HumanApproval como entidades persistidas (migration 0003); endpoints quality-gates, conflicts, approvals (\u00a728.7) e rollback/cancel/resume (\u00a728.1); CLI approvals/approve/rollback.",
       "assignee_type": "agent",
       "assignee": "BackendDevelopmentAgent",
-      "spec": "specs/persistence.md",
+      "spec": "docs/historico/specs-mvp1/persistence.md",
       "acceptance_criteria": [
         "Gates e approvals persistidos e recarregados",
         "Endpoints \u00a728 restantes",
@@ -2659,7 +2659,7 @@
       "description": "Project vira agregado relacional de cat\u00e1logo com path can\u00f4nico \u00fanico, eventos append-only, arquivamento/restaura\u00e7\u00e3o por RBAC, FKs RESTRICT e snapshot de workspace por orquestra\u00e7\u00e3o. Console administra ativos/arquivados e segue pr\u00e9-an\u00e1lise \u2192 demanda \u2192 docs-first \u2192 detalhe sem iniciar Autopilot implicitamente.",
       "assignee_type": "agent",
       "assignee": "backend",
-      "spec": "specs/catalogo-multi-repo.md",
+      "spec": "docs/historico/specs-mvp1/catalogo-multi-repo.md",
       "acceptance_criteria": [
         "Porta de projetos com adapters in-memory e SQLAlchemy; nenhum ProjectStore JSON",
         "Migra\u00e7\u00e3o cria projects/project_events, backfill legado e FKs RESTRICT",
@@ -2699,7 +2699,7 @@
       "description": "Descobre modelos/esfor\u00e7os pelo Codex App Server, migra seeds est\u00e1ticos, bloqueia incompatibilidades antes do worktree e permite corrigir/repetir docs-first sem descartar a orquestra\u00e7\u00e3o.",
       "assignee_type": "agent",
       "assignee": "backend",
-      "spec": "specs/executores-codex-compativeis.md",
+      "spec": "docs/historico/specs-mvp1/executores-codex-compativeis.md",
       "acceptance_criteria": [
         "model/list paginado gera codex-default e perfis dos modelos efetivos",
         "Perfis legados ficam indispon\u00edveis e personalizados s\u00e3o preservados",
@@ -2971,7 +2971,7 @@
       "acceptance_criteria": [
         "exige confirma\u00e7\u00e3o expl\u00edcita (RESETAR) ou --sim",
         "lista os reposit\u00f3rios-alvo antes de derrubar o banco",
-        "n\u00e3o apaga .aso/context, .aso/kanban, .aso/quality-gates, .aso/snapshots, .aso/reviews",
+        "n\u00e3o apaga governanca/context, governanca/kanban, docs/historico/governanca-construcao/quality-gates, docs/historico/governanca-construcao/snapshots, docs/historico/governanca-construcao/reviews",
         "preserva .aso/executors.json salvo com --executores",
         "remove worktrees pela porta do git e roda prune",
         "sobe o Postgres limpo e aplica alembic upgrade head"
@@ -3001,7 +3001,7 @@
         "aso.db fora do \u00edndice do git e presente no .gitignore",
         "aso.db preservado em disco (git rm --cached, n\u00e3o rm)",
         ".aso/worktrees/ ignorado no pr\u00f3prio reposit\u00f3rio do ASO",
-        "governan\u00e7a versionada (.aso/context, kanban, quality-gates, snapshots, reviews) intacta",
+        "governan\u00e7a versionada (governanca/context, kanban, quality-gates, snapshots, reviews) intacta",
         "reset.sh volta a simplesmente apagar o aso.db, sem tratar arquivo rastreado",
         "nenhum outro bin\u00e1rio/log/cache rastreado (varredura por extens\u00e3o)"
       ],
@@ -3087,7 +3087,7 @@
       "status": "Done",
       "priority": "medium",
       "title": "Esteira did\u00e1tica com agente por etapa na tela de detalhe",
-      "description": "A esteira exibia 'F1 F2 F3 F4 F5 F6 F7' com o r\u00f3tulo s\u00f3 da fase corrente, em ingl\u00eas \u2014 n\u00e3o dizia a ningu\u00e9m o que cada etapa faz. E a escolha de agente por etapa (ADR-0014) estava atr\u00e1s de um clique no modal \u2699 Config, invis\u00edvel na pr\u00e1tica. PHASE_INFO + GET /v1/phases d\u00e3o nome, resumo e entrega em pt-BR, gen\u00e9ricos para qualquer projeto (os docs/phases/*.md documentam o desenvolvimento do pr\u00f3prio ASO, n\u00e3o o significado das etapas). Cada fase virou cart\u00e3o com chip de agente clic\u00e1vel que faz PUT/DELETE .../agents/{key}; fase conclu\u00edda fica desabilitada, antecipando o 409 que a governan\u00e7a j\u00e1 aplicava. O painel ao vivo entrou logo abaixo do 'Pr\u00f3ximo passo'.",
+      "description": "A esteira exibia 'F1 F2 F3 F4 F5 F6 F7' com o r\u00f3tulo s\u00f3 da fase corrente, em ingl\u00eas \u2014 n\u00e3o dizia a ningu\u00e9m o que cada etapa faz. E a escolha de agente por etapa (ADR-0014) estava atr\u00e1s de um clique no modal \u2699 Config, invis\u00edvel na pr\u00e1tica. PHASE_INFO + GET /v1/phases d\u00e3o nome, resumo e entrega em pt-BR, gen\u00e9ricos para qualquer projeto (os docs/historico/phases/*.md documentam o desenvolvimento do pr\u00f3prio ASO, n\u00e3o o significado das etapas). Cada fase virou cart\u00e3o com chip de agente clic\u00e1vel que faz PUT/DELETE .../agents/{key}; fase conclu\u00edda fica desabilitada, antecipando o 409 que a governan\u00e7a j\u00e1 aplicava. O painel ao vivo entrou logo abaixo do 'Pr\u00f3ximo passo'.",
       "assignee_type": "agent",
       "assignee": "frontend",
       "spec": "docs/adrs/ADR-0015-observabilidade-ao-vivo-da-execucao.md",
@@ -3606,7 +3606,7 @@
         "API GET/POST/PUT/DELETE /v1/routing-rules, escrita exige admin (api/auth.py::required_role)",
         "857 testes / 92.65% cobertura (34 novos: test_routing_rules.py, test_routing_rule_wiring.py, test_routing_rules_api.py, test_routing_rules_persistence.py); ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (tabela routing_rules em JSONB real, coluna routing_rule_applied, roteiro manual criar->listar->orquestracao casando->atualizar->deletar via API real, smoke.sh OK)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-02",
@@ -3636,7 +3636,7 @@
         "API GET/PUT /v1/orchestrations/{id}/deploy/pipeline + POST deploy/run com estagio opcional; PUT exige operator",
         "906 testes / 92.80% cobertura (49 novos: test_deploy_pipeline.py, test_deploy_pipeline_orchestration.py, extensao de test_deploy_api.py); control/deploy.py 100% coberto; ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (coluna deploy_pipeline em JSONB real, roteiro manual completo via API: pular etapa recusado 409, 3 estagios em sequencia, gate F6 bloqueado ate aceite do ultimo estagio, aprovacao libera o gate, persistencia confirmada via psql direto)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-03",
@@ -3664,7 +3664,7 @@
         "API GET /v1/orchestrations/{id}/cards/{id}/checklist (so leitura -- sem POST, escrita e 100% automatica)",
         "927 testes / 92.85% cobertura (26 novos: test_preparation_checklist.py, test_preparation_checklist_orchestration.py, extensao de test_ficha_de_encerramento.py e test_card_lifecycle_api.py); control/preparation.py 100% coberto; ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (colunas preparation_checklist/dependency_task_id em JSONB/varchar reais, roteiro manual completo via API: checklist vazio->rodado->7 itens marcados, bloqueio por dependencia real com tarefa vinculada criada e nao duplicada em nova tentativa, persistencia confirmada via SELECT direto)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-04",
@@ -3693,7 +3693,7 @@
         "next_step.py::_cards_falhos_blocker mostra 'tentativa N de M' com o contador correto (nao mais travado em 5)",
         "939 testes / 92.99% cobertura (23 novos: test_attempts.py, test_tentativas_historico.py, extensao de test_routing_rule_wiring.py e test_failure_routing_api.py com prova direta do bug corrigido); control/attempts.py 100% coberto; ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (colunas tentativa_atual/max_tentativas/tentativas reais, regra de roteamento com limite_tentativas=2 herdada por todos os cards da orquestracao via API real, persistencia confirmada via SELECT direto)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-05",
@@ -3723,7 +3723,7 @@
         "Sem backfill de cards INCIDENT anteriores -- decisao consciente documentada na ADR (mudanca 100% aditiva, nenhum card existente tocado)",
         "959 testes / 93.08% cobertura (34 novos: test_incidents.py, extensao de test_deploy_api.py e test_persistence.py); governance/models.py 100% coberto; ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (tabela incidents com FK real, ciclo de vida completo aberto->investigando->resolvido via API real, persistencia confirmada via SELECT direto)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-06",
@@ -3753,7 +3753,7 @@
         "API: GET .../pulls/{pr}/comments, POST .../comments/{id}/resolve (operator)",
         "980 testes / 93.15% cobertura (46 novos: test_review_comments.py, extensao de test_review_service.py, test_review_comments_api.py, extensao de test_persistence.py); governance/models.py e db/models.py 100% cobertos; ruff+format+mypy --strict OK; alembic upgrade head + check sem drift; Docker/Postgres validado ponta a ponta (tabela review_comments com FK real confirmada via psql, fluxo CI->review->merge sem regressao, 404 de comentario inexistente confirmado via HTTP real)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-07",
@@ -3784,7 +3784,7 @@
         "Validacao estatica via dev server real (uvicorn): as 4 paginas HTML bem formadas (html.parser sem erro), CSS com chaves balanceadas, links resolvendo 200 -- SEM ferramenta de navegador disponivel neste ambiente para conferencia visual pixel a pixel (limitacao explicitada, nao testada visualmente)",
         "Escopo deliberadamente contido: sem header de 9 elementos nem sidebar de 16 secoes (FID-08/FID-09, que dependem deste card) -- so reskin + biblioteca de componentes, conforme aprovado"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-08",
@@ -3816,7 +3816,7 @@
         "1001 testes / 93.21% cobertura (19 novos: test_search.py, test_header_summary.py, test_header_api.py, extensao de test_extra_endpoints.py); ruff+format+mypy --strict OK; alembic sem mudanca (card nao toca schema)",
         "Validado via dev server real (uvicorn): as 4 paginas + header.js + os 4 endpoints novos respondem 200; sintaxe JS de header.js e dos 4 scripts inline verificada com node --check -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-09",
@@ -3847,7 +3847,7 @@
         "1006 testes / 93.20% cobertura (13 novos: sidebar.js servido com as 16 secoes na ordem certa, as 16 rotas respondem 200 e montam header+sidebar com a secao ativa correta, rota inexistente devolve 404, assets compartilhados NAO interceptados pela rota de secao, rotas antigas continuam sem sidebar); ruff+format+mypy --strict OK; alembic sem mudanca",
         "Validado via dev server real (uvicorn): as 20 paginas (4 legadas + 16 novas) + 4 assets compartilhados respondem 200, rota inexistente 404; sintaxe JS de sidebar.js e dos 16 scripts inline verificada com node --check -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-10",
@@ -3880,7 +3880,7 @@
         "1026 testes / 93.21% cobertura (23 novos: test_dashboard_summary.py, test_dashboard_api.py, extensao de test_persistence.py); ruff+format+mypy --strict OK; Alembic com 1 migration nova (HumanApproval.tipo) aplicada sem drift",
         "Validado via dev server real (uvicorn): GET /ui/dashboard 200, POST orquestracao + GET /v1/dashboard-summary refletindo dado real (demandas_ativas:1, cards_por_status:{Ready:1}), GET /v1/activity com eventos reais (OrchestrationCreated/CardCreated); sintaxe JS verificada com node --check -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel nem para confirmar que o mermaid.js do CDN renderiza de fato (so que o script e carregado e o bloco .mermaid existe no HTML)"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-11",
@@ -3913,7 +3913,7 @@
         "1051 testes / 93.10% cobertura (25 novos: test_lista_demandas_filtros.py, test_lista_demandas_api.py, test_lista_demandas_html.py); ruff+format+mypy --strict OK; alembic sem mudanca (card nao toca schema)",
         "Validado via dev server real (uvicorn) com dado de ponta a ponta: GET /ui/demandas 200, filtro de texto/risco/tipo funcionando com demanda real (triada pela heuristica), duplicar criando orquestracao nova de fato, paginacao com X-Total-Count correto -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-12",
@@ -3946,7 +3946,7 @@
         "1066 testes / 93.14% cobertura (15 novos: test_cadastro_completo.py, test_cadastro_completo_api.py, test_cadastro_completo_html.py); ruff+format+mypy --strict OK; alembic sem mudanca (card nao toca schema -- DemandBrief e armazenado como JSONB)",
         "Validado via dev server real (uvicorn) com dado de ponta a ponta: POST com ficha completa preserva todos os campos sem re-triagem (origem continua 'heuristica', fallback_reason vazio), orcamento_usd=250.0 gravado corretamente, aprovacao_humana_obrigatoria=true criou HumanApproval pendente de fato, filtro por risco=high do FID-11 encontrou a demanda -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-13",
@@ -3980,7 +3980,7 @@
         "1081 testes / 93.17% cobertura (14 novos: test_arvore_da_demanda.py, test_arvore_da_demanda_api.py, test_arvore_da_demanda_html.py, mais 2 testes de test_hierarquia.py atualizados para o novo teto de profundidade); ruff+format+mypy --strict OK; alembic sem mudanca (card nao toca schema)",
         "Validado via dev server real (uvicorn) com dado de ponta a ponta: criacao em sequencia Epico->Historia->Card->Subtarefa (nivel 4) aceita e refletida corretamente na arvore aninhada; tentativa de nivel 5 recusada com 409 e mensagem clara ('Hierarquia excede a profundidade maxima (4: Epic -> Feature -> Task -> Task/Subtarefa)') -- sem ferramenta de navegador neste ambiente para conferencia visual pixel a pixel"
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-14",
@@ -4015,7 +4015,7 @@
         "Validado ao vivo via uvicorn dev server: orquestra\u00e7\u00e3o real com brief completo, hierarquia de cards, movimenta\u00e7\u00f5es, QA registrado \u2014 todos os 10 endpoints consumidos pela p\u00e1gina responderam com dado real e n\u00e3o fabricado; sem ferramenta de navegador neste ambiente para verifica\u00e7\u00e3o visual/pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-15",
@@ -4053,7 +4053,7 @@
         "Validado ao vivo via uvicorn dev server: cria\u00e7\u00e3o de demandas reais com brief real, preview batendo/n\u00e3o batendo corretamente, cria\u00e7\u00e3o de 2 regras e reordena\u00e7\u00e3o real via PUT refletida na listagem \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual/drag-and-drop pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema \u2014 RoutingRule j\u00e1 existia desde a ADR-0028), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-16",
@@ -4088,7 +4088,7 @@
         "Validado ao vivo via uvicorn dev server: demanda real criada com brief completo, os 17 endpoints consumidos pela p\u00e1gina responderam 200 com dado real (1 card, progresso 0% correto pois nenhum card estava Done ainda), deep-link ?aba=Hist\u00f3rico testado \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual/SSE ao vivo pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema \u2014 zero endpoint/modelo novo), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-17",
@@ -4123,7 +4123,7 @@
         "Validado ao vivo via uvicorn dev server: PATCH de classifica\u00e7\u00e3o real refletido no brief e na timeline (ClassificationUpdated), recomenda\u00e7\u00e3o via regra real (confian\u00e7a alta, modelo/effort corretos) e via heur\u00edstica (confian\u00e7a baixa, modelo null), override aplicado de ponta a ponta via execution-settings \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual/formul\u00e1rio pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema \u2014 zero modelo/tabela novo, classification \u00e9 campo j\u00e1 existente do DemandBrief), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-18",
@@ -4158,7 +4158,7 @@
         "Validado ao vivo via uvicorn dev server: discovery real rodado (falha real de sandbox do CLI capturada honestamente no log, n\u00e3o escondida), approval-criteria com motivos reais para risco cr\u00edtico + impacto sens\u00edvel, decis\u00e3o 'aprovar com observa\u00e7\u00f5es' aplicada de ponta a ponta \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema \u2014 novos campos vivem dentro do DiscoveryReport, j\u00e1 persistido como JSON em discovery_reports), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-19",
@@ -4195,7 +4195,7 @@
         "Validado ao vivo via uvicorn dev server: ciclo completo real (salvar v1\u2192v2, diff real entre vers\u00f5es, coment\u00e1rio criado/resolvido, revis\u00e3o sem agente\u2192necessita_humano, tentativa de editar tipo da spec\u2192400) \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual do editor/preview Markdown pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (migration nova, validada em SQLite E Postgres real), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-20",
@@ -4216,7 +4216,7 @@
         "FID-09"
       ],
       "evidence": [
-        "Novo m\u00f3dulo puro kanban/transitions.py: grafo TRANSICOES_VALIDAS derivado do diagrama de estados do wf \u00a735, mapeado sobre as 16 ColumnKey reais \u2014 paga uma d\u00edvida documentada desde a spec original (specs/kanban.md, TASK-04/ADR-0002: 'movimentos inv\u00e1lidos s\u00e3o rejeitados', nunca implementado), n\u00e3o \u00e9 escopo novo inventado.",
+        "Novo m\u00f3dulo puro kanban/transitions.py: grafo TRANSICOES_VALIDAS derivado do diagrama de estados do wf \u00a735, mapeado sobre as 16 ColumnKey reais \u2014 paga uma d\u00edvida documentada desde a spec original (docs/historico/specs-mvp1/kanban.md, TASK-04/ADR-0002: 'movimentos inv\u00e1lidos s\u00e3o rejeitados', nunca implementado), n\u00e3o \u00e9 escopo novo inventado.",
         "'Pronto para implanta\u00e7\u00e3o' e o estado transit\u00f3rio 'Rollback' (do diagrama \u00a735, sem ColumnKey pr\u00f3pria) colapsados honestamente em arestas reais adjacentes (Review\u2192Deploying, Validating\u2192NeedsFix) \u2014 decis\u00e3o documentada, n\u00e3o escondida. WAITING_AGENT/FAILED/ARCHIVED sem nenhuma aresta manual (n\u00e3o usados nem pelo wireframe nem pela automa\u00e7\u00e3o real).",
         "Valida\u00e7\u00e3o s\u00f3 no caminho MANUAL: novo OrchestrationService.move_card_validado, usado exclusivamente pelo endpoint HTTP POST .../move \u2014 confirmado que TODOS os 8+ call-sites internos de movimenta\u00e7\u00e3o (roteamento de falha, libera\u00e7\u00e3o de depend\u00eancia, block/unblock/cancel) chamam BoardService.move_card diretamente, nunca atrav\u00e9s do m\u00e9todo de servi\u00e7o \u2014 zero risco \u00e0 automa\u00e7\u00e3o interna j\u00e1 madura.",
         "2 testes existentes ajustados (test_card_ops_assign_move_block_unblock, test_get_card_events_reflete_movimentacoes) que usavam o endpoint de mover como atalho de fixture para uma coluna arbitr\u00e1ria n\u00e3o alcan\u00e7\u00e1vel em um salto \u2014 corrigidos para a transi\u00e7\u00e3o v\u00e1lida mais pr\u00f3xima, preservando a inten\u00e7\u00e3o original de cada teste.",
@@ -4230,7 +4230,7 @@
         "Validado ao vivo via uvicorn dev server: card real movido Ready\u2192InProgress (aceito) e InProgress\u2192Done (rejeitado com a mensagem exata das transi\u00e7\u00f5es permitidas) \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual do drag-and-drop pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem mudan\u00e7a de schema \u2014 zero modelo/tabela novo), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-21",
@@ -4268,7 +4268,7 @@
         "Validado ao vivo via uvicorn dev server E Postgres real via Docker: pausar/retomar/rejei\u00e7\u00e3o 409 ao tentar rodar pausado, adicionar contexto, solicitar ajuda cria aprova\u00e7\u00e3o vinculada ao card, quality gate com dura\u00e7\u00e3o real capturada (0.0029ms, n\u00e3o fabricada) \u2014 sem ferramenta de navegador neste ambiente para confer\u00eancia visual dos 8+7 bot\u00f5es pixel a pixel.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (2 migrations novas, validadas em Postgres real), pytest com cobertura \u226580% \u2014 todos verdes."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-22",
@@ -4302,7 +4302,7 @@
         "Testes novos: tests/unit/test_qa.py (+1, codigo/titulo/pre_condicoes), tests/integration/test_worktree_diff.py (+4, commit_count/line_stats), tests/integration/test_review_api.py (+1, guard NeedsFix), tests/integration/test_bug_reports_api.py (novo, 7 testes), tests/integration/test_review_testes_bugs_html.py (novo, 7 testes) \u2014 20 testes novos.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (1 migration nova, validada em Postgres real), pytest com cobertura \u226580% \u2014 todos verdes (1232 testes, 93.30% de cobertura)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-23",
@@ -4337,7 +4337,7 @@
         "Testes novos: tests/unit/test_deploy_aprovacao_saude_rollback.py (18 testes), tests/integration/test_implantacao_encerramento_api.py (9 testes), tests/integration/test_implantacao_encerramento_html.py (9 testes) \u2014 32 testes novos, zero regress\u00e3o nos 1232 pr\u00e9-existentes.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem novas opera\u00e7\u00f5es), pytest com cobertura \u226580% \u2014 todos verdes (1264 testes, 93.33%)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-24",
@@ -4369,7 +4369,7 @@
         "Testes novos: tests/unit/test_auditoria.py (6 testes), tests/integration/test_auditoria_api.py (6 testes, incluindo 1 contra SQLite real via SqlAlchemyOrchestrationRepository), tests/integration/test_auditoria_html.py (4 testes) \u2014 16 testes novos, zero regress\u00e3o nos 1264 pr\u00e9-existentes.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (1 migration nova, validada em Postgres real), pytest com cobertura \u226580% \u2014 todos verdes (1280 testes, 93.21%)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-25",
@@ -4400,7 +4400,7 @@
         "Testes novos: tests/unit/test_aprendizado.py (+14 testes), tests/integration/test_learning_api.py (+7 testes), tests/integration/test_metricas_html.py (5 testes) \u2014 27 testes novos, zero regress\u00e3o nos 1280 pr\u00e9-existentes.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem novas opera\u00e7\u00f5es), pytest com cobertura \u226580% \u2014 todos verdes (1307 testes, 93.27%)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-26",
@@ -4435,7 +4435,7 @@
         "Testes novos: tests/unit/test_agent_catalog.py (12), tests/integration/test_agent_catalog_api.py (13), tests/integration/test_agent_catalog_persistence.py (5), tests/integration/test_agent_catalog_html.py (4) \u2014 34 testes novos, zero regress\u00e3o nos 1303 pr\u00e9-existentes.",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem novas opera\u00e7\u00f5es), pytest com cobertura >=80% \u2014 todos verdes (1337 testes, 93.29%)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FID-27",
@@ -4483,7 +4483,7 @@
         "Novo teste tests/integration/test_ux_transversal_wf39.py (8 testes) \u2014 primeiro gate automatizado cross-p\u00e1gina da miss\u00e3o para os 12 requisitos; antes n\u00e3o existia nenhum mecanismo de teste parametrizado sobre as p\u00e1ginas est\u00e1ticas (investiga\u00e7\u00e3o confirmou a aus\u00eancia).",
         "Bateria completa: ruff check/format, mypy --strict, alembic upgrade head + check (sem novas opera\u00e7\u00f5es, nenhuma migration necess\u00e1ria), pytest com cobertura >=80% \u2014 todos verdes (1345 testes, 93.29%)."
       ],
-      "source": "docs/plano-fidelidade-fluxo.md"
+      "source": "docs/historico/plano-fidelidade-fluxo.md"
     },
     {
       "id": "FIX-01",
@@ -5611,6 +5611,30 @@
         "docs/GOVERNANCE.md: `POST/PUT /v1/executors` \u2192 `POST /v1/executors`",
         "tests/unit/test_docs_api_bate_com_o_contrato.py: varre api.md, README, operations, GOVERNANCE, HOW_IT_WORKS e mapa-paginas contra contracts/openapi.json + muta\u00e7\u00e3o que prova que a varredura enxerga rota inventada",
         "Bateria: ruff/mypy OK \u00b7 pytest 1866 passed / 9 skipped / 94.79%"
+      ]
+    },
+    {
+      "id": "MEL-04",
+      "epic": "EPIC-12",
+      "type": "Refactor",
+      "phase": "F4",
+      "status": "Done",
+      "priority": "high",
+      "title": "Separar a governan\u00e7a da constru\u00e7\u00e3o do estado de runtime (ADR-0081)",
+      "description": ".aso/ misturava estado do runtime com a papelada do processo de constru\u00e7\u00e3o do ASO (contexto, board, snapshots, gates, reviews), que o runtime nunca l\u00ea. Aprovada pelo operador em 2026-10-01 com ajuste: o que \u00e9 vivo vai para governanca/, o congelado para docs/historico/.",
+      "acceptance_criteria": [
+        "Nenhum arquivo do processo de constru\u00e7\u00e3o dentro de .aso/",
+        "Links internos atualizados",
+        "CLAUDE.md, AGENTS.md e reset.sh coerentes com os novos caminhos",
+        "Nenhum c\u00f3digo em src/ referencia os caminhos antigos"
+      ],
+      "dependencies": [],
+      "evidence": [
+        ".aso/context e .aso/kanban \u2192 governanca/ (vivos: mudam a cada task e o module_map \u00e9 testado); .aso/snapshots|quality-gates|reviews \u2192 docs/historico/governanca-construcao/; specs/ \u2192 docs/historico/specs-mvp1/; docs/phases, docs/mvp, plano-fidelidade-fluxo.md \u2192 docs/historico/",
+        ".gitignore ignora .aso/ inteiro (s\u00f3 runtime); CLAUDE.md/AGENTS.md explicam que governanca/ \u00e9 o processo de constru\u00e7\u00e3o, n\u00e3o o runtime; README com a estrutura nova; reset.sh e coment\u00e1rios em src/ atualizados",
+        "61 links relativos que a mudan\u00e7a quebraria foram recalculados (alvo antigo \u2192 mapa da mudan\u00e7a \u2192 caminho relativo novo); restaram exatamente os 47 que j\u00e1 estavam quebrados antes (conferido contra o HEAD)",
+        "tests/unit/test_governanca_fora_do_runtime.py (6): nada do processo em .aso/, caminhos novos existem, antigos sumiram, .aso/ ignorada, instru\u00e7\u00f5es vivas e docs vivos sem o caminho antigo",
+        "Bateria: ruff/format/mypy OK \u00b7 pytest 1872 passed / 9 skipped / 94.78%. Docker n\u00e3o exigido (nem boot nem persist\u00eancia tocados)"
       ]
     }
   ]
